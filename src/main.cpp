@@ -4816,7 +4816,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
             boost::this_thread::interruption_point();
             it++;
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK)
+            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK || inv.type == MSG_FILTERED_WITNESS_BLOCK)
             {
                 bool send = false;
                 BlockMap::iterator mi = mapBlockIndex.find(inv.hash);
@@ -4840,7 +4840,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                 // disconnect node in case we have reached the outbound limit for serving historical blocks
                 // never disconnect whitelisted nodes
                 static const int nOneWeek = 7 * 24 * 60 * 60; // assume > 1 week = historical
-                if (send && CNode::OutboundTargetReached(true) && ( ((pindexBestHeader != NULL) && (pindexBestHeader->GetBlockTime() - mi->second->GetBlockTime() > nOneWeek)) || inv.type == MSG_FILTERED_BLOCK) && !pfrom->fWhitelisted)
+                if (send && CNode::OutboundTargetReached(true) && ( ((pindexBestHeader != NULL) && (pindexBestHeader->GetBlockTime() - mi->second->GetBlockTime() > nOneWeek)) || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_FILTERED_WITNESS_BLOCK) && !pfrom->fWhitelisted)
                 {
                     LogPrint("net", "historical block serving limit reached, disconnect peer=%d\n", pfrom->GetId());
 
@@ -4860,7 +4860,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                         pfrom->PushMessageWithFlag(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::BLOCK, block);
                     else if (inv.type == MSG_WITNESS_BLOCK)
                         pfrom->PushMessage(NetMsgType::BLOCK, block);
-                    else if (inv.type == MSG_FILTERED_BLOCK)
+                    else if (inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_FILTERED_WITNESS_BLOCK)
                     {
                         bool send = false;
                         CMerkleBlock merkleBlock;
@@ -4881,7 +4881,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
                             // however we MUST always provide at least what the remote peer needs
                             typedef std::pair<unsigned int, uint256> PairType;
                             BOOST_FOREACH(PairType& pair, merkleBlock.vMatchedTxn)
-                                pfrom->PushMessageWithFlag(SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::TX, block.vtx[pair.first]);
+                                pfrom->PushMessageWithFlag(inv.type == MSG_FILTERED_WITNESS_BLOCK ? 0 : SERIALIZE_TRANSACTION_NO_WITNESS, NetMsgType::TX, block.vtx[pair.first]);
                         }
                         // else
                             // no response
@@ -4938,7 +4938,7 @@ void static ProcessGetData(CNode* pfrom, const Consensus::Params& consensusParam
             // Track requests for our stuff.
             GetMainSignals().Inventory(inv.hash);
 
-            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK)
+            if (inv.type == MSG_BLOCK || inv.type == MSG_FILTERED_BLOCK || inv.type == MSG_CMPCT_BLOCK || inv.type == MSG_WITNESS_BLOCK || inv.type == MSG_FILTERED_WITNESS_BLOCK)
                 break;
         }
     }
