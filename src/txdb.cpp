@@ -18,11 +18,16 @@
 
 #include <boost/thread.hpp>
 
+using namespace std;
+
 static const char DB_COIN = 'C';
 static const char DB_COINS = 'c';
 static const char DB_BLOCK_FILES = 'f';
 static const char DB_TXINDEX = 't';
 static const char DB_BLOCK_INDEX = 'b';
+
+static const char DB_ADDRESSUNSPENTINDEX = 'u';
+static const char DB_NUMERIC_SETTING = 'N';
 
 static const char DB_BEST_BLOCK = 'B';
 static const char DB_HEAD_BLOCKS = 'H';
@@ -247,16 +252,73 @@ bool CBlockTreeDB::WriteTxIndex(const std::vector<std::pair<uint256, CDiskTxPos>
     return WriteBatch(batch);
 }
 
-bool CBlockTreeDB::WriteFlag(const std::string &name, bool fValue) {
+bool CBlockTreeDB::UpdateAddressUnspentIndex(const std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue > >&vect)
+{
+    CDBBatch batch(*this);
+    for (std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> >::const_iterator it=vect.begin(); it!=vect.end(); it++) {
+        if (it->second.IsNull()) {
+            batch.Erase(std::make_pair(DB_ADDRESSUNSPENTINDEX, it->first));
+        } else {
+            batch.Write(std::make_pair(DB_ADDRESSUNSPENTINDEX, it->first), it->second);
+        }
+    }
+    return WriteBatch(batch);
+}
+
+bool CBlockTreeDB::ReadAddressUnspentIndex(uint160 addressHash, int type, CCoinsViewCache *view,
+                                           std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > &unspentOutputs)
+{
+    boost::scoped_ptr<CDBIterator> pcursor(NewIterator());
+
+    pcursor->Seek(std::make_pair(DB_ADDRESSUNSPENTINDEX, CAddressIndexIteratorKey(type, addressHash)));
+
+    while (pcursor->Valid()) {
+        boost::this_thread::interruption_point();
+        std::pair<char,CAddressUnspentKey> key;
+        if (pcursor->GetKey(key) && key.first == DB_ADDRESSUNSPENTINDEX && key.second.hashBytes == addressHash) {
+            CAddressUnspentValue nValue;
+            if (pcursor->GetValue(nValue)) {
+                if (view->HaveCoin(COutPoint(key.second.txhash, key.second.index)))
+                    unspentOutputs.push_back(std::make_pair(key.second, nValue));
+                pcursor->Next();
+            } else {
+                return error("failed to get address unspent value");
+            }
+        } else {
+            break;
+        }
+    }
+
+    return true;
+}
+
+void CBlockTreeDB::CompactAddressUnspentIndex(const CAddressUnspentKey& maxkey)
+{
+    CompactRange({DB_ADDRESSUNSPENTINDEX, CAddressUnspentKey()}, std::make_pair(DB_ADDRESSUNSPENTINDEX, maxkey));
+}
+
+bool CBlockTreeDB::WriteFlag(const std::string &name, bool fValue)
+{
     return Write(std::make_pair(DB_FLAG, name), fValue ? '1' : '0');
 }
 
-bool CBlockTreeDB::ReadFlag(const std::string &name, bool &fValue) {
+bool CBlockTreeDB::ReadFlag(const std::string &name, bool &fValue)
+{
     char ch;
     if (!Read(std::make_pair(DB_FLAG, name), ch))
         return false;
     fValue = ch == '1';
     return true;
+}
+
+bool CBlockTreeDB::WriteNumericSetting(const std::string &name, int nValue)
+{
+    return Write(std::make_pair(DB_NUMERIC_SETTING, name), nValue);
+}
+
+bool CBlockTreeDB::ReadNumericSetting(const std::string &name, int &nValue)
+{
+    return Read(std::make_pair(DB_NUMERIC_SETTING, name), nValue);
 }
 
 bool CBlockTreeDB::LoadBlockIndexGuts(const Consensus::Params& consensusParams, std::function<CBlockIndex*(const uint256&)> insertBlockIndex)

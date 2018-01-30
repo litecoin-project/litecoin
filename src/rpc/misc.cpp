@@ -15,6 +15,7 @@
 #include "rpc/blockchain.h"
 #include "rpc/server.h"
 #include "timedata.h"
+#include "txdb.h"
 #include "util.h"
 #include "utilstrencodings.h"
 #ifdef ENABLE_WALLET
@@ -24,11 +25,14 @@
 #endif
 #include "warnings.h"
 
+#include "addressindex.h"
+
 #include <stdint.h>
 #ifdef HAVE_MALLOC_INFO
 #include <malloc.h>
 #endif
 
+#include <boost/thread/thread.hpp> // boost::thread::interrupt
 #include <univalue.h>
 
 /**
@@ -648,6 +652,340 @@ UniValue echo(const JSONRPCRequest& request)
     return request.params;
 }
 
+static CAddressUnspentKey AddToUnspentIndex(const uint256& txid, const CTxOut &out, uint32_t nOut, std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> >& addressUnspentIndex, const CAddressUnspentValue &unspent)
+{
+    if (out.scriptPubKey.IsPayToScriptHash()) {
+        std::vector<unsigned char> hashBytes(out.scriptPubKey.begin()+2, out.scriptPubKey.begin()+22);
+        CAddressUnspentKey key(2, uint160(hashBytes), txid, nOut);
+        addressUnspentIndex.push_back(std::make_pair(key, unspent));
+        return key;
+    } else if (out.scriptPubKey.IsPayToPublicKeyHash()) {
+        std::vector<unsigned char> hashBytes(out.scriptPubKey.begin()+3, out.scriptPubKey.begin()+23);
+        CAddressUnspentKey key(1, uint160(hashBytes), txid, nOut);
+        addressUnspentIndex.push_back(std::make_pair(key, unspent));
+        return key;
+    }
+    // what about IsPayToWitnessScriptHash?
+    return CAddressUnspentKey();
+}
+
+static void ProcessOutputs(const uint256& txid, const std::map<uint32_t, Coin>& outputs, std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> >& addressUnspentIndex, CAddressUnspentKey &maxKey)
+{
+    assert(!outputs.empty());
+    for (const auto output : outputs) {
+        if (output.second.nHeight < nAddressIndexFromHeight) {
+            continue;
+        }
+        const CTxOut& out = output.second.out;
+        CAddressUnspentKey lastKey;
+        if (fAddressIndex) {
+            lastKey = AddToUnspentIndex(txid, out, output.first, addressUnspentIndex, CAddressUnspentValue(out.nValue, out.scriptPubKey, output.second.nHeight));
+        } else {
+            lastKey = AddToUnspentIndex(txid, out, output.first, addressUnspentIndex, CAddressUnspentValue());
+            // TODO the comparison needs to be correct (same way as leveldb orders those keys)
+            if (maxKey < lastKey) {
+                maxKey.type = lastKey.type;
+                // very bad performance-wise, need to optimize!
+                maxKey.hashBytes.SetHex(lastKey.hashBytes.GetHex());
+                maxKey.txhash.SetHex(lastKey.txhash.GetHex());
+                maxKey.index = lastKey.index;
+            }
+        }
+    }
+}
+
+static int ManageOptionalIndices(CCoinsView *view)
+{    
+    // build/erase index: prepare the addressUnspentIndex vector
+    std::unique_ptr<CCoinsViewCursor> pcursor(view->Cursor());
+    std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > addressUnspentIndex;
+    uint256 prevkey;
+    std::map<uint32_t, Coin> outputs;
+    CAddressUnspentKey maxkey;
+    int count = 0;
+    while (pcursor->Valid()) {
+        boost::this_thread::interruption_point();
+        COutPoint key;
+        Coin coin;
+        if (pcursor->GetKey(key) && pcursor->GetValue(coin)) {
+            if (!outputs.empty() && key.hash != prevkey) {
+                ProcessOutputs(prevkey, outputs, addressUnspentIndex, maxkey);
+                outputs.clear();
+                if (addressUnspentIndex.size() > 8192 && !UpdateOptionalIndices(addressUnspentIndex)) {
+                    error("%s: failed to write address unspent index", __func__);
+                    return -1;
+                }
+                count += addressUnspentIndex.size();
+                addressUnspentIndex.clear();
+            }
+            prevkey = key.hash;
+            outputs[key.n] = std::move(coin);
+        } else {
+            error("%s: unable to read value", __func__);
+            return -1;
+        }
+        pcursor->Next();
+    }
+    if (!outputs.empty()) {
+        ProcessOutputs(prevkey, outputs, addressUnspentIndex, maxkey);
+    }
+    if (!UpdateOptionalIndices(addressUnspentIndex)) {
+        error("%s: failed to write address unspent index", __func__);
+        return -1;
+    }
+    count += addressUnspentIndex.size();
+    if (!fAddressIndex) {
+        // flag is changed to false, compact range starting from empty CAddressUnspentKey()
+        // and ending the max key found after all ProcessOutputs calls
+        CompactOptionalIndices(const_cast<const CAddressUnspentKey&>(maxkey));
+    }
+    return count;
+}
+
+UniValue indexDescription(int count)
+{
+    UniValue ret(UniValue::VOBJ);
+    UniValue indexDesc(UniValue::VOBJ);
+    indexDesc.push_back(Pair("enabled", fAddressIndex));
+    if (fAddressIndex) indexDesc.push_back(Pair("fromHeight", nAddressIndexFromHeight));
+    if (count >= 0) indexDesc.push_back(Pair("records", count));
+    ret.push_back(Pair("addressUnspent", indexDesc));
+    return ret;
+}
+
+UniValue indexchainstate(const JSONRPCRequest& request)
+{
+    UniValue params = request.params;
+    if (request.fHelp || params.size() > 1)
+        throw std::runtime_error(
+            "indexchainstate ( indexconfig )\n"
+            "\nEnables or disables optional indices.\n"
+            "Without params, returns enabled/disabled state for each index and additional index settings like fromHeight (if any).\n"
+            "Enabling may take a while, and blocks will not be connected/disconnected while this index is being built.\n"
+            "\nExamples:\n"
+            + HelpExampleCli("indexchainstate", "'{\"addressUnspent\":{\"enable\":true,\"fromHeight\":1000000}}'")
+            + HelpExampleRpc("indexchainstate", "{\"addressUnspent\":{\"enable\":true,\"fromHeight\":1000000}}")
+        );
+
+    // re-read flag just in case we are called too early...
+    pblocktree->ReadFlag(indexChainstate + indexAddressUnspent, fAddressIndex);
+    if (params.size() == 0) {
+        if (fAddressIndex && !pblocktree->ReadNumericSetting(indexChainstate + indexAddressUnspent + settingFromHeight, nAddressIndexFromHeight))
+            throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("%s flag was set without %s setting", indexChainstate + indexAddressUnspent, indexChainstate + indexAddressUnspent + settingFromHeight));
+        return indexDescription(-1);
+    }
+    if (!params[0].isObject())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "indexconfig: object expected");
+    UniValue addressUnspentConf = find_value(params[0].get_obj(), "addressUnspent");
+    if (!addressUnspentConf.isObject())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Currently supported indices: addressUnspent");
+    UniValue enable = find_value(addressUnspentConf, "enable");
+    if (!enable.isBool())
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "indexconfig.addressUnspent.enable: boolean expected");
+    UniValue fromHeight = find_value(addressUnspentConf, "fromHeight");
+    int fromHeightNew = 0;
+    if (!fromHeight.isNull()) {
+        if (!fromHeight.isNum())
+            throw JSONRPCError(RPC_INVALID_PARAMETER, "indexconfig.addressUnspent.fromHeight: number expected");
+        fromHeightNew = fromHeight.get_int();
+    }
+
+    pblocktree->ReadNumericSetting(indexChainstate + indexAddressUnspent + settingFromHeight, nAddressIndexFromHeight);
+    if ((fAddressIndex && enable.get_bool() && nAddressIndexFromHeight == fromHeightNew) || (!fAddressIndex && !enable.get_bool())) {
+        // Nothing to do, return immediately
+        return indexDescription(-1);
+    } else if (fAddressIndex && !enable.get_bool()) {
+        // Clear index
+        LOCK(cs_main);
+        pblocktree->WriteFlag(indexChainstate + indexAddressUnspent, false);
+        fAddressIndex = false;
+        pblocktree->WriteNumericSetting(indexChainstate + indexAddressUnspent + settingFromHeight, 0);
+        // provide a way to clear data from specific height as well, just in case:
+        nAddressIndexFromHeight = fromHeightNew > 0 ? fromHeightNew : nAddressIndexFromHeight;
+        if (ManageOptionalIndices(pcoinsdbview) < 0) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Unable to erase optional index");
+        }
+        LogPrintf("%s: address unspent index disabled\n", __func__);
+        return indexDescription(-1);
+    }
+    
+    LOCK(cs_main);
+    // Clear index first if we are rebuilding it with new fromHeight > nAddressIndexFromHeight
+    if (fAddressIndex && nAddressIndexFromHeight < fromHeightNew) {
+        fAddressIndex = false;
+        if (ManageOptionalIndices(pcoinsdbview) < 0) {
+            throw JSONRPCError(RPC_INTERNAL_ERROR, "Unable to erase optional index");
+        }
+    }
+    FlushStateToDisk();
+    fAddressIndex = true;
+    nAddressIndexFromHeight = fromHeightNew;
+    int count = ManageOptionalIndices(pcoinsdbview);
+    if (count < 0) {
+        fAddressIndex = false;
+        throw JSONRPCError(RPC_INTERNAL_ERROR, "Unable to read UTXO set or to write optional index");
+    }
+    if (!pblocktree->WriteFlag(indexChainstate + indexAddressUnspent, fAddressIndex)) {
+        throw JSONRPCError(RPC_INTERNAL_ERROR, strprintf("failed to write %s flag", indexChainstate + indexAddressUnspent));
+    }
+    pblocktree->WriteNumericSetting(indexChainstate + indexAddressUnspent + settingFromHeight, nAddressIndexFromHeight);
+    LogPrintf("%s: address unspent index %s with fromHeight=%d\n", __func__, fAddressIndex ? "enabled" : "disabled", nAddressIndexFromHeight);
+    return indexDescription(count);
+}
+
+bool getAddressFromIndex(const int &type, const uint160 &hash, std::string &address)
+{
+    if (type == 2) {
+        address = CBitcoinAddress(CScriptID(hash)).ToString();
+    } else if (type == 1) {
+        address = CBitcoinAddress(CKeyID(hash)).ToString();
+    } else {
+        return false;
+    }
+    return true;
+}
+
+bool getAddressesFromParams(const UniValue& params, std::vector<std::pair<uint160, int> > &addresses)
+{
+    if (params[0].isStr()) {
+        
+        const std::string& strAddress = params[0].get_str();
+        if (!strAddress.empty() && strAddress != std::string("json")) {
+            CBitcoinAddress address(strAddress);
+            uint160 hashBytes;
+            int type = 0;
+            if (!address.GetIndexKey(hashBytes, type)) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Invalid address %s in params[0]", strAddress));
+            }
+            addresses.push_back(std::make_pair(hashBytes, type));
+        }
+    }
+    if (params.size() > 1 && params[1].isObject()) {
+
+        UniValue addressValues = find_value(params[1].get_obj(), "addresses");
+        if (!addressValues.isArray()) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Addresses is expected to be an array");
+        }
+
+        std::vector<UniValue> values = addressValues.getValues();
+
+        for (std::vector<UniValue>::iterator it = values.begin(); it != values.end(); ++it) {
+            const std::string& strAddress = it->get_str();
+            CBitcoinAddress address(strAddress);
+            uint160 hashBytes;
+            int type = 0;
+            if (!address.GetIndexKey(hashBytes, type)) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, strprintf("Invalid address %s in params[1]", strAddress));
+            }
+            addresses.push_back(std::make_pair(hashBytes, type));
+        }
+    }
+    if (addresses.empty()) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid address(es)");
+    }
+
+    return true;
+}
+
+bool heightSort(std::pair<CAddressUnspentKey, CAddressUnspentValue> a,
+                std::pair<CAddressUnspentKey, CAddressUnspentValue> b) {
+    return a.second.blockHeight < b.second.blockHeight;
+}
+
+UniValue getaddressutxos(const JSONRPCRequest& request)
+{
+    if (request.fHelp || request.params.size() < 1 || request.params.size() > 2)
+        throw std::runtime_error(
+            "getaddressutxos \"address\" ( json )\n"
+            "\nReturns all unspent outputs for an address or list of addresses (requires \"addressUnspent\" index to be enabled via \"indexchainstate\").\n"
+            "\nArguments:\n"
+            "1. \"address\"         (string, required) The base58check encoded address\n"
+            "2. json              (object, optional) a json object for more than one address:\n"
+            "{\n"
+            "  \"addresses\"\n"
+            "    [\n"
+            "      \"address\"  (string) The base58check encoded address\n"
+            "      ,...\n"
+            "    ],\n"
+            "  \"chainInfo\"  (boolean) Include chain info with results\n"
+            "}\n"
+            "The \"address\" is always tried to be validated, so in order to specify only the json,\n"
+            "provide value \"json\" for parameter 1 (see examples).\n"
+            "\nResult:\n"
+            "[\n"
+            "  {\n"
+            "    \"address\"  (string) The address base58check encoded\n"
+            "    \"txid\"  (string) The output txid\n"
+            "    \"height\"  (number) The block height\n"
+            "    \"outputIndex\"  (number) The output index\n"
+            "    \"script\"  (strin) The script hex encoded\n"
+            "    \"satoshis\"  (number) The number of satoshis of the output\n"
+            "  }\n"
+            "]\n"
+            "\nExamples:\n"
+            + HelpExampleCli("getaddressutxos", "LMgCYZT6dD5kiyKCA1mKSBE5Rnczx9SFif")
+            + HelpExampleCli("getaddressutxos", "json '{\"addresses\": [\"LXG2WogdCfVKAGdsLNwi4dbyS3PUwYpaXx\"]}'")
+            + HelpExampleRpc("getaddressutxos", "\"LMgCYZT6dD5kiyKCA1mKSBE5Rnczx9SFif\"")
+            + HelpExampleRpc("getaddressutxos", "\"json\", {\"addresses\": [\"LXG2WogdCfVKAGdsLNwi4dbyS3PUwYpaXx\"], \"chainInfo\": true}")
+            );
+
+    bool includeChainInfo = false;
+    if (request.params.size() > 1 && request.params[1].isObject()) {
+        UniValue chainInfo = find_value(request.params[1].get_obj(), "chainInfo");
+        if (chainInfo.isBool()) {
+            includeChainInfo = chainInfo.get_bool();
+        }
+    }
+
+    std::vector<std::pair<uint160, int> > addresses;
+
+    if (!getAddressesFromParams(request.params, addresses)) {
+        throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid address");
+    }
+
+    std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > unspentOutputs;
+
+    for (std::vector<std::pair<uint160, int> >::iterator it = addresses.begin(); it != addresses.end(); it++) {
+        // reading the index is done here
+        if (!GetAddressUnspent((*it).first, (*it).second, unspentOutputs)) {
+            throw JSONRPCError(RPC_MISC_ERROR, "Optional chainstate index \"addressUnspent\" needs to be enabled");
+        }
+    }
+
+    std::sort(unspentOutputs.begin(), unspentOutputs.end(), heightSort);
+
+    UniValue utxos(UniValue::VARR);
+
+    for (std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> >::const_iterator it=unspentOutputs.begin(); it!=unspentOutputs.end(); it++) {
+        UniValue output(UniValue::VOBJ);
+        std::string address;
+        if (!getAddressFromIndex(it->first.type, it->first.hashBytes, address)) {
+            throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Unknown address type");
+        }
+
+        output.push_back(Pair("address", address));
+        output.push_back(Pair("txid", it->first.txhash.GetHex()));
+        output.push_back(Pair("outputIndex", (int)it->first.index));
+        output.push_back(Pair("script", HexStr(it->second.script.begin(), it->second.script.end())));
+        output.push_back(Pair("satoshis", it->second.satoshis));
+        output.push_back(Pair("height", it->second.blockHeight));
+        utxos.push_back(output);
+    }
+
+    if (includeChainInfo) {
+        UniValue result(UniValue::VOBJ);
+        result.push_back(Pair("utxos", utxos));
+
+        LOCK(cs_main);
+        result.push_back(Pair("hash", chainActive.Tip()->GetBlockHash().GetHex()));
+        result.push_back(Pair("height", (int)chainActive.Height()));
+        return result;
+    } else {
+        return utxos;
+    }
+}
+
+
 static const CRPCCommand commands[] =
 { //  category              name                      actor (function)         okSafeMode
   //  --------------------- ------------------------  -----------------------  ----------
@@ -658,6 +996,9 @@ static const CRPCCommand commands[] =
     { "util",               "verifymessage",          &verifymessage,          true,  {"address","signature","message"} },
     { "util",               "signmessagewithprivkey", &signmessagewithprivkey, true,  {"privkey","message"} },
 
+    /* Optional indices */
+    { "indices",            "getaddressutxos",        &getaddressutxos,        true,  {"address", "json"} },
+    { "indices",            "indexchainstate",        &indexchainstate,        true,  {"indexconfig"} },
     /* Not shown in help */
     { "hidden",             "setmocktime",            &setmocktime,            true,  {"timestamp"}},
     { "hidden",             "echo",                   &echo,                   true,  {"arg0","arg1","arg2","arg3","arg4","arg5","arg6","arg7","arg8","arg9"}},

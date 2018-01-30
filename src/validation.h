@@ -18,6 +18,7 @@
 #include "script/script_error.h"
 #include "sync.h"
 #include "versionbits.h"
+#include "addressindex.h"
 
 #include <algorithm>
 #include <exception>
@@ -130,6 +131,11 @@ static const int64_t MAX_FEE_ESTIMATION_TIP_AGE = 3 * 60 * 60;
 static const bool DEFAULT_PERMIT_BAREMULTISIG = true;
 static const bool DEFAULT_CHECKPOINTS_ENABLED = true;
 static const bool DEFAULT_TXINDEX = false;
+static const bool DEFAULT_ADDRESSINDEX = false;
+static const int DEFAULT_ADDRESSINDEX_FROMHEIGHT = 0;
+static const std::string indexChainstate("idxcs.");
+static const std::string indexAddressUnspent("addressunspent");
+static const std::string settingFromHeight(".fromheight");
 static const unsigned int DEFAULT_BANSCORE_THRESHOLD = 100;
 /** Default for -persistmempool */
 static const bool DEFAULT_PERSIST_MEMPOOL = true;
@@ -170,6 +176,8 @@ extern std::atomic_bool fImporting;
 extern bool fReindex;
 extern int nScriptCheckThreads;
 extern bool fTxIndex;
+extern bool fAddressIndex;
+extern int nAddressIndexFromHeight;
 extern bool fIsBareMultisigStd;
 extern bool fRequireStandard;
 extern bool fCheckBlockIndex;
@@ -269,6 +277,10 @@ void UnloadBlockIndex();
 void ThreadScriptCheck();
 /** Check whether we are doing an initial block download (synchronizing from disk or network) */
 bool IsInitialBlockDownload();
+
+bool GetAddressUnspent(uint160 addressHash, int type,
+                       std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > &unspentOutputs);
+
 /** Retrieve a transaction (from memory pool, or from disk, if possible) */
 bool GetTransaction(const uint256 &hash, CTransactionRef &tx, const Consensus::Params& params, uint256 &hashBlock, bool fAllowSlow = false);
 /** Find the best known block, and make it the tip of the block chain */
@@ -448,6 +460,9 @@ extern CCoinsViewCache *pcoinsTip;
 
 /** Global variable that points to the active block tree (protected by cs_main) */
 extern CBlockTreeDB *pblocktree;
+
+bool UpdateOptionalIndices(std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> >& addressUnspentIndex);
+void CompactOptionalIndices(const CAddressUnspentKey& maxkey);
 
 /**
  * Return the spend height, which is one more than the inputs.GetBestBlock().

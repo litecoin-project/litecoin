@@ -10,6 +10,8 @@
 #include "dbwrapper.h"
 #include "chain.h"
 
+#include "addressindex.h"
+
 #include <map>
 #include <string>
 #include <utility>
@@ -121,8 +123,14 @@ public:
     bool ReadReindexing(bool &fReindex);
     bool ReadTxIndex(const uint256 &txid, CDiskTxPos &pos);
     bool WriteTxIndex(const std::vector<std::pair<uint256, CDiskTxPos> > &list);
+    bool UpdateAddressUnspentIndex(const std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue > >&vect);
+    bool ReadAddressUnspentIndex(uint160 addressHash, int type, CCoinsViewCache *view,
+                                 std::vector<std::pair<CAddressUnspentKey, CAddressUnspentValue> > &vect);
+    void CompactAddressUnspentIndex(const CAddressUnspentKey& maxkey);
     bool WriteFlag(const std::string &name, bool fValue);
     bool ReadFlag(const std::string &name, bool &fValue);
+    bool WriteNumericSetting(const std::string &name, int nValue);
+    bool ReadNumericSetting(const std::string &name, int &nValue);
     bool LoadBlockIndexGuts(const Consensus::Params& consensusParams, std::function<CBlockIndex*(const uint256&)> insertBlockIndex);
 };
 

@@ -77,6 +77,7 @@ endif
 # bitcoin core #
 BITCOIN_CORE_H = \
   addrdb.h \
+  addressindex.h \
   addrman.h \
   base58.h \
   bloom.h \
