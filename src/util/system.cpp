@@ -1081,6 +1081,15 @@ bool FileCommit(FILE *file)
     return true;
 }
 
+void DirectoryCommit(const fs::path &dirname)
+{
+#ifndef WIN32
+    FILE* file = fsbridge::fopen(dirname, "r");
+    fsync(fileno(file));
+    fclose(file);
+#endif
+}
+
 bool TruncateFile(FILE *file, unsigned int length) {
 #if defined(WIN32)
     return _chsize(_fileno(file), length) == 0;
