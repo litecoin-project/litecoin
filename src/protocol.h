@@ -42,7 +42,7 @@ public:
     std::string GetCommand() const;
     bool IsValid(const MessageStartChars& messageStart) const;
 
-    ADD_SERIALIZE_METHODS;
+    ADD_SERIALIZE_METHODS
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action)
@@ -237,7 +237,7 @@ extern const char *GETBLOCKTXN;
  * @since protocol version 70014 as described by BIP 152
  */
 extern const char *BLOCKTXN;
-};
+}
 
 /* Get a vector of all valid message types (see above) */
 const std::vector<std::string> &getAllNetMessageTypes();
@@ -331,7 +331,7 @@ public:
 
     void Init();
 
-    ADD_SERIALIZE_METHODS;
+    ADD_SERIALIZE_METHODS
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action)
@@ -386,7 +386,7 @@ public:
     CInv();
     CInv(int typeIn, const uint256& hashIn);
 
-    ADD_SERIALIZE_METHODS;
+    ADD_SERIALIZE_METHODS
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action)
