@@ -346,6 +346,84 @@ public:
     }
 };
 
+/**
+ * Simulation test
+ */
+class CSimNetParams : public CChainParams {
+public:
+    CSimNetParams() {
+        strNetworkID = "simnet";
+        consensus.nSubsidyHalvingInterval = 210000;
+        consensus.BIP34Height = 0; // Always active for simnet
+        consensus.BIP34Hash = uint256();
+        consensus.BIP65Height = 0; // Always active for simnet
+        consensus.BIP66Height = 0; // Always active for simnet
+        consensus.powLimit = uint256S("7fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        consensus.nPowTargetTimespan = 3.5 * 24 * 60 * 60; // two weeks
+        consensus.nPowTargetSpacing = 2.5 * 60;
+        consensus.fPowAllowMinDifficultyBlocks = true;
+        consensus.fPowNoRetargeting = true;
+        consensus.nRuleChangeActivationThreshold = 75; // 75% for testchains
+        consensus.nMinerConfirmationWindow = 100;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].bit = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nStartTime = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_CSV].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].bit = 1;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_SEGWIT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        // The best chain should have at least this much work.
+        consensus.nMinimumChainWork = uint256S("0x00");
+
+        // By default assume that the signatures in ancestors of this block are valid.
+        consensus.defaultAssumeValid = uint256S("0x00");
+
+        pchMessageStart[0] = 0x16;
+        pchMessageStart[1] = 0x1c;
+        pchMessageStart[2] = 0x14;
+        pchMessageStart[3] = 0x12;
+        nDefaultPort = 18555;
+        nPruneAfterHeight = 1000;
+
+        genesis = CreateGenesisBlock(1401292357, 2, 0x207fffff, 1, 50 * COIN);
+        consensus.hashGenesisBlock = genesis.GetHash();
+        assert(consensus.hashGenesisBlock == uint256S("0x1235c919b81ddcb578b67dce20669fd0c9c5a3450dbcfa2b869dbcb43a3ba4be"));
+        assert(genesis.hashMerkleRoot == uint256S("0x97ddfbbae6be97fd6cdf3e7ca13232a3afff2353e29badfab7f73011edd4ced9"));
+
+        vFixedSeeds.clear(); //!< Simnet mode doesn't have any fixed seeds.
+        vSeeds.clear();      //!< Simnet mode doesn't have any DNS seeds.
+
+        fDefaultConsistencyChecks = true;
+        fRequireStandard = false;
+        fMineBlocksOnDemand = true;
+
+        checkpointData = {
+            {
+                {0, uint256S("1235c919b81ddcb578b67dce20669fd0c9c5a3450dbcfa2b869dbcb43a3ba4be")},
+            }
+        };
+
+        chainTxData = ChainTxData{
+            0,
+            0,
+            0
+        };
+
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,63);
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,123);
+        base58Prefixes[SCRIPT_ADDRESS2] = std::vector<unsigned char>(1,40);
+        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,100);
+        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x20, 0xbd, 0x3a};
+        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x20, 0xb9, 0x00};
+
+        bech32_hrp = "sltc";
+    }
+};
+
+
 static std::unique_ptr<CChainParams> globalChainParams;
 
 const CChainParams &Params() {
@@ -361,6 +439,8 @@ std::unique_ptr<CChainParams> CreateChainParams(const std::string& chain)
         return std::unique_ptr<CChainParams>(new CTestNetParams());
     else if (chain == CBaseChainParams::REGTEST)
         return std::unique_ptr<CChainParams>(new CRegTestParams());
+    else if (chain == CBaseChainParams::SIMNET)
+        return std::unique_ptr<CChainParams>(new CSimNetParams());
     throw std::runtime_error(strprintf("%s: Unknown chain %s.", __func__, chain));
 }
 

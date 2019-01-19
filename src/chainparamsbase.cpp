@@ -14,6 +14,8 @@
 const std::string CBaseChainParams::MAIN = "main";
 const std::string CBaseChainParams::TESTNET = "test";
 const std::string CBaseChainParams::REGTEST = "regtest";
+const std::string CBaseChainParams::SIMNET = "simnet";
+
 
 void AppendParamsHelpMessages(std::string& strUsage, bool debugHelp)
 {
@@ -63,6 +65,18 @@ public:
     }
 };
 
+/*
+ * Simulation test */
+class CBaseSimNetParams : public CBaseChainParams
+{
+public:
+    CBaseSimNetParams()
+    {
+        nRPCPort = 18554;
+        strDataDir = "simnet";
+    }
+};
+
 static std::unique_ptr<CBaseChainParams> globalChainBaseParams;
 
 const CBaseChainParams& BaseParams()
@@ -79,6 +93,8 @@ std::unique_ptr<CBaseChainParams> CreateBaseChainParams(const std::string& chain
         return std::unique_ptr<CBaseChainParams>(new CBaseTestNetParams());
     else if (chain == CBaseChainParams::REGTEST)
         return std::unique_ptr<CBaseChainParams>(new CBaseRegTestParams());
+    else if (chain == CBaseChainParams::SIMNET)
+        return std::unique_ptr<CBaseChainParams>(new CBaseSimNetParams());
     else
         throw std::runtime_error(strprintf("%s: Unknown chain %s.", __func__, chain));
 }
@@ -92,12 +108,17 @@ std::string ChainNameFromCommandLine()
 {
     bool fRegTest = gArgs.GetBoolArg("-regtest", false);
     bool fTestNet = gArgs.GetBoolArg("-testnet", false);
+    bool fSimNet = gArgs.GetBoolArg("-simnet", false);
 
-    if (fTestNet && fRegTest)
-        throw std::runtime_error("Invalid combination of -regtest and -testnet.");
+    if ((fTestNet && fRegTest) || (fTestNet && fSimNet) || (fRegTest && fSimNet)
+            || (fTestNet && fRegTest && fSimNet))
+        throw std::runtime_error("Invalid combination of -regtest, -testnet and -simnet, only one option allowed.");
     if (fRegTest)
         return CBaseChainParams::REGTEST;
     if (fTestNet)
         return CBaseChainParams::TESTNET;
+    if (fSimNet)
+        return CBaseChainParams::SIMNET;
+
     return CBaseChainParams::MAIN;
 }
