@@ -327,6 +327,7 @@ std::string scrypt_detect_sse2()
 
 void scrypt_1024_1_1_256(const char *input, char *output)
 {
-	char scratchpad[SCRYPT_SCRATCHPAD_SIZE];
+	static char scratchpad[SCRYPT_SCRATCHPAD_SIZE];
+    memset(scratchpad, 0, sizeof(scratchpad));
     scrypt_1024_1_1_256_sp(input, output, scratchpad);
 }
