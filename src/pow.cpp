@@ -16,8 +16,22 @@ unsigned int GetNextWorkRequired(const CBlockIndex* pindexLast, const CBlockHead
     assert(pindexLast != nullptr);
     unsigned int nProofOfWorkLimit = UintToArith256(params.powLimit).GetCompact();
 
+    // Litecoin: Special rules for minimum difficulty blocks with Digishield from DigiByte
+    if (AllowDigishieldMinDifficultyForBlock(pindexLast, pblock, params))
+    {
+        // Special difficulty rule for testnet:
+        // If the new block's timestamp is more than 2* nTargetSpacing minutes
+        // then allow mining of a min-difficulty block.
+        return nProofOfWorkLimit;
+    }
+
     // Only change once per difficulty adjustment interval
-    if ((pindexLast->nHeight+1) % params.DifficultyAdjustmentInterval() != 0)
+    // Suggested block 1770000 as it's ~6 months from July 7th, may need to be pushed further though
+    bool fNewDifficultyProtocol = (pindexLast->nHeight >= 1770000);
+    const int64_t difficultyAdjustmentInterval = fNewDifficultyProtocol
+                                                 ? 1
+                                                 : params.DifficultyAdjustmentInterval();
+    if ((pindexLast->nHeight+1) % difficultyAdjustmentInterval != 0)
     {
         if (params.fPowAllowMinDifficultyBlocks)
         {
@@ -66,6 +80,42 @@ unsigned int CalculateNextWorkRequired(const CBlockIndex* pindexLast, int64_t nF
         nActualTimespan = params.nPowTargetTimespan/4;
     if (nActualTimespan > params.nPowTargetTimespan*4)
         nActualTimespan = params.nPowTargetTimespan*4;
+
+    // Setup for DigiShield
+    int nHeight = pindexLast->nHeight + 1;
+    bool fNewDifficultyProtocol = (nHeight >= 1770000);
+    const int64_t retargetTimespan = fNewDifficultyProtocol ? 180 // params.DigiShieldTargetTimespan()
+                                                              :
+                                                              params.nPowTargetTimespan;
+
+    const int64_t nActualTimespan = pindexLast->GetBlockTime() - nFirstBlockTime;
+    int64_t nModulatedTimespan = nActualTimespan;
+    int64_t nMaxTimespan;
+    int64_t nMinTimespan;
+
+    if (fNewDifficultyProtocol) //DigiShield by DigiByte
+    {
+        // amplitude filter - thanks to daft27 for this code
+        nModulatedTimespan = retargetTimespan + (nModulatedTimespan - retargetTimespan) / 8;
+
+        nMinTimespan = retargetTimespan - (retargetTimespan / 4);
+        nMaxTimespan = retargetTimespan + (retargetTimespan / 2);
+    } else if (nHeight > 10000) {
+        nMinTimespan = retargetTimespan / 4;
+        nMaxTimespan = retargetTimespan * 4;
+    } else if (nHeight > 5000) {
+        nMinTimespan = retargetTimespan / 8;
+        nMaxTimespan = retargetTimespan * 4;
+    } else {
+        nMinTimespan = retargetTimespan / 16;
+        nMaxTimespan = retargetTimespan * 4;
+    }
+
+    // Limit adjustment step
+    if (nModulatedTimespan < nMinTimespan)
+        nModulatedTimespan = nMinTimespan;
+    else if (nModulatedTimespan > nMaxTimespan)
+        nModulatedTimespan = nMaxTimespan;
 
     // Retarget
     arith_uint256 bnNew;
