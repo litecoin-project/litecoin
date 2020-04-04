@@ -656,6 +656,8 @@ static UniValue CallRPC(BaseRequestHandler* rh, const std::string& strMethod, co
         }
         error += strprintf(" Configuration file: (%s)", GetConfigFile(gArgs.GetPathArg("-conf", BITCOIN_CONF_FILENAME)).string());
         throw std::runtime_error(error);
+    } else if (response.status == HTTP_SERVICE_UNAVAILABLE) {
+        throw std::runtime_error(strprintf("Server response: %s", response.body));
     } else if (response.status >= 400 && response.status != HTTP_BAD_REQUEST && response.status != HTTP_NOT_FOUND && response.status != HTTP_INTERNAL_SERVER_ERROR)
         throw std::runtime_error(strprintf("server returned HTTP error %d", response.status));
     else if (response.body.empty())
