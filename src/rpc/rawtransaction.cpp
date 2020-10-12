@@ -246,6 +246,9 @@ static RPCHelpMan gettxoutproof()
     std::set<uint256> setTxids;
     uint256 oneTxid;
     UniValue txids = request.params[0].get_array();
+    if (txids.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Parameter 'txids' cannot be empty");
+    }
     for (unsigned int idx = 0; idx < txids.size(); idx++) {
         const UniValue& txid = txids[idx];
         uint256 hash(ParseHashV(txid, "txid"));
