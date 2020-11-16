@@ -100,16 +100,7 @@ void test_one_input(const std::vector<uint8_t>& buffer)
     (void)IsWitnessStandard(tx, coins_view_cache);
 
     UniValue u(UniValue::VOBJ);
-    // ValueFromAmount(i) not defined when i == std::numeric_limits<int64_t>::min()
-    bool skip_tx_to_univ = false;
-    for (const CTxOut& txout : tx.vout) {
-        if (txout.nValue == std::numeric_limits<int64_t>::min()) {
-            skip_tx_to_univ = true;
-        }
-    }
-    if (!skip_tx_to_univ) {
-        TxToUniv(tx, /* hashBlock */ {}, u);
-        static const uint256 u256_max(uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
-        TxToUniv(tx, u256_max, u);
-    }
+    TxToUniv(tx, /* hashBlock */ {}, u);
+    static const uint256 u256_max(uint256S("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff"));
+    TxToUniv(tx, u256_max, u);
 }
