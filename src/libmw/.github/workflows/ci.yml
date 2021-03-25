@@ -1,0 +1,58 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  ci:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        name: [macos, ubuntu, windows]
+        include:
+          - name: macos
+            os: macos-latest
+            compiler: gcc
+            version: "9"
+            vcpkg_triplet: x64-osx-libmw
+          - name: ubuntu
+            os: ubuntu-latest
+            vcpkg_triplet: x64-linux
+          - name: windows
+            os: windows-latest
+            vcpkg_triplet: x64-windows-static
+    steps:
+      - name: Checkout libmw
+        uses: actions/checkout@v2
+        with:
+          submodules: 'recursive'
+      - name: setup macos environment
+        if: runner.os == 'macOS'
+        run: |
+          brew install gcc cmake
+          echo "::set-env name=CC::gcc-${{ matrix.version }}"
+          echo "::set-env name=CXX::g++-${{ matrix.version }}"
+        env:
+            ACTIONS_ALLOW_UNSECURE_COMMANDS: true
+      - name: Run vcpkg
+        uses: lukka/run-vcpkg@v6
+        with:
+          # Response file stored in source control, it provides the list of ports and triplet(s).
+          vcpkgArguments: '--debug --overlay-triplets=${{ github.workspace }}/vcpkg/triplets --triplet ${{ matrix.vcpkg_triplet }} @${{ github.workspace }}/vcpkg/packages.txt'
+          # Location of the vcpkg as submodule of the repository.
+          vcpkgDirectory: '${{ github.workspace }}/vcpkg/vcpkg'
+          # Since the cache must be invalidated when content of the response file changes, let's
+          # compute its hash and append this to the computed cache's key.
+          appendedCacheKey: ${{ hashFiles('${{ github.workspace }}/vcpkg/packages.txt') }}
+      - name: 'Run CMake'
+        uses: lukka/run-cmake@v3.2
+        with:
+          cmakeGenerator: ${{ matrix.cmake_generator }}
+          cmakeBuildType: 'Release'
+          cmakeListsOrSettingsJson: CMakeListsTxtAdvanced
+          cmakeListsTxtPath: '${{ github.workspace }}/CMakeLists.txt'
+          useVcpkgToolchainFile: true
+          vcpkgTriplet: '${{ matrix.vcpkg_triplet }}'
+          buildDirectory: '${{ github.workspace }}/build'
+          cmakeAppendedArgs: ' ${{ matrix.cmake_platform_args }} -DCMAKE_BUILD_TYPE=Release'
+          buildWithCMake: true
+          buildWithCMakeArgs: '--parallel --config Release'

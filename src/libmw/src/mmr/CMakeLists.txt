@@ -1,0 +1,14 @@
+list_append_parent(
+	mw_sources
+	${CMAKE_CURRENT_LIST_DIR}
+	"ILeafSet.cpp"
+	"IMMR.cpp"
+	"Index.cpp"
+	"LeafSet.cpp"
+	"LeafSetCache.cpp"
+	"MMR.cpp"
+	"MMRCache.cpp"
+	"MMRFactory.cpp"
+	"PruneList.cpp"
+	"backends/FileBackend.cpp"
+)

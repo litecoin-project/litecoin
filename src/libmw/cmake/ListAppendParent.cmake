@@ -1,0 +1,8 @@
+macro(list_append_parent PARENT_LIST PREFIX)
+    set(NEW_LIST ${${PARENT_LIST}})
+    set(elements ${ARGN})
+    foreach(element ${elements})
+        list(APPEND NEW_LIST "${PREFIX}/${element}")
+    endforeach(element)
+    set(${PARENT_LIST} "${NEW_LIST}" PARENT_SCOPE)
+endmacro()

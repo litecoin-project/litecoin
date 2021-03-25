@@ -1,0 +1,11 @@
+list_append_parent(
+	mw_sources
+	${CMAKE_CURRENT_LIST_DIR}
+	"block/Block.cpp"
+	"crypto/Commitment.cpp"
+	"crypto/PublicKey.cpp"
+	"tx/Kernel.cpp"
+	"tx/Output.cpp"
+	"tx/Transaction.cpp"
+	"tx/TxBody.cpp"
+)

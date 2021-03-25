@@ -1,0 +1,11 @@
+list_append_parent(
+	mw_sources
+	${CMAKE_CURRENT_LIST_DIR}
+	"Bulletproofs.cpp"
+	"ConversionUtil.cpp"
+	"Crypto.cpp"
+	"MuSig.cpp"
+	"Pedersen.cpp"
+	"PublicKeys.cpp"
+	"Schnorr.cpp"
+)

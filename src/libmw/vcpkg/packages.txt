@@ -1,0 +1,9 @@
+mio
+fmt
+Catch2
+boost-filesystem
+boost-optional
+boost-container-hash
+boost-thread
+boost-variant
+boost-dynamic-bitset

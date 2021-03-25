@@ -1,0 +1,10 @@
+list_append_parent(
+    test_sources
+    ${CMAKE_CURRENT_LIST_DIR}
+    "Test_BlockBuilder.cpp"
+    "Test_CheckTxInputs.cpp"
+    "Test_MineChain.cpp"
+    "Test_Reorg.cpp"
+    "validation/Test_BlockValidator.cpp"
+    "validation/Test_StateValidator.cpp"
+)

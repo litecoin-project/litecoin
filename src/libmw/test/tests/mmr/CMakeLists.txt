@@ -1,0 +1,13 @@
+list_append_parent(
+    test_sources
+    ${CMAKE_CURRENT_LIST_DIR}
+    "Test_FileBackend.cpp"
+    "Test_Index.cpp"
+    "Test_LeafIndex.cpp"
+	"Test_LeafSet.cpp"
+	"Test_LeafSetCache.cpp"
+    "Test_MMR.cpp"
+    "Test_MMRFactory.cpp"
+    "Test_MMRUtil.cpp"
+    "Test_PruneList.cpp"
+)

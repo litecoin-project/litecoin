@@ -1,0 +1,16 @@
+list_append_parent(
+    test_sources
+    ${CMAKE_CURRENT_LIST_DIR}
+	"block/Test_Block.cpp"
+	"block/Test_Header.cpp"
+	"crypto/Test_BigInteger.cpp"
+	"tx/Test_Input.cpp"
+	"tx/Test_Kernel.cpp"
+	"tx/Test_Output.cpp"
+	"tx/Test_OutputId.cpp"
+	"tx/Test_PegInCoin.cpp"
+	"tx/Test_PegOutCoin.cpp"
+	"tx/Test_Transaction.cpp"
+	"tx/Test_TxBody.cpp"
+	"tx/Test_UTXO.cpp"
+)

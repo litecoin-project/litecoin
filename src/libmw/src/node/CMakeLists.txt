@@ -1,0 +1,13 @@
+list_append_parent(
+	mw_sources
+	${CMAKE_CURRENT_LIST_DIR}
+	"Node.cpp"
+	"BlockBuilder.cpp"
+	"CoinsViewCache.cpp"
+	"CoinsViewDB.cpp"
+	"CoinsViewFactory.cpp"
+	"ICoinsView.cpp"
+	"Snapshot.cpp"
+	"validation/BlockValidator.cpp"
+	"validation/StateValidator.cpp"
+)
