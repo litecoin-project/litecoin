@@ -81,12 +81,12 @@ BOOST_AUTO_TEST_CASE(netbase_properties)
 
 }
 
-bool static TestSplitHost(std::string test, std::string host, int port)
+bool static TestSplitHost(const std::string& test, const std::string& host, int port, bool validPort = true)
 {
     std::string hostOut;
     int portOut = -1;
-    SplitHostPort(test, portOut, hostOut);
-    return hostOut == host && port == portOut;
+    bool validPortOut = SplitHostPort(test, portOut, hostOut);
+    return hostOut == host && portOut == port && validPortOut == validPort;
 }
 
 BOOST_AUTO_TEST_CASE(netbase_splithost)
@@ -106,6 +106,23 @@ BOOST_AUTO_TEST_CASE(netbase_splithost)
     BOOST_CHECK(TestSplitHost(":8333", "", 8333));
     BOOST_CHECK(TestSplitHost("[]:8333", "", 8333));
     BOOST_CHECK(TestSplitHost("", "", -1));
+    BOOST_CHECK(TestSplitHost(":65535", "", 65535));
+    BOOST_CHECK(TestSplitHost(":65536", ":65536", -1, false));
+    BOOST_CHECK(TestSplitHost(":-1", ":-1", -1, false));
+    BOOST_CHECK(TestSplitHost("[]:70001", "[]:70001", -1, false));
+    BOOST_CHECK(TestSplitHost("[]:-1", "[]:-1", -1, false));
+    BOOST_CHECK(TestSplitHost("[]:-0", "[]:-0", -1, false));
+    BOOST_CHECK(TestSplitHost("[]:0", "", 0, false));
+    BOOST_CHECK(TestSplitHost("[]:1/2", "[]:1/2", -1, false));
+    BOOST_CHECK(TestSplitHost("[]:1E2", "[]:1E2", -1, false));
+    BOOST_CHECK(TestSplitHost("127.0.0.1:65536", "127.0.0.1:65536", -1, false));
+    BOOST_CHECK(TestSplitHost("127.0.0.1:0", "127.0.0.1", 0, false));
+    BOOST_CHECK(TestSplitHost("127.0.0.1:", "127.0.0.1:", -1, false));
+    BOOST_CHECK(TestSplitHost("127.0.0.1:1/2", "127.0.0.1:1/2", -1, false));
+    BOOST_CHECK(TestSplitHost("127.0.0.1:1E2", "127.0.0.1:1E2", -1, false));
+    BOOST_CHECK(TestSplitHost("www.bitcoincore.org:65536", "www.bitcoincore.org:65536", -1, false));
+    BOOST_CHECK(TestSplitHost("www.bitcoincore.org:0", "www.bitcoincore.org", 0, false));
+    BOOST_CHECK(TestSplitHost("www.bitcoincore.org:", "www.bitcoincore.org:", -1, false));
 }
 
 bool static TestParse(std::string src, std::string canon)
