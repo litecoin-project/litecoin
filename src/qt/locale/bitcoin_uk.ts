@@ -917,7 +917,7 @@
     </message>
     <message>
         <source>Attempting to spend litecoins that are affected by not-yet-displayed transactions will not be accepted by the network.</source>
-        <translation>Спроба відправити біткоїни, які ще не відображаються, не буде прийнята мережею.</translation>
+        <translation>Спроба відправити лайткоїни, які ще не відображаються, не буде прийнята мережею.</translation>
     </message>
     <message>
         <source>Number of blocks left</source>
