@@ -9,6 +9,7 @@
 #include <coins.h>
 #include <compressor.h>
 #include <consensus/consensus.h>
+#include <mw/models/block/BlockUndo.h>
 #include <primitives/transaction.h>
 #include <serialize.h>
 #include <version.h>
@@ -102,13 +103,35 @@ class CBlockUndo
 {
 public:
     std::vector<CTxUndo> vtxundo; // for all but the coinbase
+    mw::BlockUndo::CPtr mwundo;
 
     ADD_SERIALIZE_METHODS;
 
     template <typename Stream, typename Operation>
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITE(vtxundo);
+
+        if (mwundo != nullptr) {
+            READWRITE(mwundo);
+        }
     }
 };
+
+template <typename Stream>
+inline void UnserializeBlockUndo(CBlockUndo& blockundo, Stream& s, const unsigned int num_bytes)
+{
+    const uint64_t num_txs = ::ReadCompactSize(s);
+    blockundo.vtxundo.reserve(num_txs);
+    for (uint64_t i = 0; i < num_txs; i++) {
+        CTxUndo txundo;
+        s >> txundo;
+        blockundo.vtxundo.emplace_back(std::move(txundo));
+    }
+
+    if (::GetSerializeSize(blockundo) < num_bytes) {
+        // There's more data to read. MWEB rewind data must be available.
+        s >> blockundo.mwundo;
+    }
+}
 
 #endif // BITCOIN_UNDO_H

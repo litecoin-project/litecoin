@@ -38,3 +38,36 @@ std::string CBlock::ToString() const
     }
     return s.str();
 }
+
+CTransactionRef CBlock::GetHogEx() const noexcept
+{
+    if (vtx.size() >= 2 && vtx.back()->IsHogEx()) {
+        assert(!vtx.back()->vout.empty());
+        return vtx.back();
+    }
+
+    return nullptr;
+}
+
+uint256 CBlock::GetMWEBHash() const noexcept
+{
+    auto pHogEx = GetHogEx();
+    if (pHogEx != nullptr) {
+        int version;
+        std::vector<unsigned char> program;
+        if (pHogEx->vout.front().scriptPubKey.IsWitnessProgram(version, program)) {
+            if (program.size() == WITNESS_MWEB_HEADERHASH_SIZE && version == MWEB_WITNESS_VERSION) {
+                return uint256(program);
+            }
+        }
+    }
+
+    return uint256();
+}
+
+// The amount of the first output in the HogEx transaction.
+CAmount CBlock::GetMWEBAmount() const noexcept
+{
+    auto pHogEx = GetHogEx();
+    return pHogEx ? pHogEx->vout.front().nValue : 0;
+}

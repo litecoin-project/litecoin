@@ -17,6 +17,8 @@
 #include <cuckoocache.h>
 #include <hash.h>
 #include <index/txindex.h>
+#include <mw/node/CoinsView.h>
+#include <mweb/mweb_node.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
 #include <policy/rbf.h>
@@ -1484,21 +1486,28 @@ bool UndoWriteToDisk(const CBlockUndo& blockundo, CDiskBlockPos& pos, const uint
 static bool UndoReadFromDisk(CBlockUndo& blockundo, const CBlockIndex *pindex)
 {
     CDiskBlockPos pos = pindex->GetUndoPos();
-    if (pos.IsNull()) {
+    if (pos.IsNull() || pos.nPos < 4) {
         return error("%s: no undo data available", __func__);
     }
+
+    // Rewind 4 bytes in order to read the size
+    pos.nPos -= 4;
 
     // Open history file to read
     CAutoFile filein(OpenUndoFile(pos, true), SER_DISK, CLIENT_VERSION);
     if (filein.IsNull())
         return error("%s: OpenUndoFile failed", __func__);
 
+    // Read undo size
+    unsigned int undo_size = 0;
+    filein >> undo_size;
+
     // Read block
     uint256 hashChecksum;
     CHashVerifier<CAutoFile> verifier(&filein); // We need a CHashVerifier as reserializing may lose data
     try {
         verifier << pindex->pprev->GetBlockHash();
-        verifier >> blockundo;
+        UnserializeBlockUndo(blockundo, verifier, undo_size);
         filein >> hashChecksum;
     }
     catch (const std::exception& e) {
@@ -1616,6 +1625,15 @@ DisconnectResult CChainState::DisconnectBlock(const CBlock& block, const CBlockI
                 fClean = fClean && res != DISCONNECT_UNCLEAN;
             }
             // At this point, all of txundo.vprevout should have been moved out.
+        }
+    }
+
+    if (blockUndo.mwundo != nullptr) {
+        try {
+            view.GetMWEBCacheView()->UndoBlock(blockUndo.mwundo);
+        } catch (const std::exception& e) {
+            error("DisconnectBlock(): Failed to disconnect MWEB block");
+            return DISCONNECT_FAILED;
         }
     }
 
@@ -2038,8 +2056,24 @@ bool CChainState::ConnectBlock(const CBlock& block, CValidationState& state, CBl
     int64_t nTime4 = GetTimeMicros(); nTimeVerify += nTime4 - nTime2;
     LogPrint(BCLog::BENCH, "    - Verify %u txins: %.2fms (%.3fms/txin) [%.2fs (%.2fms/blk)]\n", nInputs - 1, MILLI * (nTime4 - nTime2), nInputs <= 1 ? 0 : MILLI * (nTime4 - nTime2) / (nInputs-1), nTimeVerify * MICRO, nTimeVerify * MILLI / nBlocksTotal);
 
+    // MWEB: Check activation
+    if (!MWEB::Node::ConnectBlock(block, chainparams.GetConsensus(), pindex->pprev, blockundo, *view.GetMWEBCacheView(), state)) {
+        return false;
+    }
+
     if (fJustCheck)
         return true;
+
+    // MWEB: Update BlockIndex
+    if (!block.mweb_block.IsNull()) {
+        if ((pindex->nStatus & BLOCK_HAVE_MWEB) == 0) {
+            pindex->nStatus |= BLOCK_HAVE_MWEB;
+            pindex->mweb_header = block.mweb_block.GetMWEBHeader();
+            pindex->hogex_hash = block.GetHogEx()->GetHash();
+            pindex->mweb_amount = block.GetMWEBAmount();
+            setDirtyBlockIndex.insert(pindex);
+        }
+    }
 
     if (!WriteUndoDataForBlock(blockundo, state, pindex, chainparams))
         return false;
@@ -3113,7 +3147,7 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     // checks that use witness data may be performed here.
 
     // Size limits
-    if (block.vtx.empty() || block.vtx.size() * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT || ::GetSerializeSize(block, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT)
+    if (block.vtx.empty() || block.vtx.size() * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT || ::GetSerializeSize(block, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT)
         return state.DoS(100, false, REJECT_INVALID, "bad-blk-length", false, "size limits failed");
 
     // First transaction must be coinbase, the rest must not be
@@ -3137,6 +3171,10 @@ bool CheckBlock(const CBlock& block, CValidationState& state, const Consensus::P
     if (nSigOps * WITNESS_SCALE_FACTOR > MAX_BLOCK_SIGOPS_COST)
         return state.DoS(100, false, REJECT_INVALID, "bad-blk-sigops", false, "out-of-bounds SigOpCount");
 
+    if (!MWEB::Node::CheckBlock(block, state)) {
+        return false;
+    }
+
     if (fCheckPOW && fCheckMerkleRoot)
         block.fChecked = true;
 
@@ -3153,6 +3191,12 @@ bool IsNullDummyEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& 
 {
     LOCK(cs_main);
     return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_SEGWIT, versionbitscache) == ThresholdState::ACTIVE);
+}
+
+bool IsMWEBEnabled(const CBlockIndex* pindexPrev, const Consensus::Params& params)
+{
+    LOCK(cs_main);
+    return (VersionBitsState(pindexPrev, params, Consensus::DEPLOYMENT_MWEB, versionbitscache) == ThresholdState::ACTIVE);
 }
 
 // Compute at which vout of the block's coinbase transaction the witness
@@ -3346,6 +3390,10 @@ static bool ContextualCheckBlock(const CBlock& block, CValidationState& state, c
     // failed).
     if (GetBlockWeight(block) > MAX_BLOCK_WEIGHT) {
         return state.DoS(100, false, REJECT_INVALID, "bad-blk-weight", false, strprintf("%s : weight limit failed", __func__));
+    }
+
+    if (!MWEB::Node::ContextualCheckBlock(block, consensusParams, pindexPrev, state)) {
+        return false;
     }
 
     return true;

@@ -9,6 +9,7 @@
 #include <primitives/transaction.h>
 #include <serialize.h>
 #include <uint256.h>
+#include <mweb/mweb_models.h>
 
 /** Nodes collect new transactions into a block, hash them into a hash tree,
  * and scan through nonce values to make the block's hash satisfy proof-of-work
@@ -80,6 +81,8 @@ public:
     // memory only
     mutable bool fChecked;
 
+    MWEB::Block mweb_block;
+
     CBlock()
     {
         SetNull();
@@ -97,6 +100,11 @@ public:
     inline void SerializationOp(Stream& s, Operation ser_action) {
         READWRITEAS(CBlockHeader, *this);
         READWRITE(vtx);
+        if (!(s.GetVersion() & SERIALIZE_NO_MWEB)) {
+            if (GetHogEx() != nullptr) {
+                READWRITE(mweb_block);
+            }
+        }
     }
 
     void SetNull()
@@ -104,6 +112,7 @@ public:
         CBlockHeader::SetNull();
         vtx.clear();
         fChecked = false;
+        mweb_block.SetNull();
     }
 
     CBlockHeader GetBlockHeader() const
@@ -119,6 +128,10 @@ public:
     }
 
     std::string ToString() const;
+
+    CTransactionRef GetHogEx() const noexcept;
+    uint256 GetMWEBHash() const noexcept;
+    CAmount GetMWEBAmount() const noexcept;
 };
 
 /** Describes a place in the block chain to another node such that if the

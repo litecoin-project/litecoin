@@ -19,6 +19,18 @@
 #include <string>
 #include <vector>
 
+// Forward Declarations
+class Commitment;
+
+// MWEB: Size of the witness program of the first output in HogEx transactions
+static constexpr size_t WITNESS_MWEB_HEADERHASH_SIZE = 32;
+
+// MWEB: Size of the witness program for peg-in transactions
+static constexpr size_t WITNESS_MWEB_PEGIN_SIZE = 33;
+
+// MWEB: Version of MWEB witness programs
+static constexpr int MWEB_WITNESS_VERSION = 9;
+
 // Maximum number of bytes pushable to the stack
 static const unsigned int MAX_SCRIPT_ELEMENT_SIZE = 520;
 
@@ -539,6 +551,7 @@ public:
     bool IsPayToScriptHash() const;
     bool IsPayToWitnessScriptHash() const;
     bool IsWitnessProgram(int& version, std::vector<unsigned char>& program) const;
+    bool IsMWEBPegin(Commitment& commitment) const;
 
     /** Called by IsStandardTx and P2SH/BIP62 VerifyScript (which makes it consensus-critical). */
     bool IsPushOnly(const_iterator pc) const;

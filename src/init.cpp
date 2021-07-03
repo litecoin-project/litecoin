@@ -25,6 +25,8 @@
 #include <key.h>
 #include <validation.h>
 #include <miner.h>
+#include <mw/node/CoinsView.h>
+#include <mweb/mweb_db.h>
 #include <netbase.h>
 #include <net.h>
 #include <net_processing.h>
@@ -1536,6 +1538,23 @@ bool AppInitMain(InitInterfaces& interfaces)
                 pcoinsdbview.reset(new CCoinsViewDB(nCoinDBCache, false, fReset || fReindexChainState));
                 pcoinscatcher.reset(new CCoinsViewErrorCatcher(pcoinsdbview.get()));
 
+                CBlock block;
+                CBlockIndex* pindex = LookupBlockIndex(pcoinsdbview->GetBestBlock());
+                if (pindex != nullptr) {
+                    if (!ReadBlockFromDisk(block, pindex, chainparams.GetConsensus())) {
+                        return error("AppInitMain(): ReadBlockFromDisk() failed at %d, hash=%s", pindex->nHeight, pindex->GetBlockHash().ToString());
+                    }
+                }
+
+                // MWEB: Initialize MWEB node APIs
+                LoggerAPI::Initialize([](const std::string& logstr) { LogPrintf(logstr.c_str()); });
+                mw::CoinsViewDB::Ptr mweb_dbview = mw::CoinsViewDB::Open(
+                    FilePath{GetDataDir()},
+                    block.mweb_block.GetMWEBHeader(),
+                    std::make_shared<MWEB::DBWrapper>(pcoinsdbview->GetDB())
+                );
+                pcoinsdbview->SetMWView(mweb_dbview);
+
                 // If necessary, upgrade from older database format.
                 // This is a no-op if we cleared the coinsviewdb with -reindex or -reindex-chainstate
                 if (!pcoinsdbview->Upgrade()) {
@@ -1680,6 +1699,10 @@ bool AppInitMain(InitInterfaces& interfaces)
         // Note that setting NODE_WITNESS is never required: the only downside from not
         // doing so is that after activation, no upgraded nodes will fetch from you.
         nLocalServices = ServiceFlags(nLocalServices | NODE_WITNESS);
+    }
+
+    if (chainparams.GetConsensus().vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeout != 0) {
+        nLocalServices = ServiceFlags(nLocalServices | NODE_MWEB);
     }
 
     // ********************************************************* Step 11: import blocks

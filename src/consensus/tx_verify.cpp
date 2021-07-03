@@ -5,6 +5,7 @@
 #include <consensus/tx_verify.h>
 
 #include <consensus/consensus.h>
+#include <mweb/mweb_node.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
 #include <consensus/validation.h>
@@ -16,6 +17,10 @@
 
 bool IsFinalTx(const CTransaction &tx, int nBlockHeight, int64_t nBlockTime)
 {
+    // MWEB: Check kernel lock heights
+    if (tx.mweb_tx.GetLockHeight() > nBlockHeight)
+        return false;
+
     if (tx.nLockTime == 0)
         return true;
     if ((int64_t)tx.nLockTime < ((int64_t)tx.nLockTime < LOCKTIME_THRESHOLD ? (int64_t)nBlockHeight : nBlockTime))
@@ -159,12 +164,23 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 bool CheckTransaction(const CTransaction& tx, CValidationState &state, bool fCheckDuplicateInputs)
 {
     // Basic checks that don't depend on any context
-    if (tx.vin.empty())
-        return state.DoS(10, false, REJECT_INVALID, "bad-txns-vin-empty");
-    if (tx.vout.empty())
-        return state.DoS(10, false, REJECT_INVALID, "bad-txns-vout-empty");
+
+    // MWEB: Check MWEB tx
+    if (!MWEB::Node::CheckTransaction(tx, state)) {
+        return false;
+    }
+
+    if (tx.HasMWEBTx() && tx.vin.empty() && tx.vout.empty()) {
+        // Do nothing. An MWEB tx with 0 inputs & 0 outputs is valid.
+    } else {
+        if (tx.vin.empty())
+            return state.DoS(10, false, REJECT_INVALID, "bad-txns-vin-empty");
+        if (tx.vout.empty())
+            return state.DoS(10, false, REJECT_INVALID, "bad-txns-vout-empty");
+    }
+
     // Size limits (this doesn't take the witness into account, as that hasn't been checked for malleability)
-    if (::GetSerializeSize(tx, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT)
+    if (::GetSerializeSize(tx, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB) * WITNESS_SCALE_FACTOR > MAX_BLOCK_WEIGHT)
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-oversize");
 
     // Check for negative or overflow output values
@@ -240,9 +256,27 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, CValidationState& state, c
     }
 
     // Tally transaction fees
-    const CAmount txfee_aux = nValueIn - value_out;
+    CAmount txfee_aux = nValueIn - value_out;
     if (!MoneyRange(txfee_aux)) {
         return state.DoS(100, false, REJECT_INVALID, "bad-txns-fee-outofrange");
+    }
+
+    // MWEB
+    if (tx.HasMWEBTx()) {
+        for (const Input& input : tx.mweb_tx.m_transaction->GetInputs()) {
+            auto utxos = inputs.GetMWView()->GetUTXOs(input.GetCommitment());
+            if (utxos.empty()) {
+                return state.DoS(100, false, REJECT_INVALID, "bad-txns-inputs-missing", false,
+                    strprintf("%s: MWEB inputs missing", __func__));
+            }
+        }
+
+        CAmount mweb_fee = tx.mweb_tx.GetFee();
+        txfee_aux += mweb_fee;
+
+        if (!MoneyRange(mweb_fee) || !MoneyRange(txfee_aux)) {
+            return state.DoS(100, false, REJECT_INVALID, "bad-txns-mwebfee-outofrange");
+        }
     }
 
     txfee = txfee_aux;

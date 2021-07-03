@@ -5,6 +5,7 @@
 
 #include <script/script.h>
 
+#include <mw/models/crypto/Commitment.h>
 #include <tinyformat.h>
 #include <util/strencodings.h>
 
@@ -226,6 +227,20 @@ bool CScript::IsWitnessProgram(int& version, std::vector<unsigned char>& program
         program = std::vector<unsigned char>(this->begin() + 2, this->end());
         return true;
     }
+    return false;
+}
+
+bool CScript::IsMWEBPegin(Commitment& commitment) const
+{
+    int version;
+    std::vector<uint8_t> program;
+    if (IsWitnessProgram(version, program)) {
+        if (version == MWEB_WITNESS_VERSION && program.size() == WITNESS_MWEB_PEGIN_SIZE) {
+            commitment = Commitment(std::move(program));
+            return true;
+        }
+    }
+
     return false;
 }
 

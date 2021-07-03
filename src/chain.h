@@ -168,6 +168,8 @@ enum BlockStatus: uint32_t {
     BLOCK_FAILED_MASK        =   BLOCK_FAILED_VALID | BLOCK_FAILED_CHILD,
 
     BLOCK_OPT_WITNESS       =   128, //!< block data in blk*.data was received with a witness-enforcing client
+
+    BLOCK_HAVE_MWEB         =   (1 << 28)
 };
 
 /** The block chain is a tree shaped structure starting with the
@@ -221,6 +223,11 @@ public:
     uint32_t nBits;
     uint32_t nNonce;
 
+    //! MWEB data (only populated when BLOCK_HAVE_MWEB is set)
+    mw::Header::CPtr mweb_header;
+    uint256 hogex_hash;
+    CAmount mweb_amount;
+
     //! (memory only) Sequential id assigned to distinguish order in which blocks are received.
     int32_t nSequenceId;
 
@@ -248,6 +255,10 @@ public:
         nTime          = 0;
         nBits          = 0;
         nNonce         = 0;
+
+        mweb_header.reset();
+        hogex_hash = uint256();
+        mweb_amount = 0;
     }
 
     CBlockIndex()
@@ -419,6 +430,12 @@ public:
             READWRITE(VARINT(nDataPos));
         if (nStatus & BLOCK_HAVE_UNDO)
             READWRITE(VARINT(nUndoPos));
+
+        if (nStatus & BLOCK_HAVE_MWEB) {
+            READWRITE(mweb_header);
+            READWRITE(hogex_hash);
+            READWRITE(VARINT(mweb_amount, VarIntMode::NONNEGATIVE_SIGNED));
+        }
 
         // block header
         READWRITE(this->nVersion);

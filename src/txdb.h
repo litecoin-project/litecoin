@@ -9,6 +9,7 @@
 #include <coins.h>
 #include <dbwrapper.h>
 #include <chain.h>
+#include <mw/node/CoinsView.h>
 #include <primitives/block.h>
 
 #include <map>
@@ -45,15 +46,20 @@ class CCoinsViewDB final : public CCoinsView
 {
 protected:
     CDBWrapper db;
+    mw::ICoinsView::Ptr mweb_view;
+
 public:
     explicit CCoinsViewDB(size_t nCacheSize, bool fMemory = false, bool fWipe = false);
 
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
-    bool HaveCoin(const COutPoint &outpoint) const override;
+    bool HaveCoin(const OutputIndex& index) const override;
     uint256 GetBestBlock() const override;
     std::vector<uint256> GetHeadBlocks() const override;
-    bool BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) override;
+    bool BatchWrite(CCoinsMap& mapCoins, const uint256& hashBlock, const mw::CoinsViewCache::Ptr& derivedView) override;
     CCoinsViewCursor *Cursor() const override;
+    CDBWrapper* GetDB() noexcept { return &db; }
+    void SetMWView(const mw::ICoinsView::Ptr& view) { mweb_view = view; }
+    mw::ICoinsView::Ptr GetMWView() const final { return mweb_view; }
 
     //! Attempt to update from an older database format. Returns whether an error occurred.
     bool Upgrade();
