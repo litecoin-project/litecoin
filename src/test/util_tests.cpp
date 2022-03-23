@@ -148,6 +148,24 @@ BOOST_AUTO_TEST_CASE(util_HexStr)
         HexStr(ParseHex_vec),
         "04678afdb0"
     );
+
+    {
+        auto input = std::string();
+        for (size_t i=0; i<256; ++i) {
+            input.push_back(static_cast<char>(i));
+        }
+
+        auto hex = HexStr(input);
+        BOOST_TEST_REQUIRE(hex.size() == 512);
+        const std::string hexmap{"0123456789abcdef"};
+        for (size_t i = 0; i < 256; ++i) {
+            auto upper = hexmap.find(hex[i * 2]);
+            auto lower = hexmap.find(hex[i * 2 + 1]);
+            BOOST_TEST_REQUIRE(upper != std::string::npos);
+            BOOST_TEST_REQUIRE(lower != std::string::npos);
+            BOOST_TEST_REQUIRE(i == upper*16 + lower);
+        }
+    }
 }
 
 BOOST_AUTO_TEST_CASE(util_Join)
