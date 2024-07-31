@@ -1,85 +1,56 @@
-Litecoin Core integration/staging tree
-=====================================
+Proof of Work
+Litecoin uses Scrypt Proof of Work (PoW), with parameters N=1024, r=1 and p=1. The salt is the same 80 bytes as the input. The output is 256bits (32 bytes). The scrypt implementation in C++ used by Litecoin Core is adapted from Colin Perseval's Tarsnap, and can be found in src/crypto/scrypt.cpp.
 
-[![Build Status](https://travis-ci.org/litecoin-project/litecoin.svg?branch=master)](https://travis-ci.org/litecoin-project/litecoin)
+Scrypt during mining
+$ litecoind getwork
+{
+    "midstate" : "40fd268321efcf60e625707d4e31f9deadd13157e228985de8a10a057b98ed4d",
+    "data" : "0000000105e9a54b7f65b46864bc90f55d67cccd8b6404a02f5e064a6df69282adf6e2e5f7f953b0632b25b099858b717bb7b24084148cfa841a89f106bc6b655b18d2ed4ebb191a1d018ea700000000000000800000000000000000000000000000000000000000000000000000000000000000000000000000000080020000",
+    "hash1" : "00000000000000000000000000000000000000000000000000000000000000000000008000000000000000000000000000000000000000000000000000010000",
+    "target" : "0000000000000000000000000000000000000000000000000000a78e01000000"
+}
 
-https://litecoin.org
 
-What is Litecoin?
-----------------
+The data field is stored in big-endian format. We need to cover that to little-endian for each of the fields in the data because we can pass it to the hashing function.
 
-Litecoin is an experimental digital currency that enables instant payments to
-anyone, anywhere in the world. Litecoin uses peer-to-peer technology to operate
-with no central authority: managing transactions and issuing money are carried
-out collectively by the network. Litecoin Core is the name of open source
-software which enables the use of this currency.
+Data is broken down to:
 
-For more information, as well as an immediately useable, binary version of
-the Litecoin Core software, see [https://litecoin.org](https://litecoin.org).
+Version - 00000001 (4 bytes) Previous hash - 05e9a54b7f65b46864bc90f55d67cccd8b6404a02f5e064a6df69282adf6e2e5 (32 bytes) Merkle root - f7f953b0632b25b099858b717bb7b24084148cfa841a89f106bc6b655b18d2ed (32 bytes) Timestamp - 4ebb191a (4 bytes) Bits (target in compact form) - 1d018ea7 (4 bytes) Nonce - 00000000 (4 bytes)
+01000000 Previous hash becomes e5e2f6.....a5e905 Merkle root becomes edd218...53f9f7 Timestamp becomes 1a19bb4e Bits becomes a78e011d And Nonce is a 32-bit integer you choose that will make the scrypt hash be less than the target.
 
-License
--------
+Remember that you will need to convert the 32-bit nonce to hex and little-endian also. So if you are trying the nonce 2504433986. The hex version is 9546a142 in big-endian and 42a14695 in little-endian.
 
-Litecoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
-information or see https://opensource.org/licenses/MIT.
+You then concatenate these little-endian hex strings together to get the header string (80 bytes) you input into scrypt
+$ ./dbdump.py --datadir=/home/mining/.litecoin/ --block 29255
+Block height: 29255
+BLOCK adf6e2e56df692822f5e064a8b6404a05d67cccd64bc90f57f65b46805e9a54b
+Next block: 0000000000000000000000000000000000000000000000000000000000000000
+Time: Wed Nov  9 16:15:52 2011 Nonce: 3562614017
+nBits: 0x0x1d018ea7
+hashMerkleRoot: 0x066b2a758399d5f19b5c6073d09b500d925982adc4b3edd352efe14667a8ca9f
+Previous block: 279f6330ccbbb9103b9e3a5350765052081ddbae898f1ef6b8c64f3bcef715f6
+1 transactions:
+1 tx in, 1 out
+TxIn: COIN GENERATED coinbase:04b217bb4e022309
+TxOut: value: 50.000000 pubkey: 1HXG8MWvUFNU3pLpQUJueSC4kHcrNepuwC Script: 65:0448...b8cd CHECKSIG
 
-Development Process
--------------------
+Raw block header: 01000000f615f7ce3b4fc6b8f61e8f89aedb1d0852507650533a9e3b10b9bbcc30639f279fcaa86746e1ef52d3edb3c4ad8259920d509bd073605c9bf1d59983752a6b06b817bb4ea78e011d012d59d4
+This python script be used to get a block hash, which matches the expect hash of block #29255
 
-The `master` branch is regularly built (see `doc/build-*.md` for instructions) and tested, but it is not guaranteed to be
-completely stable. [Tags](https://github.com/litecoin-project/litecoin/tags) are created
-regularly from release branches to indicate new official, stable release versions of Litecoin Core.
+import hashlib
+import ltc_scrypt
 
-The https://github.com/litecoin-project/gui repository is used exclusively for the
-development of the GUI. Its master branch is identical in all monotree
-repositories. Release branches and tags do not exist, so please do not fork
-that repository unless it is for development reasons.
+header_hex = "01000000f615f7ce3b4fc6b8f61e8f89aedb1d0852507650533a9e3b10b9bbcc30639f279fcaa86746e1ef52d3edb3c4ad8259920d509bd073605c9bf1d59983752a6b06b817bb4ea78e011d012d59d4"
+header_bin = header_hex.decode('hex')
 
-The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md)
-and useful hints for developers can be found in [doc/developer-notes.md](doc/developer-notes.md).
+# sha256d hash
+hash = hashlib.sha256(hashlib.sha256(header_bin).digest()).digest()
+hash.encode('hex_codec')
+hash[::-1].encode('hex_codec')    # convert from big-endian to little-endian
+# hash = adf6e2e56df692822f5e064a8b6404a05d67cccd64bc90f57f65b46805e9a54b
 
-The developer [mailing list](https://groups.google.com/forum/#!forum/litecoin-dev)
-should be used to discuss complicated or controversial changes before working
-on a patch set.
-
-Developer IRC can be found on Freenode at #litecoin-dev.
-
-Testing
--------
-
-Testing and code review is the bottleneck for development; we get more pull
-requests than we can review and test on short notice. Please be patient and help out by testing
-other people's pull requests, and remember this is a security-critical project where any mistake might cost people
-lots of money.
-
-### Automated Testing
-
-Developers are strongly encouraged to write [unit tests](src/test/README.md) for new code, and to
-submit new unit tests for old code. Unit tests can be compiled and run
-(assuming they weren't disabled in configure) with: `make check`. Further details on running
-and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
-
-There are also [regression and integration tests](/test), written
-in Python, that are run automatically on the build server.
-These tests can be run (if the [test dependencies](/test) are installed) with: `test/functional/test_runner.py`
-
-The Travis CI system makes sure that every pull request is built for Windows, Linux, and macOS, and that unit/sanity tests are run automatically.
-
-### Manual Quality Assurance (QA) Testing
-
-Changes should be tested by somebody other than the developer who wrote the
-code. This is especially important for large or high-risk changes. It is useful
-to add a test plan to the pull request description if testing the changes is
-not straightforward.
-
-Translations
-------------
-
-We only accept translation fixes that are submitted through [Bitcoin Core's Transifex page](https://www.transifex.com/projects/p/bitcoin/).
-Translations are converted to Litecoin periodically.
-
-Translations are periodically pulled from Transifex and merged into the git repository. See the
-[translation process](doc/translation_process.md) for details on how this works.
-
-**Important**: We do not accept translation changes as GitHub pull requests because the next
-pull from Transifex would automatically overwrite them again.
+# scrypt hash
+scrypt = ltc_scrypt.getPoWHash(header_bin)
+scrypt.encode('hex_codec')
+scrypt[::-1].encode('hex_codec')    # convert from big-endian to little-endian
+# scrypt hash = 0000000110c8357966576df46f3b802ca897
