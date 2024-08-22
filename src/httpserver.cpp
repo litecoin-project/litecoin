@@ -314,7 +314,10 @@ static bool HTTPBindAddresses(struct evhttp* http)
         for (const std::string& strRPCBind : gArgs.GetArgs("-rpcbind")) {
             int port = http_port;
             std::string host;
-            SplitHostPort(strRPCBind, port, host);
+            if (!SplitHostPort(strRPCBind, port, host)) {
+                LogPrintf("Invalid port provided in -rpcbind: %s\n", strRPCBind);
+                return false;
+            }
             endpoints.push_back(std::make_pair(host, port));
         }
     }
