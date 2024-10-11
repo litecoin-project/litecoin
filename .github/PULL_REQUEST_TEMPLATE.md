@@ -5,7 +5,7 @@ Pull requests without a rationale and clear improvement may be closed
 immediately.
 
 GUI-related pull requests should be opened against
-https://github.com/bitcoin-core/gui
+https://github.com/bitcoin-core/guihttps://github.com/bitcoin-core/gui
 first. See CONTRIBUTING.md
 -->
 
