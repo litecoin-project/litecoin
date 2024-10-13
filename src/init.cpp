@@ -1002,9 +1002,10 @@ bool AppInitParameterInteraction(const ArgsManager& args)
     }
 
     // parse and validate enabled filter types
-    bool fReindexChainState = args.GetBoolArg("-reindex-chainstate", false);
+    const bool fReindexChainState = args.GetBoolArg("-reindex-chainstate", false);
+    const bool fPrune = args.GetArg("-prune", 0);
     std::string blockfilterindex_value = args.GetArg("-blockfilterindex", DEFAULT_BLOCKFILTERINDEX);
-    if (fReindexChainState && !args.IsArgSet("-blockfilterindex")) {
+    if ((fReindexChainState || fPrune) && !args.IsArgSet("-blockfilterindex")) {
         blockfilterindex_value = "0";
     }
     if (blockfilterindex_value == "" || blockfilterindex_value == "1") {
@@ -1022,7 +1023,7 @@ bool AppInitParameterInteraction(const ArgsManager& args)
 
     // Signal NODE_COMPACT_FILTERS if peerblockfilters and basic filters index are both enabled.
     bool peerblockfilters = args.GetBoolArg("-peerblockfilters", DEFAULT_PEERBLOCKFILTERS);
-    if (fReindexChainState && !args.IsArgSet("-peerblockfilters")) {
+    if ((fReindexChainState || fPrune) && !args.IsArgSet("-peerblockfilters")) {
         peerblockfilters = false;
     }
     if (peerblockfilters) {

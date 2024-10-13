@@ -46,7 +46,7 @@ class CompactFiltersTest(BitcoinTestFramework):
         self.num_nodes = 2
         self.extra_args = [
             ["-blockfilterindex", "-peerblockfilters", "-vbparams=mweb:-2:0"],
-            ["-blockfilterindex", "-vbparams=mweb:-2:0"],
+            ["-blockfilterindex", "-peerblockfilters=0", "-vbparams=mweb:-2:0"],
         ]
 
     def run_test(self):

@@ -7,8 +7,14 @@
 
 #include <primitives/block.h>
 
+#include <functional>
+
 
 class CTxMemPool;
+class BlockValidationState;
+namespace Consensus {
+struct Params;
+};
 
 // Transaction compression schemes for compact block relay can be introduced by writing
 // an actual formatter here.
@@ -137,6 +143,11 @@ protected:
 public:
     CBlockHeader header;
     MWEB::Block mweb_block;
+
+    // Can be overriden for testing
+    using CheckBlockFn = std::function<bool(const CBlock&, BlockValidationState&, const Consensus::Params&, bool, bool)>;
+    CheckBlockFn m_check_block_mock{nullptr};
+
     explicit PartiallyDownloadedBlock(CTxMemPool* poolIn, const MWEB::Block& mweb_blockIn) : pool(poolIn), mweb_block(mweb_blockIn) {}
 
     // extra_txn is a list of extra transactions to look at, in <witness hash, reference> form

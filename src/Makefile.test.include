@@ -84,6 +84,7 @@ FUZZ_TARGETS = \
   test/fuzz/parse_script \
   test/fuzz/parse_univalue \
   test/fuzz/partial_merkle_tree_deserialize \
+  test/fuzz/partially_downloaded_block.cpp \
   test/fuzz/partially_signed_transaction_deserialize \
   test/fuzz/policy_estimator \
   test/fuzz/policy_estimator_io \
