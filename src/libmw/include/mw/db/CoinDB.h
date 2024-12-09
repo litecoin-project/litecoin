@@ -35,12 +35,6 @@ public:
 	//
     void RemoveUTXOs(const std::vector<mw::Hash>& output_ids);
 
-	//
-	// Removes all of the UTXOs from the database.
-	// This is useful when resyncing the chain.
-	//
-	void RemoveAllUTXOs();
-
 private:
 	std::unique_ptr<Database> m_pDatabase;
 };

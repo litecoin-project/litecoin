@@ -673,7 +673,7 @@ RPCHelpMan listunspent()
         entry.pushKV("amount", ValueFromAmount(output_coin.GetValue()));
         entry.pushKV("confirmations", output_coin.GetDepth());
         entry.pushKV("spendable", output_coin.IsSpendable());
-        entry.pushKV("safe", true); // MW: TODO - Add an IsSafe() method
+        entry.pushKV("safe", output_coin.IsSafe());
         if (fValidAddress) {
             entry.pushKV("address", EncodeDestination(address));
 

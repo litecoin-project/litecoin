@@ -179,12 +179,14 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
         const CAmount nTarget = CalcSelectionTarget(tx_type);
         CoinsResult available_coins_mut = available_coins;
 
-        LogPrintf("DEBUG: Selection target: %s, Change on MWEB: %i\n", FormatMoney(nTarget), ChangeBuilder::ChangeBelongsOnMWEB(GetTxType(), m_coin_control.destChange));
+        LogPrintf("DEBUG: Selection target: %s, Change on MWEB: %i, tx_type: %d\n", FormatMoney(nTarget), ChangeBuilder::ChangeBelongsOnMWEB(tx_type, m_coin_control.destChange), (int)tx_type);
         return SelectCoins(m_wallet, available_coins_mut, nTarget, m_coin_control, m_selection_params);
     };
     
     // MW: TODO - Handle manually selected inputs that conflict with TxType
     if (!m_recipients.MWEB().empty()) {
+        // MW: TODO - Fail if LTC change is set, or make it work properly
+
         // First try to construct an MWEB-to-MWEB transaction
         std::optional<SelectionResult> mweb_to_mweb_result = select_by_type(TxType::MWEB_TO_MWEB);
         if (mweb_to_mweb_result.has_value()) {
@@ -206,21 +208,18 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
             return *ltc_to_ltc_result;
         }
 
-        // Only supports pegging-out to one address
-        if (m_recipients.size() <= 1) {
-            // If LTC-to-LTC fails, try a simple peg-out transaction (MWEB->LTC)
-            std::optional<SelectionResult> mweb_to_ltc_result = select_by_type(TxType::PEGOUT);
-            if (mweb_to_ltc_result.has_value()) {
-                LogPrintf("DEBUG: PEGOUT\n");
-                return *mweb_to_ltc_result;
-            }
+        // If LTC-to-LTC fails, try a simple peg-out transaction (MWEB->LTC)
+        std::optional<SelectionResult> mweb_to_ltc_result = select_by_type(TxType::PEGOUT);
+        if (mweb_to_ltc_result.has_value()) {
+            LogPrintf("DEBUG: PEGOUT\n");
+            return *mweb_to_ltc_result;
+        }
 
-            // If simple peg-out fails, try a complex peg-out transaction (LTC->MWEB->LTC)
-            std::optional<SelectionResult> pegin_pegout_result =  select_by_type(TxType::PEGIN_PEGOUT);
-            if (pegin_pegout_result.has_value()) {
-                LogPrintf("DEBUG: PEGIN_PEGOUT\n");
-                return *pegin_pegout_result;
-            }
+        // If simple peg-out fails, try a complex peg-out transaction (LTC->MWEB->LTC)
+        std::optional<SelectionResult> pegin_pegout_result =  select_by_type(TxType::PEGIN_PEGOUT);
+        if (pegin_pegout_result.has_value()) {
+            LogPrintf("DEBUG: PEGIN_PEGOUT\n");
+            return *pegin_pegout_result;
         }
     }
 

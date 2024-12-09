@@ -32,12 +32,13 @@ public:
     //
     // Constructors
     //
-    Input(uint8_t features, mw::Hash output_id, Commitment commitment, PublicKey input_pubkey, PublicKey output_pubkey, Signature signature)
+    Input(uint8_t features, mw::Hash output_id, Commitment commitment, PublicKey input_pubkey, PublicKey output_pubkey, std::vector<uint8_t> extradata, Signature signature)
         : m_features(features),
         m_outputID(std::move(output_id)),
         m_commitment(std::move(commitment)),
         m_inputPubKey(std::move(input_pubkey)),
         m_outputPubKey(std::move(output_pubkey)),
+        m_extraData(std::move(extradata)),
         m_signature(std::move(signature))
     {
         m_hash = Hashed(*this);

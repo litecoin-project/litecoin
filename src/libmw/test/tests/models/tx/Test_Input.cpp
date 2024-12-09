@@ -15,8 +15,9 @@ BOOST_AUTO_TEST_CASE(PlainTxInput)
     Commitment commit = Commitment::Random();
     PublicKey input_pubkey = PublicKey::Random();
     PublicKey output_pubkey = PublicKey::Random();
+    std::vector<uint8_t> extradata{};
     Signature signature(SecretKey64::Random().GetBigInt());
-    Input input(1, output_id, commit, input_pubkey, output_pubkey, signature);
+    Input input(1, output_id, commit, input_pubkey, output_pubkey, extradata, signature);
 
     //
     // Serialization
@@ -60,6 +61,7 @@ BOOST_AUTO_TEST_CASE(PlainTxInput)
         BOOST_REQUIRE(input.GetCommitment() == commit);
         BOOST_REQUIRE(*input.GetInputPubKey() == input_pubkey);
         BOOST_REQUIRE(input.GetOutputPubKey() == output_pubkey);
+        BOOST_REQUIRE(input.GetExtraData().empty());
         BOOST_REQUIRE(input.GetSignature() == signature);
     }
 

@@ -45,10 +45,6 @@ BOOST_AUTO_TEST_CASE(LeafDBTest)
     ldb.Remove({leaf2.GetLeafIndex()});
     BOOST_REQUIRE(ldb.Get(mmr::LeafIndex::At(1)) == nullptr);
 
-    ldb.RemoveAll();
-    BOOST_REQUIRE(ldb.Get(mmr::LeafIndex::At(0)) == nullptr);
-    BOOST_REQUIRE(ldb.Get(mmr::LeafIndex::At(2)) == nullptr);
-
     ldb.Add({leaf2});
     pLeaf = ldb.Get(mmr::LeafIndex::At(1));
     BOOST_REQUIRE(pLeaf->GetHash() == leaf2.GetHash());

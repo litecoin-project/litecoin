@@ -40,8 +40,3 @@ void CoinDB::RemoveUTXOs(const std::vector<mw::Hash>& output_ids)
         m_pDatabase->Delete(UTXO_TABLE, output_id.ToHex());
     }
 }
-
-void CoinDB::RemoveAllUTXOs()
-{
-    m_pDatabase->DeleteAll(UTXO_TABLE);
-}

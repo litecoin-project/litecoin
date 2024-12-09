@@ -72,6 +72,7 @@ public:
     //
     // Traits
     //
+    std::string ToHex() const { return HexStr(m_bytes); }
     std::string Format() const final { return HexStr(m_bytes); }
     const mw::Hash& GetHash() const noexcept final { return m_hash; }
 

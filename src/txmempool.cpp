@@ -798,6 +798,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         innerUsage += memusage::DynamicUsage(it->GetMemPoolParentsConst()) + memusage::DynamicUsage(it->GetMemPoolChildrenConst());
         CTxMemPoolEntry::Parents setParentCheck;
         for (const GenericInput& input : tx.GetInputs()) {
+            LogPrintf("DEBUG: Checking input %s\n", input.ToString());
             // Check that every mempool transaction's inputs refer to available coins, or other mempool tx's.
             auto opt_it2 = GetIter(input.GetID());
             if (opt_it2) {

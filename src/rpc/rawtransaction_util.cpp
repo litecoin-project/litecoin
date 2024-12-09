@@ -125,11 +125,18 @@ CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniVal
                 throw JSONRPCError(RPC_INVALID_PARAMETER, std::string("Invalid parameter, duplicated address: ") + name_);
             }
 
-            CScript scriptPubKey = GetScriptForDestination(destination);
+            GenericAddress address(destination);
             CAmount nAmount = AmountFromValue(outputs[name_]);
 
-            CTxOut out(nAmount, scriptPubKey);
-            rawTx.vout.push_back(out);
+            if (address.IsMWEB()) {
+                mw::MutableOutput mweb_output;
+                mweb_output.address = address.GetMWEBAddress();
+                mweb_output.amount = nAmount;
+                rawTx.mweb_tx.outputs.push_back(std::move(mweb_output));
+            } else {
+                CTxOut out(nAmount, address.GetScript());
+                rawTx.vout.push_back(out);
+            }
         }
     }
 

@@ -7,6 +7,7 @@
 
 #include <consensus/amount.h>
 #include <mweb/mweb_wallet.h>
+#include <wallet/componentid.h>
 #include <wallet/ismine.h>
 #include <wallet/transaction.h>
 #include <wallet/wallet.h>
@@ -40,7 +41,7 @@ struct COutputEntry
 {
     CTxDestination destination;
     CAmount amount;
-    GenericOutputID output_id;
+    GenericComponentID component_id;
 };
 void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
                         std::list<COutputEntry>& listReceived,

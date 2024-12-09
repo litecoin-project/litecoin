@@ -44,7 +44,6 @@ public:
     virtual ~DBWrapper() = default;
 
     virtual bool Read(const std::string& key, std::vector<uint8_t>& value) const = 0;
-    virtual std::unique_ptr<DBIterator> NewIterator() = 0;
     virtual std::unique_ptr<DBBatch> CreateBatch() = 0;
 };
 

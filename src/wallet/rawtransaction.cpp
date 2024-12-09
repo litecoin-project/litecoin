@@ -281,16 +281,16 @@ PartiallySignedTransaction RawTransaction::ToPSBT(const CWallet& wallet) const
     // First fill transaction with our data without signing,
     // so external signers are not asked sign more than once.
     bool complete;
-    LogPrintf("ToPSBT() - Calling FillPSBT(sign=false, finalize=true)\n");
+    LogPrintf("DEBUG: ToPSBT() - Calling FillPSBT(sign=false, finalize=true)\n");
     wallet.FillPSBT(psbtx, complete, SIGHASH_DEFAULT, false, true);
-    LogPrintf("ToPSBT() - Calling FillPSBT(sign=true, finalize=false)\n");
+    LogPrintf("DEBUG: ToPSBT() - Calling FillPSBT(sign=true, finalize=false)\n");
     const TransactionError err{wallet.FillPSBT(psbtx, complete, SIGHASH_DEFAULT, true, false)};
     if (err != TransactionError::OK) {
-        LogPrintf("ToPSBT() - Signed with error\n");
+        LogPrintf("DEBUG: ToPSBT() - Signed with error\n");
         throw JSONRPCTransactionError(err);
     }
 
-    LogPrintf("ToPSBT() - Signed successfully\n");
+    LogPrintf("DEBUG: ToPSBT() - Signed successfully\n");
     return psbtx;
 }
 

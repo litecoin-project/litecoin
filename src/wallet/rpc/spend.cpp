@@ -79,13 +79,13 @@ static void InterpretFeeEstimationInstructions(const UniValue& conf_target, cons
 
 static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const UniValue& options, const RawTransaction& rawTx)
 {
-    LogPrintf("FinishTransaction - BEGIN\n");
+    LogPrintf("DEBUG: BEGIN\n");
     PartiallySignedTransaction psbtx = rawTx.ToPSBT(*pwallet);
-    LogPrintf("FinishTransaction - PSBT created\n");
+    LogPrintf("DEBUG: PSBT created\n");
 
     util::Result<CMutableTransaction> finalize_result = FinalizePSBT(psbtx);
     const bool complete = finalize_result.has_value();
-    LogPrintf("FinishTransaction - PSBT finalized. Complete: %d\n", complete ? 1 : 0);
+    LogPrintf("DEBUG: PSBT finalized. Complete: %d\n", complete ? 1 : 0);
 
     UniValue result(UniValue::VOBJ);
 
@@ -100,7 +100,16 @@ static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const 
 
     if (complete) {
         CMutableTransaction mtx = finalize_result.value();
-        LogPrintf("FinishTransaction - MWEB IsFinal: %d, MWEB finalized: %d\n", mtx.mweb_tx.IsFinal() ? 1 : 0, mtx.mweb_tx.Finalized().has_value() ? 1 : 0);
+        LogPrintf("DEBUG: MWEB IsFinal: %d, MWEB finalized: %d\n", mtx.mweb_tx.IsFinal() ? 1 : 0, mtx.mweb_tx.Finalized().has_value() ? 1 : 0);
+        for (const auto& input : mtx.mweb_tx.inputs) {
+            LogPrintf("DEBUG: MWEB input IsFinal: %d\n", input.IsFinal());
+        }
+        for (const auto& output : mtx.mweb_tx.outputs) {
+            LogPrintf("DEBUG: MWEB output IsFinal: %d\n", output.IsFinal());
+        }
+        for (const auto& kernel : mtx.mweb_tx.kernels) {
+            LogPrintf("DEBUG: MWEB kernel IsFinal: %d\n", kernel.IsFinal());
+        }
 
         CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
         std::string hex{EncodeHexTx(*tx)};

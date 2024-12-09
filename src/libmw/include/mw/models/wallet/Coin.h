@@ -55,7 +55,7 @@ struct Coin : public Traits::ISerializable {
     CAmount amount;
 
     // The output's ID (hash).
-    mw::Hash output_id;
+    mw::Hash output_id; // MW: TODO - We should really just store the whole Output (without the rangeproof)
 
     // The ephemeral private key used by the sender to create the output.
     // This will only be populated when the coin has flag HAS_SENDER_INFO.

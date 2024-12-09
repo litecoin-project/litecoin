@@ -396,7 +396,7 @@ public:
     using ScriptPubKeyMan::ScriptPubKeyMan;
 
     util::Result<CTxDestination> GetNewDestination(const OutputType type) override;
-    isminetype IsMine(const GenericAddress& script) const override;
+    isminetype IsMine(const GenericAddress& address) const override;
 
     bool CheckDecryptionKey(const CKeyingMaterial& master_key, bool accept_no_keys = false) override;
     bool Encrypt(const CKeyingMaterial& master_key, WalletBatch* batch) override;
@@ -407,7 +407,7 @@ public:
 
     bool TopUp(unsigned int size = 0) override;
 
-    std::vector<WalletDestination> MarkUnusedAddresses(const GenericAddress& script) override;
+    std::vector<WalletDestination> MarkUnusedAddresses(const GenericAddress& address) override;
 
     //! Upgrade stored CKeyMetadata objects to store key origin info as KeyOriginInfo
     void UpgradeKeyMetadata();
@@ -627,7 +627,7 @@ public:
     mutable RecursiveMutex cs_desc_man;
 
     util::Result<CTxDestination> GetNewDestination(const OutputType type) override;
-    isminetype IsMine(const GenericAddress& script) const override;
+    isminetype IsMine(const GenericAddress& address) const override;
 
     bool CheckDecryptionKey(const CKeyingMaterial& master_key, bool accept_no_keys = false) override;
     bool Encrypt(const CKeyingMaterial& master_key, WalletBatch* batch) override;

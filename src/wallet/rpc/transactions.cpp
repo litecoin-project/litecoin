@@ -369,10 +369,12 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
                 entry.pushKV("label", address_book_entry->GetLabel());
             }
 
-            if (s.output_id.IsOutPoint()) {
-                entry.pushKV("vout", (int)s.output_id.ToOutPoint().n);
-            } else if (!s.output_id.ToMWEB().IsZero()) { // MW: TODO - When would this be Zero?
-                entry.pushKV("mweb_out", s.output_id.ToMWEB().ToHex());
+            if (s.component_id.IsOutPoint()) {
+                entry.pushKV("vout", (int)s.component_id.ToOutPoint().n);
+            } else if (s.component_id.IsMWEBOutputID()) {
+                entry.pushKV("mweb_out", s.component_id.ToMWEBOutputID().ToHex());
+            } else if (s.component_id.IsPegoutIndex()) {
+                entry.pushKV("pegout", s.component_id.ToPegoutIndex().ToString());
             }
 
             entry.pushKV("fee", ValueFromAmount(-nFee));
@@ -401,10 +403,10 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
             }
             MaybePushAddress(entry, r.destination);
 
-            GenericAddress output_address;
-            if (wallet.ExtractOutputAddress(wtx, r.output_id, output_address)) {
-                PushParentDescriptors(wallet, output_address, entry);
+            if (!std::holds_alternative<CNoDestination>(r.destination)) {
+                PushParentDescriptors(wallet, GenericAddress(r.destination), entry);
             }
+
             if (wtx.IsCoinBase() || wtx.IsHogEx())
             {
                 if (wallet.GetTxDepthInMainChain(wtx) < 1)
@@ -425,10 +427,12 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
                 entry.pushKV("label", label);
             }
             
-            if (r.output_id.IsOutPoint()) {
-                entry.pushKV("vout", (int)r.output_id.ToOutPoint().n);
-            } else {
-                entry.pushKV("mweb_out", r.output_id.ToMWEB().ToHex());
+            if (r.component_id.IsOutPoint()) {
+                entry.pushKV("vout", (int)r.component_id.ToOutPoint().n);
+            } else if (r.component_id.IsMWEBOutputID()) {
+                entry.pushKV("mweb_out", r.component_id.ToMWEBOutputID().ToHex());
+            } else if (r.component_id.IsPegoutIndex()) {
+                entry.pushKV("pegout", r.component_id.ToPegoutIndex().ToString());
             }
 
             if (fLong)
@@ -845,6 +849,7 @@ RPCHelpMan gettransaction()
                                 {RPCResult::Type::STR, "label", /*optional=*/true, "A comment for the address/transaction, if any"},
                                 {RPCResult::Type::NUM, "vout", /*optional=*/true, "the vout value"},
                                 {RPCResult::Type::STR_HEX, "mweb_out", /*optional=*/true, "the MWEB output commitment"},
+                                {RPCResult::Type::STR, "pegout", /*optional=*/true, "the MWEB pegout index"},
                                 {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The amount of the fee in " + CURRENCY_UNIT + ". This is negative and only available for the \n"
                                     "'send' category of transactions."},
                                 {RPCResult::Type::BOOL, "abandoned", /*optional=*/true, "'true' if the transaction has been abandoned (inputs are respendable). Only available for the \n"

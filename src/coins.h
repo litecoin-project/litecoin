@@ -97,6 +97,7 @@ public:
 };
 
 // A UTXO that could be either an 'mw::UTXO' or a canonical 'Coin'.
+// MW: TODO - We should rename mw::UTXO to mw::Coin, and rename the wallet's mw::Coin to mw::WalletCoin or something.
 class GenericCoin
 {
     std::variant<std::pair<COutPoint, Coin>, mw::UTXO::CPtr> m_coin;

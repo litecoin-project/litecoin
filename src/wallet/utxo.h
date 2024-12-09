@@ -156,6 +156,12 @@ struct GenericWalletUTXO
         return std::get<CWalletUTXO>(m_output).solvable;
     }
 
+    bool IsSafe() const
+    {
+        if (IsMWEB()) return true;
+        return std::get<CWalletUTXO>(m_output).safe;
+    }
+
     bool GetDestination(CTxDestination& dest) const
     {
         if (IsMWEB()) {

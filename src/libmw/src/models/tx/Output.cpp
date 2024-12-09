@@ -57,7 +57,7 @@ Output Output::Create(
 
     OutputMessage message{features, Ke, view_tag, mv, mn};
 
-    // Probably best to store sender_key so sender can identify all outputs they've sent?
+    // MW: TODO - Probably best to store sender_key so sender can identify all outputs they've sent?
     RangeProof::CPtr pRangeProof = Bulletproofs::Generate(
         value,
         SecretKey(blind.vec()),

@@ -452,6 +452,40 @@ BOOST_AUTO_TEST_CASE(ismine_standard)
         BOOST_CHECK_EQUAL(result, ISMINE_NO);
         BOOST_CHECK(keystore.GetLegacyScriptPubKeyMan()->GetScriptPubKeys().count(scriptPubKey) == 0);
     }
+
+    // MWEB addresses
+    {
+        CWallet keystore(chain.get(), "", m_args, CreateDummyWalletDatabase());
+        keystore.SetupLegacyScriptPubKeyMan();
+        LOCK(keystore.GetLegacyScriptPubKeyMan()->cs_KeyStore);
+        bilingual_str error_str;
+        BOOST_CHECK(keystore.UpgradeWallet(FEATURE_PRE_SPLIT_KEYPOOL, error_str));
+        wallet::CHDChain hd_chain;
+        hd_chain.mweb_scan_key = SecretKey(keys[1].begin());
+        keystore.GetLegacyScriptPubKeyMan()->AddHDChain(hd_chain);
+        keystore.GetLegacyScriptPubKeyMan()->LoadMWEBKeychain();
+        BOOST_CHECK(keystore.GetLegacyScriptPubKeyMan()->GetScanSecret() == *hd_chain.mweb_scan_key);
+
+        PublicKey address_spend_key = PublicKey::From(SecretKey(keys[0].begin()));
+        PublicKey address_scan_key = address_spend_key.Mul(*hd_chain.mweb_scan_key);
+        StealthAddress mweb_address(address_scan_key, address_spend_key);
+
+        // Keystore does not have key
+        result = keystore.GetLegacyScriptPubKeyMan()->IsMine(mweb_address);
+        BOOST_CHECK_EQUAL(result, ISMINE_NO);
+        BOOST_CHECK(keystore.GetLegacyScriptPubKeyMan()->GetScriptPubKeys().count(mweb_address) == 0);
+
+        // Keystore has key
+        BOOST_CHECK(keystore.GetLegacyScriptPubKeyMan()->AddKey(keys[0]));
+
+        // GetScriptPubKeys only returns MWEB addresses for pubkeys with an mweb_index in their metadata
+        wallet::CKeyMetadata metadata;
+        metadata.key_origin.hdkeypath.mweb_index = 1;
+        keystore.GetLegacyScriptPubKeyMan()->LoadKeyMetadata(keys[0].GetPubKey().GetID(), metadata);
+        result = keystore.GetLegacyScriptPubKeyMan()->IsMine(mweb_address);
+        BOOST_CHECK_EQUAL(result, ISMINE_SPENDABLE);
+        BOOST_CHECK(keystore.GetLegacyScriptPubKeyMan()->GetScriptPubKeys().count(mweb_address) == 1);
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

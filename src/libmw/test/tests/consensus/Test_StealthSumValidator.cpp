@@ -30,6 +30,7 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
         Commitment::Random(),               // commitment
         PublicKey::From(input1_key),        // input pubkey
         PublicKey::From(input1_output_key), // output pubkey
+        std::vector<uint8_t>{},             // extradata
         Signature()                         // input signature
     );
     inputs.push_back(std::move(input1));
@@ -42,6 +43,7 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
         Commitment::Random(),               // commitment
         PublicKey::From(input2_key),        // input pubkey
         PublicKey::From(input2_output_key), // output pubkey
+        std::vector<uint8_t>{},             // extradata
         Signature()                         // input signature
     );
     inputs.push_back(std::move(input2));

@@ -4,7 +4,8 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Basic MWEB Wallet test"""
 
-from test_framework.test_framework import LitecoinTestFramework
+from typing import List
+from test_framework.test_framework import LitecoinTestFramework, TestNode
 from test_framework.util import assert_equal
 
 class MWEBWalletBasicTest(LitecoinTestFramework):
@@ -15,7 +16,8 @@ class MWEBWalletBasicTest(LitecoinTestFramework):
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
-
+       
+    # MW: TODO - Run test twice, once with 'sendtoaddress', and once with just 'send'
     def run_test(self):
         node0 = self.nodes[0]
         node1 = self.nodes[1]
@@ -122,6 +124,7 @@ class MWEBWalletBasicTest(LitecoinTestFramework):
 
         # TODO: Conflicting txs
         # TODO: Duplicate hash
+
 
 if __name__ == '__main__':
     MWEBWalletBasicTest().main()

@@ -2,6 +2,7 @@
 
 #include <dbwrapper.h>
 #include <mw/interfaces/db_interface.h>
+#include <span.h>
 
 namespace MWEB {
 
@@ -69,11 +70,6 @@ public:
     bool Read(const std::string& key, std::vector<uint8_t>& value) const final
     {
         return m_pDB->Read(key, value);
-    }
-
-    std::unique_ptr<mw::DBIterator> NewIterator() final
-    {
-        return std::unique_ptr<mw::DBIterator>(new MWEB::DBIterator(m_pDB->NewIterator()));
     }
 
     std::unique_ptr<mw::DBBatch> CreateBatch() final

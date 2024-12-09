@@ -134,7 +134,6 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
 {
     SignTxResult result{};
     if (tx.mweb_tx.IsNull()) {
-        LOG_INFO("DEBUG: mw::MutableTx IsNull");
         return result;
     }
 

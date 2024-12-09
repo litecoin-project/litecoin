@@ -83,7 +83,7 @@ struct MutableInput {
     std::optional<Input> Finalized() const noexcept
     {
         if (IsFinal()) {
-            return Input(*features, output_id, *commitment, *input_pubkey, *output_pubkey, *signature); // MW: TODO - Include extradata
+            return Input(*features, output_id, *commitment, *input_pubkey, *output_pubkey, extradata, *signature);
         }
 
         return std::nullopt;
@@ -103,22 +103,12 @@ struct MutableInput {
 };
 
 struct MutableOutput {
-    // MW: TODO: Could probably just be an optional Output and optional Recipient
     std::optional<Commitment> commitment{};
     std::optional<PublicKey> sender_pubkey{};
     std::optional<PublicKey> receiver_pubkey{};
     std::optional<mw::OutputMessage> message{};
     std::optional<RangeProof::CPtr> proof{};
     std::optional<Signature> signature{};
-
-    /*
-    std::optional<uint8_t> features;
-    std::optional<PublicKey> key_exchange_pubkey;
-    std::optional<uint8_t> view_tag;
-    std::optional<uint64_t> masked_value;
-    std::optional<BigInt<16>> masked_nonce;
-    std::vector<uint8_t> extra_data;
-    */
 
     std::optional<CAmount> amount{};
     std::optional<StealthAddress> address{};

@@ -41,8 +41,3 @@ void LeafDB::Remove(const std::vector<mmr::LeafIndex>& indices)
         m_pDatabase->Delete(m_prefix, std::to_string(idx.Get()));
     }
 }
-
-void LeafDB::RemoveAll()
-{
-    m_pDatabase->DeleteAll(m_prefix);
-}

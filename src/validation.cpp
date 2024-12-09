@@ -751,6 +751,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     for (const GenericInput& txin : tx.GetInputs())
     {
         const CTransaction* ptxConflicting = m_pool.GetConflictTx(txin.GetID());
+        LogPrintf("DEBUG: PreChecks - Checking input: %s - Conflicting=%s\n", txin.ToString(), ptxConflicting == nullptr ? "NO" : "YES");
         if (ptxConflicting) {
             if (!args.m_allow_replacement) {
                 // Transaction conflicts with a mempool tx, but we're not allowing replacements.
@@ -3526,10 +3527,6 @@ bool CheckBlock(const CBlock& block, BlockValidationState& state, const Consensu
     }
     if (nSigOps * WITNESS_SCALE_FACTOR > MAX_BLOCK_SIGOPS_COST)
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-blk-sigops", "out-of-bounds SigOpCount");
-
-    if (!MWEB::Node::CheckBlock(block, state)) {
-        return false;
-    }
 
     if (fCheckPOW && fCheckMerkleRoot)
         block.fChecked = true;

@@ -165,7 +165,6 @@ bool WalletBatch::WriteCScript(const uint160& hash, const CScript& redeemScript)
 
 bool WalletBatch::WriteMWEBCoin(const mw::Coin& coin)
 {
-    // MW: TODO - Handle multiple coins with matching output IDs
     return WriteIC(std::make_pair(DBKeys::COIN, coin.output_id), coin, true);
 }
 
@@ -415,55 +414,46 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
         } else if (strType == DBKeys::TX) {
             uint256 hash;
             ssKey >> hash;
-            // LoadToWallet call below creates a new CWalletTx that fill_wtx
-            // callback fills with transaction metadata.
-            auto fill_wtx = [&](CWalletTx& wtx, bool new_tx) {
-                if(!new_tx) {
-                    // There's some corruption here since the tx we just tried to load was already in the wallet.
-                    // We don't consider this type of corruption critical, and can fix it by removing tx data and
-                    // rescanning.
-                    wss.tx_corrupt = true;
+            CWalletTx wtx(nullptr, TxStateInactive{}, std::nullopt);
+            ssValue >> wtx;
+
+            if (wtx.GetHash() != hash) {
+                // We previously calculated hash for mweb_wtx_info in an impractical way.
+                // We changed to just using the output ID as hash, so need to upgrade any existing txs.
+                if (wtx.mweb_wtx_info) {
+                    wss.vWalletRemove.push_back(hash);
+                    wss.vWalletUpgrade.push_back(wtx.GetHash());
+                } else {
                     return false;
                 }
-                ssValue >> wtx;
-                if (wtx.GetHash() != hash) {
-					// We previously calculated hash for mweb_wtx_info in an impractical way.
-					// We changed to just using the output ID as hash, so need to upgrade any existing txs.
-                    if (wtx.mweb_wtx_info) {
-                        wss.vWalletRemove.push_back(hash);
-                        wss.vWalletUpgrade.push_back(wtx.GetHash());
-                    } else {
-                        return false;
-                    }
+            }
+
+            // Undo serialize changes in 31600
+            if (31404 <= wtx.fTimeReceivedIsTxTime && wtx.fTimeReceivedIsTxTime <= 31703) {
+                if (!ssValue.empty()) {
+                    uint8_t fTmp;
+                    uint8_t fUnused;
+                    std::string unused_string;
+                    ssValue >> fTmp >> fUnused >> unused_string;
+                    strErr = strprintf("LoadWallet() upgrading tx ver=%d %d %s",
+                                       wtx.fTimeReceivedIsTxTime, fTmp, hash.ToString());
+                    wtx.fTimeReceivedIsTxTime = fTmp;
+                } else {
+                    strErr = strprintf("LoadWallet() repairing tx ver=%d %s", wtx.fTimeReceivedIsTxTime, hash.ToString());
+                    wtx.fTimeReceivedIsTxTime = 0;
                 }
+                wss.vWalletUpgrade.push_back(hash);
+            }
 
-                // Undo serialize changes in 31600
-                if (31404 <= wtx.fTimeReceivedIsTxTime && wtx.fTimeReceivedIsTxTime <= 31703)
-                {
-                    if (!ssValue.empty())
-                    {
-                        uint8_t fTmp;
-                        uint8_t fUnused;
-                        std::string unused_string;
-                        ssValue >> fTmp >> fUnused >> unused_string;
-                        strErr = strprintf("LoadWallet() upgrading tx ver=%d %d %s",
-                                           wtx.fTimeReceivedIsTxTime, fTmp, hash.ToString());
-                        wtx.fTimeReceivedIsTxTime = fTmp;
-                    }
-                    else
-                    {
-                        strErr = strprintf("LoadWallet() repairing tx ver=%d %s", wtx.fTimeReceivedIsTxTime, hash.ToString());
-                        wtx.fTimeReceivedIsTxTime = 0;
-                    }
-                    wss.vWalletUpgrade.push_back(hash);
-                }
+            if (wtx.nOrderPos == -1) {
+                wss.fAnyUnordered = true;
+            }
 
-                if (wtx.nOrderPos == -1)
-                    wss.fAnyUnordered = true;
-
-                return true;
-            };
-            if (!pwallet->LoadToWallet(hash, fill_wtx)) {
+            if (!pwallet->LoadToWallet(wtx)) {
+                // There's some corruption here since the tx we just tried to load was already in the wallet.
+                // We don't consider this type of corruption critical, and can fix it by removing tx data and
+                // rescanning.
+                wss.tx_corrupt = true;
                 return false;
             }
         } else if (strType == DBKeys::COIN) {

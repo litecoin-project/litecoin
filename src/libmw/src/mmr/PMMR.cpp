@@ -93,8 +93,6 @@ uint64_t PMMR::GetNumNodes() const noexcept
 
 void PMMR::Rewind(const uint64_t numLeaves)
 {
-    LOG_TRACE("Rewinding to {}", numLeaves);
-
     LeafIndex next_leaf_idx = LeafIndex::At(numLeaves);
     uint64_t pos = next_leaf_idx.GetPosition();
     if (m_pPruneList) {
@@ -110,8 +108,6 @@ void PMMR::BatchWrite(
     const std::vector<Leaf>& leaves,
     const std::unique_ptr<mw::DBBatch>& pBatch)
 {
-    LOG_TRACE("Writing batch {} with first leaf {}", file_index, firstLeafIdx.Get());
-
     Rewind(firstLeafIdx.Get());
     for (const Leaf& leaf : leaves) {
         AddLeaf(leaf);

@@ -12,7 +12,7 @@
 
 /** The maximum allowed size for a serialized block, in bytes (only for buffer size limits) */
 static const unsigned int MAX_BLOCK_SERIALIZED_SIZE = 4000000;
-/** MWEB: The maximum size of an MWEB block is just over 11 MB, plus 4 MB for a full segwit block. Add a ~1 MB buffer just to be safe. */
+/** MWEB: The maximum size of an MWEB block is just over 11 MB, plus 4 MB for a full segwit block. */
 static const unsigned int MAX_BLOCK_SERIALIZED_SIZE_WITH_MWEB = MAX_BLOCK_SERIALIZED_SIZE + mw::MAX_BLOCK_BYTES;
 /** The maximum allowed weight for a block, see BIP 141 (network rule) */
 static const unsigned int MAX_BLOCK_WEIGHT = 4000000;

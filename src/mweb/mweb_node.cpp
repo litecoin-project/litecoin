@@ -13,7 +13,7 @@
 
 using namespace MWEB;
 
-bool Node::CheckBlock(const CBlock& block, BlockValidationState& state)
+bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& consensus_params, const ChainstateManager& chainman, const CBlockIndex* pindexPrev, BlockValidationState& state)
 {
     // HasMWEBTx() is true only when mweb txs being shared outside of a block (for use by mempools).
     // Blocks themselves do not store mweb txs like normal txs.
@@ -25,11 +25,6 @@ bool Node::CheckBlock(const CBlock& block, BlockValidationState& state)
         }
     }
 
-    return true;
-}
-
-bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& consensus_params, const ChainstateManager& chainman, const CBlockIndex* pindexPrev, BlockValidationState& state)
-{
     // If MWEB is enabled, we must have an mweb_block. If it's not enabled, we must not have an MWEB block.
     if (!DeploymentActiveAfter(pindexPrev, chainman, Consensus::DEPLOYMENT_MWEB)) {
         // No MWEB data is allowed in blocks that don't commit to MWEB data, as this would otherwise leave room for spam
@@ -40,18 +35,6 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
         return true;
     } else if (block.mweb_block.IsNull()) {
         return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-missing", "MWEB activated but extension block not found");
-    }
-
-    // Validate each transaction in the block.
-    for (const auto& tx : block.vtx) {
-        // Verify that there are no pegin outputs in the coinbase or HogEx transactions.
-        if (tx->IsCoinBase() || tx->IsHogEx()) {
-            for (const CTxOut& out : tx->vout) {
-                if (out.scriptPubKey.IsMWEBPegin()) {
-                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-tx-unexpected-pegin", "Pegin found in coinbase or HogEx");
-                }
-            }
-        }
     }
 
     // Last transaction must be marked as HogEx.
@@ -65,6 +48,18 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
     for (size_t i = 0; i < block.vtx.size() - 1; i++) {
         if (block.vtx[i]->IsHogEx()) {
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-hogex-position", "hogex in wrong position");
+        }
+    }
+
+    // Validate each transaction in the block.
+    for (const auto& tx : block.vtx) {
+        // Verify that there are no pegin outputs in the coinbase or HogEx transactions.
+        if (tx->IsCoinBase() || tx->IsHogEx()) {
+            for (const CTxOut& out : tx->vout) {
+                if (out.scriptPubKey.IsMWEBPegin()) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-tx-unexpected-pegin", "Pegin found in coinbase or HogEx");
+                }
+            }
         }
     }
 
@@ -254,6 +249,7 @@ bool Node::CheckTransaction(const CTransaction& tx, TxValidationState& state)
         try {
             tx.mweb_tx.m_transaction->Validate();
         } catch (const std::exception& e) {
+            LogPrintf("DEBUG: MWEB transaction validation failed with error - %s\n", e.what());
             return state.Invalid(TxValidationResult::TX_WITNESS_MUTATED, "bad-mweb-txn");
         }
     }

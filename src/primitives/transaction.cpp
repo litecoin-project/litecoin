@@ -73,10 +73,11 @@ uint256 CMutableTransaction::GetHash() const
 uint256 CTransaction::ComputeHash() const
 {
     if (IsMWEBOnly()) {
-        const auto& kernels = mweb_tx.m_transaction->GetKernels();
-        if (!kernels.empty()) {
-            return uint256(kernels.front().GetHash().vec());
-        }
+        return uint256(mweb_tx.m_transaction->GetHash().vec());
+        //const auto& kernels = mweb_tx.m_transaction->GetKernels();
+        //if (!kernels.empty()) {
+        //    return uint256(kernels.front().GetHash().vec()); // MW: TODO - This won't cut it for the mempool. We might have to use the actual MWEB tx hash.
+        //}
     }
 
     return SerializeHash(*this, SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB);

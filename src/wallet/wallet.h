@@ -472,7 +472,7 @@ public:
      * @return the recently added wtx pointer or nullptr if there was a db write error.
      */
     CWalletTx* AddToWallet(CTransactionRef tx, const std::optional<MWEB::WalletTxInfo>& mweb_wtx_info, const TxState& state, const UpdateWalletTxFn& update_wtx=nullptr, bool fFlushOnClose=true, bool rescanning_old_block = false);
-    bool LoadToWallet(const uint256& hash, const UpdateWalletTxFn& fill_wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool LoadToWallet(const CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     void transactionAddedToMempool(const CTransactionRef& tx, uint64_t mempool_sequence) override;
     void blockConnected(const interfaces::BlockInfo& block) override;
     void blockDisconnected(const interfaces::BlockInfo& block) override;
@@ -729,6 +729,12 @@ public:
 
     /* Mark a transaction (and it in-wallet descendants) as abandoned so its inputs may be respent. */
     bool AbandonTransaction(const uint256& hashTx);
+
+    /** Return whether transaction can be rebroadcast */
+    bool TransactionCanBeRebroadcast(const uint256& hashTx) const;
+
+    /* Rebroadcast a transaction. */
+    bool RebroadcastTransaction(const uint256& hashTx);
 
     /** Mark a transaction as replaced by another transaction. */
     bool MarkReplaced(const uint256& originalHash, const uint256& newHash);

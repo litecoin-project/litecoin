@@ -163,7 +163,7 @@ static CAmount GetCachableAmount(const CWallet& wallet, const CWalletTx& wtx, CW
 {
     auto& amount = wtx.m_amounts[type];
     if (!amount.m_cached[filter]) {
-        amount.Set(filter, type == CWalletTx::DEBIT ? wallet.GetDebit(*wtx.tx, wtx.mweb_wtx_info, filter) : TxGetCredit(wallet, wtx, filter)); // MW: TODO - What about IMMATURE_CREDIT, AVAILABLE_CREDIT, and FEE?
+        amount.Set(filter, type == CWalletTx::DEBIT ? wallet.GetDebit(*wtx.tx, wtx.mweb_wtx_info, filter) : TxGetCredit(wallet, wtx, filter));
         wtx.m_is_cache_empty = false;
     }
     return amount.m_value[filter];
@@ -349,31 +349,35 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
     }
 
     // MWEB: Treat pegouts as outputs
-    for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
-        const CScript& pegout_script = pegout.GetScriptPubKey();
-        isminetype fIsMine = wallet.IsMine(pegout_script);
-        // Only need to handle txouts if AT LEAST one of these is true:
-        //   1) they debit from us (sent)
-        //   2) the output is to us (received)
-        if (nDebit > 0) {
-            // Don't report 'change' txouts
-            if (ScriptIsChange(wallet, pegout_script))
+    for (const mw::Kernel& kernel : wtx.tx->mweb_tx.GetKernels()) {
+        std::vector<PegOutCoin> pegouts = kernel.GetPegOuts();
+        for (size_t i = 0; i < pegouts.size(); i++) {
+            const PegOutCoin& pegout = pegouts[i];
+            const CScript& pegout_script = pegout.GetScriptPubKey();
+            isminetype fIsMine = wallet.IsMine(pegout_script);
+            // Only need to handle txouts if AT LEAST one of these is true:
+            //   1) they debit from us (sent)
+            //   2) the output is to us (received)
+            if (nDebit > 0) {
+                // Don't report 'change' txouts
+                if (ScriptIsChange(wallet, pegout_script))
+                    continue;
+            } else if (!(fIsMine & filter))
                 continue;
-        } else if (!(fIsMine & filter))
-            continue;
 
-        CTxDestination address;
-        ExtractDestination(pegout_script, address);
+            CTxDestination address;
+            ExtractDestination(pegout_script, address);
 
-        COutputEntry output = {address, pegout.GetAmount(), mw::Hash()}; // MW: TODO - GenericOutputID?
+            COutputEntry output = {address, pegout.GetAmount(), PegoutIndex{kernel.GetKernelID(), i}};
 
-        // If we are debited by the transaction, add the output as a "sent" entry
-        if (nDebit > 0)
-            listSent.push_back(output);
+            // If we are debited by the transaction, add the output as a "sent" entry
+            if (nDebit > 0)
+                listSent.push_back(output);
 
-        // If we are receiving the output, add it as a "received" entry
-        if (fIsMine & filter)
-            listReceived.push_back(output);
+            // If we are receiving the output, add it as a "received" entry
+            if (fIsMine & filter)
+                listReceived.push_back(output);
+        }
     }
 }
 

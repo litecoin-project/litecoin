@@ -179,7 +179,7 @@ public:
 };
 
 /**
- * Testnet (v3): public test network which is reset from time to time.
+ * Testnet (v4): public test network which is reset from time to time.
  */
 class CTestNetParams : public CChainParams {
 public:

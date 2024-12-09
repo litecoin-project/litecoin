@@ -104,18 +104,18 @@ static std::vector<RPCResult> DecodeTxDoc(const std::string& txid_field_doc)
                 {
                     {RPCResult::Type::STR_HEX, "hex", "hex-encoded witness data (if any)"},
                 }},
-                {RPCResult::Type::NUM, "sequence", "The script sequence number"},
-                {RPCResult::Type::BOOL, "ismweb", "If this is an MWEB input"},
+                {RPCResult::Type::NUM, "sequence", /*optional=*/true, "The script sequence number"},
+                {RPCResult::Type::BOOL, "ismweb", /*optional=*/true, "If this is an MWEB input"},
             }},
         }},
         {RPCResult::Type::ARR, "vout", "",
         {
             {RPCResult::Type::OBJ, "", "",
             {
-                {RPCResult::Type::BOOL, "ismweb", "If this is an MWEB output"},
+                {RPCResult::Type::BOOL, "ismweb", /*optional=*/true, "If this is an MWEB output"},
                 {RPCResult::Type::STR_AMOUNT, "value", "The value in " + CURRENCY_UNIT},
-                {RPCResult::Type::NUM, "n", "index"},
-                {RPCResult::Type::OBJ, "scriptPubKey", "",
+                {RPCResult::Type::NUM, "n", /*optional=*/true, "index"},
+                {RPCResult::Type::OBJ, "scriptPubKey", /*optional=*/true, "",
                 {
                     {RPCResult::Type::STR, "asm", "Disassembly of the public key script"},
                     {RPCResult::Type::STR, "desc", "Inferred descriptor for the output"},
@@ -169,6 +169,7 @@ static std::vector<RPCArg> CreateTxDoc()
 // Optionally, sign the inputs that we can using information from the descriptors.
 PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std::any& context, const HidingSigningProvider& provider, int sighash_type, bool finalize)
 {
+    LogPrintf("DEBUG: Processing PSBT\n");
     // MW: TODO - Need to support MWEB
     // Unserialize the transactions
     PartiallySignedTransaction psbtx;
@@ -190,6 +191,8 @@ PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std
     for (PSBTInput& psbt_input : psbtx.inputs) {
         // The `non_witness_utxo` is the whole previous transaction
         if (psbt_input.non_witness_utxo) continue;
+
+        if (psbt_input.IsMWEB()) continue; // MW: TODO - Do we need to load anything for MWEB txs?
 
         CTransactionRef tx;
 
@@ -213,6 +216,8 @@ PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std
     if (!coins.empty()) {
         FindCoins(node, coins);
         for (PSBTInput& input : psbtx.inputs) {
+            if (input.IsMWEB()) continue; // MW: TODO - Do we need to load anything for MWEB txs?
+
             // If there are still missing utxos, add them if they were found in the utxo set
             if (!input.non_witness_utxo) {
                 const GenericCoin& coin = coins.at(input.GetOutPoint());
@@ -881,6 +886,27 @@ const RPCResult decodepsbt_inputs{
             }},
             {RPCResult::Type::STR_HEX, "taproot_internal_key", /*optional=*/ true, "The hex-encoded Taproot x-only internal key"},
             {RPCResult::Type::STR_HEX, "taproot_merkle_root", /*optional=*/ true, "The hex-encoded Taproot merkle root"},
+            {RPCResult::Type::OBJ, "mweb", /*optional=*/true, "MWEB input info",
+            {
+                {RPCResult::Type::STR_HEX, "output_id", /*optional=*/true, "The hex-encoded output identifier"},
+                {RPCResult::Type::STR_HEX, "output_commit", /*optional=*/true, "The hex-encoded output commitment"},
+                {RPCResult::Type::STR_HEX, "output_pubkey", /*optional=*/true, "The hex-encoded output pubkey"},
+                {RPCResult::Type::STR_HEX, "input_pubkey", /*optional=*/true, "The hex-encoded input pubkey"},
+                {RPCResult::Type::ARR, "features", /*optional=*/ true, "",
+                {
+                    {RPCResult::Type::OBJ, "", "",
+                    {
+                        {RPCResult::Type::NUM, "feature", "The feature mask"},
+                        {RPCResult::Type::STR_HEX, "data", "The hex-encoded feature data"},
+                    }},
+                }},
+                {RPCResult::Type::STR_HEX, "signature", /*optional=*/true, "The hex-encoded MWEB input signature"},
+                {RPCResult::Type::NUM, "address_idx", /*optional=*/true, "The index of the subaddress the UTXO was sent to"},
+                {RPCResult::Type::NUM, "amount", /*optional=*/true, "The UTXO amount"},
+                {RPCResult::Type::STR_HEX, "shared_secret", /*optional=*/true, "The hex-encoded shared secret"},
+                {RPCResult::Type::STR_HEX, "blind", /*optional=*/true, "The hex-encoded blinding factor"},
+                //{RPCResult::Type::OBJ_DYN, "utxo", /*optional=*/true, "The MWEB UTXO being spent",{}}, // MW: TODO - Define the structure
+            }},
             {RPCResult::Type::OBJ_DYN, "unknown", /*optional=*/ true, "The unknown input fields",
             {
                 {RPCResult::Type::STR_HEX, "key", "(key-value pair) An unknown key-value pair"},
@@ -952,6 +978,10 @@ const RPCResult decodepsbt_outputs{
                     }},
                 }},
             }},
+            {RPCResult::Type::OBJ, "mweb", /*optional=*/true, "The MWEB output",
+            {
+                {RPCResult::Type::ELISION, "",""},
+            }}, // MW: TODO - Define this
             {RPCResult::Type::OBJ_DYN, "unknown", /*optional=*/true, "The unknown output fields",
             {
                 {RPCResult::Type::STR_HEX, "key", "(key-value pair) An unknown key-value pair"},
@@ -1001,6 +1031,8 @@ static RPCHelpMan decodepsbt()
                         {RPCResult::Type::BOOL, "inputs_modifiable", /* optional */ true, "Whether inputs can be modified"},
                         {RPCResult::Type::BOOL, "outputs_modifiable", /* optional */ true, "Whether outputs can be modified"},
                         {RPCResult::Type::BOOL, "has_sighash_single", /* optional */ true, "Whether this PSBT has SIGHASH_SINGLE inputs"},
+                        {RPCResult::Type::STR_HEX, "mweb_tx_offset", /* optional */ true, "MWEB transaction offset"},
+                        {RPCResult::Type::STR_HEX, "mweb_stealth_offset", /* optional */ true, "MWEB stealth offset"},
                         {RPCResult::Type::NUM, "psbt_version", /* optional */ true, "The PSBT version number. Not to be confused with the unsigned transaction version"},
                         {RPCResult::Type::ARR, "proprietary", "The global proprietary map",
                         {
@@ -1018,14 +1050,19 @@ static RPCHelpMan decodepsbt()
                         }},
                         decodepsbt_inputs,
                         decodepsbt_outputs,
+                        {RPCResult::Type::ARR, "kernels", "The MWEB kernels",
+                        {
+                            {RPCResult::Type::OBJ, "", "",
+                            {
+                                {RPCResult::Type::ELISION, "",""},
+                            }}, // MW: TODO - Define this
+                        }},
                         {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The transaction fee paid if all UTXOs slots in the PSBT have been filled."},
                     }
                 },
                 RPCExamples{
                     HelpExampleCli("decodepsbt", "\"psbt\"")
-                },
-        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
-{
+                }, [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue {
     RPCTypeCheck(request.params, {UniValue::VSTR});
 
     // Unserialize the transactions
@@ -1062,7 +1099,7 @@ static RPCHelpMan decodepsbt()
     result.pushKV("global_xpubs", global_xpubs);
 
     // Add PSBTv2 stuff
-    if (psbtx.GetVersion() == 2) {
+    if (psbtx.GetVersion() >= 2) {
         if (psbtx.tx_version != std::nullopt) {
             result.pushKV("tx_version", *psbtx.tx_version);
         }
@@ -1075,6 +1112,16 @@ static RPCHelpMan decodepsbt()
             result.pushKV("inputs_modifiable", psbtx.m_tx_modifiable->test(0));
             result.pushKV("outputs_modifiable", psbtx.m_tx_modifiable->test(1));
             result.pushKV("has_sighash_single", psbtx.m_tx_modifiable->test(2));
+        }
+
+        // MWEB transaction offset
+        if (psbtx.mweb_tx_offset.has_value()) {
+            result.pushKV("mweb_tx_offset", psbtx.mweb_tx_offset->ToHex());
+        }
+
+        // MWEB stealth offset
+        if (psbtx.mweb_stealth_offset.has_value()) {
+            result.pushKV("mweb_stealth_offset", psbtx.mweb_stealth_offset->ToHex());
         }
     }
 
@@ -1099,6 +1146,58 @@ static RPCHelpMan decodepsbt()
         unknowns.pushKV(HexStr(entry.first), HexStr(entry.second));
     }
     result.pushKV("unknown", unknowns);
+
+    // MWEB kernels
+    UniValue kernels(UniValue::VARR);
+    for (const PSBTKernel& kernel : psbtx.kernels) {
+        UniValue kern(UniValue::VOBJ);
+
+        if (kernel.commit.has_value()) {
+            kern.pushKV("commit", kernel.commit->ToHex());
+        }
+
+        if (kernel.stealth_commit.has_value()) {
+            kern.pushKV("stealth_commit", kernel.stealth_commit->ToHex());
+        }
+
+        if (kernel.fee.has_value()) {
+            kern.pushKV("fee", kernel.fee.value());
+        }
+
+        if (kernel.pegin_amount.has_value()) {
+            kern.pushKV("pegin_amount", kernel.pegin_amount.value());
+        }
+
+        if (!kernel.pegouts.empty()) {
+            UniValue pegouts(UniValue::VARR);
+            for (const PegOutCoin& pegout_coin : kernel.pegouts) {
+                UniValue pegout(UniValue::VOBJ);
+                pegout.pushKV("amount", pegout_coin.GetAmount());
+
+                UniValue scriptPubKey(UniValue::VOBJ);
+                ScriptToUniv(pegout_coin.GetScriptPubKey(), /*out=*/scriptPubKey, /*include_hex=*/true, /*include_address=*/true);
+                pegout.pushKV("scriptPubKey", scriptPubKey);
+
+                pegouts.push_back(pegout);
+            }
+            kern.pushKV("pegouts", pegouts);
+        }
+
+        if (kernel.lock_height.has_value()) {
+            kern.pushKV("lock_height", kernel.lock_height.value());
+        }
+
+        if (!kernel.extra_data.empty()) {
+            kern.pushKV("extra_data", HexStr(kernel.extra_data));
+        }
+
+        if (kernel.sig.has_value()) {
+            kern.pushKV("signature", kernel.sig->ToHex());
+        }
+
+        kernels.push_back(kern);
+    }
+    result.pushKV("kernels", kernels);
 
     // inputs
     CAmount total_in = 0;
@@ -1236,7 +1335,7 @@ static RPCHelpMan decodepsbt()
         }
 
         // PSBTv2
-        if (psbtx.GetVersion() == 2) {
+        if (psbtx.GetVersion() >= 2) {
             if (!input.prev_txid.IsNull()) {
                 in.pushKV("previous_txid", input.prev_txid.GetHex());
             }
@@ -1320,6 +1419,64 @@ static RPCHelpMan decodepsbt()
             in.pushKV("taproot_merkle_root", HexStr(input.m_tap_merkle_root));
         }
 
+        // MWEB
+        if (input.IsMWEB()) {
+            UniValue mweb_obj(UniValue::VOBJ);
+            if (input.mweb_output_id.has_value()) {
+                mweb_obj.pushKV("output_id", input.mweb_output_id->ToHex());
+            }
+            
+            if (input.mweb_output_commit.has_value()) {
+                mweb_obj.pushKV("output_commit", input.mweb_output_commit->ToHex());
+            }
+
+            if (input.mweb_output_pubkey.has_value()) {
+                mweb_obj.pushKV("output_pubkey", input.mweb_output_pubkey->ToHex());
+            }
+
+            if (input.mweb_input_pubkey.has_value()) {
+                mweb_obj.pushKV("input_pubkey", input.mweb_input_pubkey->ToHex());
+            }
+
+            if (!input.mweb_features.empty()) {
+                UniValue features(UniValue::VARR);
+                for (const auto& entry : input.mweb_features) {
+                    UniValue feature(UniValue::VOBJ);
+                    feature.pushKV("feature", static_cast<uint64_t>(entry.first));
+                    feature.pushKV("data", HexStr(entry.second));
+                    features.push_back(feature);
+                }
+                mweb_obj.pushKV("features", features);
+            }
+
+            if (input.mweb_sig.has_value()) {
+                mweb_obj.pushKV("signature", input.mweb_sig->ToHex());
+            }
+
+            if (input.mweb_address_index.has_value()) {
+                mweb_obj.pushKV("address_idx", static_cast<uint64_t>(*input.mweb_address_index));
+            }
+
+            if (input.mweb_amount.has_value()) {
+                mweb_obj.pushKV("amount", *input.mweb_amount);
+            }
+
+            if (input.mweb_shared_secret.has_value()) {
+                mweb_obj.pushKV("shared_secret", input.mweb_shared_secret->ToHex());
+            }
+
+            if (input.mweb_blind.has_value()) {
+                mweb_obj.pushKV("blind", input.mweb_blind->ToHex());
+            }
+
+            if (input.mweb_utxo.has_value()) {
+                UniValue mweb_utxo = input.mweb_utxo->ToUni();
+                mweb_obj.pushKV("utxo", mweb_utxo);
+            }
+
+            in.pushKV("mweb", mweb_obj);
+        }
+
         // Proprietary
         if (!input.m_proprietary.empty()) {
             UniValue proprietary(UniValue::VARR);
@@ -1379,7 +1536,7 @@ static RPCHelpMan decodepsbt()
         }
 
         // PSBTv2 stuff
-        if (psbtx.GetVersion() == 2) {
+        if (psbtx.GetVersion() >= 2) {
             if (output.amount != std::nullopt) {
                 out.pushKV("amount", ValueFromAmount(*output.amount));
             }
@@ -1425,6 +1582,61 @@ static RPCHelpMan decodepsbt()
                 keypaths.push_back(path_obj);
             }
             out.pushKV("taproot_bip32_derivs", keypaths);
+        }
+
+        // MWEB fields
+        if (output.IsMWEB()) {
+            UniValue mweb_obj(UniValue::VOBJ);
+            // MW: TODO - Add MWEB fields
+
+            if (output.mweb_stealth_address.has_value()) {
+                mweb_obj.pushKV("address", GenericAddress(*output.mweb_stealth_address).Encode());
+            }
+
+            if (output.mweb_commit.has_value()) {
+                mweb_obj.pushKV("output_commit", output.mweb_commit->ToHex());
+            }
+
+            if (!output.mweb_features.empty()) {
+                UniValue features(UniValue::VARR);
+                for (const auto& entry : output.mweb_features) {
+                    UniValue feature(UniValue::VOBJ);
+                    feature.pushKV("feature", static_cast<uint64_t>(entry.first));
+                    feature.pushKV("data", HexStr(entry.second));
+                    features.push_back(feature);
+                }
+                mweb_obj.pushKV("features", features);
+            }
+
+            if (output.mweb_sender_pubkey.has_value()) {
+                mweb_obj.pushKV("sender_pubkey", output.mweb_sender_pubkey->ToHex());
+            }
+
+            if (output.mweb_output_pubkey.has_value()) {
+                mweb_obj.pushKV("output_pubkey", output.mweb_output_pubkey->ToHex());
+            }
+
+            if (output.mweb_key_exchange_pubkey.has_value()) {
+                mweb_obj.pushKV("key_exchange_pubkey", output.mweb_key_exchange_pubkey->ToHex());
+            }
+
+            if (output.mweb_view_tag.has_value()) {
+                mweb_obj.pushKV("view_tag", static_cast<uint64_t>(*output.mweb_view_tag));
+            }
+
+            if (output.mweb_enc_value.has_value()) {
+                mweb_obj.pushKV("encrypted_value", strprintf("%016llx", *output.mweb_enc_value));
+            }
+
+            if (output.mweb_rangeproof.has_value()) {
+                mweb_obj.pushKV("rangeproof", output.mweb_rangeproof.value()->ToHex());
+            }
+
+            if (output.mweb_sig.has_value()) {
+                mweb_obj.pushKV("sig", output.mweb_sig->ToHex());
+            }
+
+            out.pushKV("mweb", mweb_obj);
         }
 
         // Proprietary
@@ -1890,6 +2102,7 @@ static RPCHelpMan analyzepsbt()
                     {RPCResult::Type::NUM, "estimated_vsize", /*optional=*/true, "Estimated vsize of the final signed transaction"},
                     {RPCResult::Type::STR_AMOUNT, "estimated_feerate", /*optional=*/true, "Estimated feerate of the final signed transaction in " + CURRENCY_UNIT + "/kvB. Shown only if all UTXO slots in the PSBT have been filled"},
                     {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The transaction fee paid. Shown only if all UTXO slots in the PSBT have been filled"},
+                    {RPCResult::Type::STR, "mweb_next", /*optional=*/true, "Role of the next person that the MWEB portion of the psbt needs to go to"},
                     {RPCResult::Type::STR, "next", "Role of the next person that this psbt needs to go to"},
                     {RPCResult::Type::STR, "error", /*optional=*/true, "Error message (if there is one)"},
                 }
@@ -1955,6 +2168,9 @@ static RPCHelpMan analyzepsbt()
     }
     if (psbta.fee != std::nullopt) {
         result.pushKV("fee", ValueFromAmount(*psbta.fee));
+    }
+    if (psbta.mweb_next != std::nullopt) {
+        result.pushKV("mweb_next", PSBTRoleName(*psbta.mweb_next));
     }
     result.pushKV("next", PSBTRoleName(psbta.next));
     if (!psbta.error.empty()) {

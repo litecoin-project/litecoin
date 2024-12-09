@@ -171,7 +171,7 @@ static bool getScriptFromDescriptor(const std::string& descriptor, CScript& scri
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Ranged descriptor not accepted. Maybe pass through deriveaddresses first?");
         }
 
-        if (desc->IsMWEB()) {
+        if (desc->GetOutputType() == OutputType::MWEB) {
             throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Cannot mine to an MWEB address");
         }
 

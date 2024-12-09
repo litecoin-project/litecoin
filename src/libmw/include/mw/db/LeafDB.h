@@ -16,7 +16,6 @@ public:
     std::unique_ptr<mmr::Leaf> Get(const mmr::LeafIndex& idx) const;
     void Add(const std::vector<mmr::Leaf>& leaves);
     void Remove(const std::vector<mmr::LeafIndex>& indices);
-    void RemoveAll();
 
 private:
     char m_prefix;

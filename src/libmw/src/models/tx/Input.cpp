@@ -32,6 +32,7 @@ Input Input::Create(const mw::Hash& output_id, const Commitment& commitment, con
         commitment,
         std::move(input_pubkey),
         std::move(output_pubkey),
+        std::vector<uint8_t>{},
         Schnorr::Sign(sig_key.data(), msg_hash)
     );
 }

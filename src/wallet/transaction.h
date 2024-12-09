@@ -150,8 +150,6 @@ public:
      *                         bumpfee on transaction created by bumpfee
      *     "replaced_by_txid" - txid (as HexStr) of transaction created by
      *                         bumpfee on transaction replaced by bumpfee
-     *     "pegout_indices"  - for hogex transactions, indices of pegouts belonging to the wallet
-     *     "mweb_info"       - MWEB::WalletTxInfo (as HexStr)
      *     "from", "message" - obsolete fields that could be set in UI prior to
      *                         2011 (removed in commit 4d9b223)
      *

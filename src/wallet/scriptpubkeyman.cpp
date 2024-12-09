@@ -244,14 +244,14 @@ IsMineResult IsMineInner(const LegacyScriptPubKeyMan& keystore, const CScript& s
 
 } // namespace
 
-isminetype LegacyScriptPubKeyMan::IsMine(const GenericAddress& script) const
+isminetype LegacyScriptPubKeyMan::IsMine(const GenericAddress& address) const
 {
-    if (script.IsMWEB()) {
+    if (address.IsMWEB()) {
         if (GetScanSecret().IsNull()) {
             return ISMINE_NO;
         }
 
-        const StealthAddress& mweb_address = script.GetMWEBAddress();
+        const StealthAddress& mweb_address = address.GetMWEBAddress();
         if (mweb_address.GetSpendPubKey().Mul(GetScanSecret()) != mweb_address.GetScanPubKey()) {
             return ISMINE_NO;
         }
@@ -259,7 +259,7 @@ isminetype LegacyScriptPubKeyMan::IsMine(const GenericAddress& script) const
         return HaveKey(mweb_address.GetSpendPubKey().GetID()) ? ISMINE_SPENDABLE : ISMINE_NO;
     }
 
-    switch (IsMineInner(*this, script.GetScript(), IsMineSigVersion::TOP)) {
+    switch (IsMineInner(*this, address.GetScript(), IsMineSigVersion::TOP)) {
     case IsMineResult::INVALID:
     case IsMineResult::NO:
         return ISMINE_NO;
@@ -389,12 +389,12 @@ bool LegacyScriptPubKeyMan::TopUpInactiveHDChain(const CKeyID seed_id, int64_t i
     return true;
 }
 
-std::vector<WalletDestination> LegacyScriptPubKeyMan::MarkUnusedAddresses(const GenericAddress& script)
+std::vector<WalletDestination> LegacyScriptPubKeyMan::MarkUnusedAddresses(const GenericAddress& address)
 {
     LOCK(cs_KeyStore);
     std::vector<WalletDestination> result;
     // extract addresses and check if they match with an unused keypool key
-    for (const auto& keyid : GetAffectedKeys(script, *this)) {
+    for (const auto& keyid : GetAffectedKeys(address, *this)) {
         std::map<CKeyID, int64_t>::const_iterator mi = m_pool_key_to_index.find(keyid);
         if (mi != m_pool_key_to_index.end()) {
             WalletLogPrintf("%s: Detected a used keypool key, mark all keypool keys up to this key as used\n", __func__);
@@ -431,20 +431,21 @@ std::vector<WalletDestination> LegacyScriptPubKeyMan::MarkUnusedAddresses(const 
                                     __func__,
                                     meta.hdKeypath);
                 }
-                if (hdkeypath.path.size() != 3) {
+                const bool is_mweb = meta.key_origin.hdkeypath.mweb_index.has_value();
+                if (hdkeypath.path.size() != 3 && !is_mweb) {
                     WalletLogPrintf("%s: Adding inactive seed keys failed, invalid path size: %d, has_key_origin: %s\n",
                                     __func__,
                                     hdkeypath.path.size(),
                                     meta.has_key_origin);
                 } else {
                     KeyPurpose purpose = KeyPurpose::EXTERNAL;
-                    if (meta.key_origin.hdkeypath.mweb_index.has_value()) {
+                    if (is_mweb) {
                         purpose = KeyPurpose::MWEB;
                     } else if ((meta.key_origin.hdkeypath.path[1] & ~BIP32_HARDENED_KEY_LIMIT) != 0) {
                         purpose = KeyPurpose::INTERNAL;
                     }
 					
-                    int64_t index = meta.key_origin.hdkeypath.mweb_index.has_value() ? *meta.key_origin.hdkeypath.mweb_index : (meta.key_origin.hdkeypath.path[2] & ~BIP32_HARDENED_KEY_LIMIT);
+                    int64_t index = is_mweb ? *meta.key_origin.hdkeypath.mweb_index : (meta.key_origin.hdkeypath.path[2] & ~BIP32_HARDENED_KEY_LIMIT);
 
                     if (!TopUpInactiveHDChain(meta.hd_seed_id, index, purpose)) {
                         WalletLogPrintf("%s: Adding inactive seed keys failed\n", __func__);
@@ -716,11 +717,6 @@ TransactionError LegacyScriptPubKeyMan::FillPSBT(PartiallySignedTransaction& psb
 {
     if (n_signed) {
         *n_signed = 0;
-    }
-
-    // MW: TODO - if sign == true, sign MWEB components here?
-    if (sign) {
-        PSBTSignMWEBTx(HidingSigningProvider(this, !sign, !bip32derivs), psbtx);
     }
 
     for (unsigned int i = 0; i < psbtx.inputs.size(); ++i) {
@@ -1322,7 +1318,7 @@ void LegacyScriptPubKeyMan::SetHDSeed(const CPubKey& seed)
     // the child index counter in the database
     // as a hdchain object
     CHDChain newHdChain;
-    newHdChain.nVersion = m_storage.CanSupportFeature(FEATURE_HD_SPLIT) ? CHDChain::VERSION_HD_MWEB : CHDChain::VERSION_HD_BASE; // MW: TODO - Shouldn't this choose VERSION_HD_MWEB, VERSION_HD_SPLIT, or VERSION_HD_BASE based on supported features?
+    newHdChain.nVersion = m_storage.CanSupportFeature(FEATURE_HD_SPLIT) ? CHDChain::VERSION_HD_MWEB_RECEIVE : CHDChain::VERSION_HD_BASE;
     newHdChain.seed_id = seed.GetID();
     AddHDChain(newHdChain);
     LoadMWEBKeychain();
@@ -1833,28 +1829,44 @@ const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> LegacyScrip
 
     // All keys have at least P2PK and P2PKH
     for (const auto& key_pair : mapKeys) {
+        const CPubKey& pub = key_pair.second.GetPubKey();
+
         auto metadata = mapKeyMetadata.find(key_pair.first);
         if (metadata != mapKeyMetadata.end()) {
             if (metadata->second.key_origin.hdkeypath.mweb_index.has_value()) {
                 scriptsToIgnore.insert(CScriptID(GetScriptForDestination(WitnessV0KeyHash(key_pair.first))));
+                SecretKey master_scan_secret = GetScanSecret();
+                if (!master_scan_secret.IsNull()) {
+                    PublicKey spend_pubkey = PublicKey(pub.begin());
+                    StealthAddress mweb_address(spend_pubkey.Mul(master_scan_secret), spend_pubkey);
+                    spks.insert(mweb_address);
+                }
+
                 continue;
             }
         }
 
-        const CPubKey& pub = key_pair.second.GetPubKey();
         spks.insert(GetScriptForRawPubKey(pub));
         spks.insert(GetScriptForDestination(PKHash(pub)));
     }
     for (const auto& key_pair : mapCryptedKeys) {
+        const CPubKey& pub = key_pair.second.first;
+
         auto metadata = mapKeyMetadata.find(key_pair.first);
         if (metadata != mapKeyMetadata.end()) {
             if (metadata->second.key_origin.hdkeypath.mweb_index.has_value()) {
                 scriptsToIgnore.insert(CScriptID(GetScriptForDestination(WitnessV0KeyHash(key_pair.first))));
+
+                SecretKey master_scan_secret = GetScanSecret();
+                if (!master_scan_secret.IsNull()) {
+                    PublicKey spend_pubkey = PublicKey(pub.begin());
+                    StealthAddress mweb_address(spend_pubkey.Mul(master_scan_secret), spend_pubkey);
+                    spks.insert(mweb_address);
+                }
                 continue;
             }
         }
 
-        const CPubKey& pub = key_pair.second.first;
         spks.insert(GetScriptForRawPubKey(pub));
         spks.insert(GetScriptForDestination(PKHash(pub)));
     }
@@ -2039,6 +2051,8 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
                 if (purpose != KeyPurpose::MWEB) {
                     assert(erased == 1);
                     assert(IsMine(spk) == ISMINE_SPENDABLE);
+                } else {
+                    LogPrintf("DEBUG: Address not found in spks: %s\n", spk.Encode());
                 }
             }
 
@@ -2304,10 +2318,10 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
     }
 }
 
-isminetype DescriptorScriptPubKeyMan::IsMine(const GenericAddress& script) const
+isminetype DescriptorScriptPubKeyMan::IsMine(const GenericAddress& address) const
 {
     LOCK(cs_desc_man);
-    if (m_map_addresses.count(script) > 0) {
+    if (m_map_addresses.count(address) > 0) {
         return ISMINE_SPENDABLE;
     }
     return ISMINE_NO;
@@ -2599,6 +2613,8 @@ bool DescriptorScriptPubKeyMan::SetupDescriptorGeneration(const CExtKey& master_
         desc_str = "mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1')";
     }
 
+    LogPrintf("DEBUG: SetupDescriptorGeneration for descriptor %s\n", desc_str);
+
     // Make the descriptor
     FlatSigningProvider keys;
     std::string error;
@@ -2785,11 +2801,6 @@ TransactionError DescriptorScriptPubKeyMan::FillPSBT(PartiallySignedTransaction&
 {
     if (n_signed) {
         *n_signed = 0;
-    }
-
-    // MW: TODO - if sign == true, sign MWEB components here?
-    if (sign) {
-        PSBTSignMWEBTx(FlatSigningProvider(), psbtx);
     }
 
     for (unsigned int i = 0; i < psbtx.inputs.size(); ++i) {

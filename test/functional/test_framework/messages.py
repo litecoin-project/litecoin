@@ -30,6 +30,7 @@ import random
 import socket
 import struct
 import time
+from typing import List
 
 import litecoin_scrypt
 from test_framework.siphash import siphash256
@@ -160,8 +161,6 @@ def ser_fixed_bytes(u, size):
     rs = b""
     for i in range(size):
         rs += struct.pack("B", u[i])
-        #rs += struct.pack("B", u & 0xFF)
-        #u >>= 8
     return rs
     
 
@@ -610,7 +609,7 @@ class CTransaction:
             self.sha256 = tx.sha256
             self.hash = tx.hash
             self.wit = copy.deepcopy(tx.wit)
-            self.mweb_tx = tx.mweb_tx
+            self.mweb_tx = copy.deepcopy(tx.mweb_tx)
             self.hogex = tx.hogex
 
     def deserialize(self, f: BytesIO):
@@ -744,8 +743,9 @@ class CTransaction:
         return math.ceil(self.get_weight() / WITNESS_SCALE_FACTOR)
 
     def __repr__(self):
-        return "CTransaction(nVersion=%i vin=%s vout=%s wit=%s nLockTime=%i)" \
-            % (self.nVersion, repr(self.vin), repr(self.vout), repr(self.wit), self.nLockTime)
+        mweb_str = f' mweb={repr(self.mweb_tx)}' if self.mweb_tx is not None else ''
+        return "CTransaction(nVersion=%i vin=%s vout=%s wit=%s nLockTime=%i%s)" \
+            % (self.nVersion, repr(self.vin), repr(self.vout), repr(self.wit), self.nLockTime, mweb_str)
 
     def __eq__(self, other):
         return isinstance(other, CTransaction) and repr(self) == repr(other)
@@ -2048,25 +2048,69 @@ class Hash:
         return isinstance(other, Hash) and self.val == other.val
 
 
+class Commitment:
+    __slots__ = ("val")
+
+    def __init__(self, val = 0):
+        self.val = val
+        
+    @classmethod
+    def from_hex(cls, hex_str):
+        return cls(int(hex_str, 16))
+
+    @classmethod
+    def from_rev_hex(cls, hex_str):
+        return cls(int(hex_reverse(hex_str), 16))
+        
+    @classmethod
+    def from_byte_arr(cls, b):
+        return cls(deser_pubkey(BytesIO(b)))
+    
+    def to_hex(self):
+        return self.serialize().hex()
+
+    def to_byte_arr(self):
+        return self.serialize()
+
+    @classmethod
+    def deserialize(cls, f):
+        return cls(deser_pubkey(f))
+
+    def serialize(self):
+        return ser_pubkey(self.val)
+
+    def __hash__(self):
+        return hash(self.val)
+
+    def __str__(self):
+        return repr(self)
+
+    def __repr__(self):
+        return "Commitment(val=0x{:x})".format(self.val)
+
+    def __eq__(self, other):
+        return isinstance(other, Commitment) and self.val == other.val
+
+
 def blake3(s):
     return Hash.from_rev_hex(BLAKE3.blake3(s).hexdigest())
 
 def ser_varint(n):
     r = b""
 
-    l=0;
+    l=0
     while True:
         t = (n & 0x7F) | (0x80, 0x00)[l == 0]
         r = struct.pack("B", t) + r
         if n <= 0x7F:
             break
-        n = (n >> 7) - 1;
+        n = (n >> 7) - 1
         l = l + 1
 
     return r
 
 def deser_varint(f):
-    n = 0;
+    n = 0
     while True: 
         chData = struct.unpack("B", f.read(1))[0]
         n = (n << 7) | (chData & 0x7F)
@@ -2100,7 +2144,8 @@ def ser_mweb_tx(t):
 
 def deser_mweb_tx(f):
     mweb_tx = MWEBTransaction()
-    return mweb_tx.deserialize(f)
+    mweb_tx.deserialize(f)
+    return mweb_tx
 
 class MWEBInput:
     __slots__ = ("features", "output_id", "output_commit", "output_pk",
@@ -2119,7 +2164,7 @@ class MWEBInput:
     def deserialize(self, f):
         self.features = struct.unpack("<B", f.read(1))[0]
         self.output_id = Hash.deserialize(f)
-        self.output_commit = deser_pubkey(f)
+        self.output_commit = Commitment.deserialize(f)
         self.output_pk = deser_pubkey(f)
         if self.features & 1:
             self.input_pk = deser_pubkey(f)
@@ -2133,7 +2178,7 @@ class MWEBInput:
         r = b""
         r += struct.pack("<B", self.features)
         r += self.output_id.serialize()
-        r += ser_pubkey(self.output_commit)
+        r += self.output_commit.serialize()
         r += ser_pubkey(self.output_pk)
         if self.features & 1:
             r += ser_pubkey(self.input_pk)
@@ -2146,6 +2191,9 @@ class MWEBInput:
     def rehash(self):
         self.hash = blake3(self.serialize())
         return self.hash.to_hex()
+    
+    def __repr__(self):
+        return "MWEBInput(hash=%s)" % (self.hash.to_hex())
 
 class MWEBOutputMessage:
     __slots__ = ("features", "key_exchange_pk", "view_tag", "masked_value",
@@ -2203,7 +2251,7 @@ class MWEBOutput:
         self.hash = None
 
     def deserialize(self, f):
-        self.output_commit = deser_pubkey(f)
+        self.output_commit = Commitment.deserialize(f)
         self.sender_pk = deser_pubkey(f)
         self.receiver_pk = deser_pubkey(f)
         self.message.deserialize(f)
@@ -2213,7 +2261,7 @@ class MWEBOutput:
 
     def serialize(self):
         r = b""
-        r += ser_pubkey(self.output_commit)
+        r += self.output_commit.serialize()
         r += ser_pubkey(self.sender_pk)
         r += ser_pubkey(self.receiver_pk)
         r += self.message.serialize()
@@ -2224,6 +2272,9 @@ class MWEBOutput:
     def rehash(self):
         self.hash = blake3(self.serialize())
         return self.hash.to_hex()
+    
+    def __repr__(self):
+        return "MWEBOutput(hash=%s)" % (self.hash.to_hex())
 
 class MWEBCompactOutput:
     __slots__ = ("output_commit", "sender_pk", "receiver_pk", "message",
@@ -2239,7 +2290,7 @@ class MWEBCompactOutput:
         self.hash = None
 
     def deserialize(self, f):
-        self.output_commit = deser_pubkey(f)
+        self.output_commit = Commitment.deserialize(f)
         self.sender_pk = deser_pubkey(f)
         self.receiver_pk = deser_pubkey(f)
         self.message.deserialize(f)
@@ -2249,7 +2300,7 @@ class MWEBCompactOutput:
 
     def serialize(self):
         r = b""
-        r += ser_pubkey(self.output_commit)
+        r += self.output_commit.serialize()
         r += ser_pubkey(self.sender_pk)
         r += ser_pubkey(self.receiver_pk)
         r += self.message.serialize()
@@ -2308,12 +2359,12 @@ class MWEBKernel:
         if self.features & 8:
             self.lock_height = deser_varint(f)
         self.stealth_excess = None
-        if self.features & 10:
-            self.stealth_excess = deser_pubkey(f)
+        if self.features & 16:
+            self.stealth_excess = Commitment.deserialize(f)
         self.extradata = None
-        if self.features & 20:
+        if self.features & 32:
             self.extradata = deser_fixed_bytes(f, deser_compact_size(f))
-        self.kernel_excess = deser_pubkey(f)
+        self.kernel_excess = Commitment.deserialize(f)
         self.sig = deser_signature(f)
         self.rehash()
 
@@ -2328,12 +2379,12 @@ class MWEBKernel:
             r += ser_vector(self.pegouts)
         if self.features & 8:
             r += ser_varint(self.lock_height)
-        if self.features & 10:
-            r += ser_pubkey(self.stealth_excess)
-        if self.features & 20:
+        if self.features & 16:
+            r += self.stealth_excess.serialize()
+        if self.features & 32:
             r += ser_compact_size(len(self.extradata))
             r += ser_fixed_bytes(self.extradata, len(self.extradata))
-        r += ser_pubkey(self.kernel_excess)
+        r += self.kernel_excess.serialize()
         r += ser_signature(self.sig)
         return r
 
@@ -2342,15 +2393,22 @@ class MWEBKernel:
         return self.hash.to_hex()
 
     def __repr__(self):
-        return "MWEBKernel(features=%d, kernel_excess=%s)" % (self.features, repr(self.kernel_excess))
+        return "MWEBKernel(features=%d, kernel_excess=%s)" % (self.features, self.kernel_excess.to_hex())
 
 class MWEBTxBody:
     __slots__ = ("mweb_inputs", "mweb_outputs", "mweb_kernels")
 
-    def __init__(self):
-        self.mweb_inputs = []
-        self.mweb_outputs = []
-        self.mweb_kernels = []
+    def __init__(self, mweb_inputs=[], mweb_outputs=[], mweb_kernels=[]):
+        self.mweb_inputs = copy.deepcopy(mweb_inputs)
+        self.mweb_outputs = copy.deepcopy(mweb_outputs)
+        self.mweb_kernels = copy.deepcopy(mweb_kernels)
+
+    @classmethod
+    def new_sorted(cls, inputs: List[MWEBInput], outputs: List[MWEBOutput], kernels: List[MWEBKernel]) -> 'MWEBTxBody':
+        mweb_inputs = sorted(inputs, key=lambda input: input.hash.to_byte_arr())
+        mweb_outputs = sorted(outputs, key=lambda output: output.hash.to_byte_arr())
+        mweb_kernels = sorted(kernels, key=lambda kernel: kernel.hash.to_byte_arr())
+        return cls(mweb_inputs=mweb_inputs, mweb_outputs=mweb_outputs, mweb_kernels=mweb_kernels)
 
     def deserialize(self, f):
         self.mweb_inputs = deser_vector(f, MWEBInput)
@@ -2370,10 +2428,10 @@ class MWEBTxBody:
 class MWEBTransaction:
     __slots__ = ("kernel_offset", "stealth_offset", "body", "hash")
 
-    def __init__(self):
-        self.kernel_offset = Hash()
-        self.stealth_offset = Hash()
-        self.body = MWEBTxBody()
+    def __init__(self, kernel_offset = Hash(), stealth_offset = Hash(), body = MWEBTxBody()):
+        self.kernel_offset = copy.deepcopy(kernel_offset)
+        self.stealth_offset = copy.deepcopy(stealth_offset)
+        self.body = copy.deepcopy(body)
         self.hash = None
 
     def deserialize(self, f):

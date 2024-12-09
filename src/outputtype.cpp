@@ -56,7 +56,7 @@ const std::string& FormatOutputType(OutputType type)
 
 CTxDestination GetDestinationForKey(const CPubKey& key, OutputType type, const SecretKey& scan_secret)
 {
-    assert(type != OutputType::MWEB || !scan_secret.IsNull()); // MW: TODO - We should return a util::Result instead of using this assertion
+    assert(type != OutputType::MWEB || !scan_secret.IsNull());
 
     switch (type) {
     case OutputType::LEGACY: return PKHash(key);

@@ -11,6 +11,7 @@
 #include <mw/models/crypto/RangeProof.h>
 #include <mw/models/crypto/SecretKey.h>
 #include <mw/models/crypto/SignedMessage.h>
+#include <univalue.h>
 
 // Forward Declarations
 class StealthAddress;
@@ -188,6 +189,28 @@ public:
         READWRITE(obj.m_pProof);
         READWRITE(obj.m_signature);
         SER_READ(obj, obj.m_hash = obj.ComputeHash());
+    }
+
+    UniValue ToUni() const noexcept
+    {
+        UniValue uni(UniValue::VOBJ);
+        uni.pushKV("commit", m_commitment.ToHex());
+        uni.pushKV("sender_pk", m_senderPubKey.ToHex());
+        uni.pushKV("receiver_pk", m_receiverPubKey.ToHex());
+        uni.pushKV("features", static_cast<uint64_t>(m_message.features));
+
+        if (m_message.features & OutputMessage::STANDARD_FIELDS_FEATURE_BIT) {
+            uni.pushKV("key_exchange_pk", m_message.key_exchange_pubkey.ToHex());
+            uni.pushKV("view_tag", static_cast<uint64_t>(m_message.view_tag));
+            uni.pushKV("masked_value", static_cast<uint64_t>(m_message.masked_value));
+            uni.pushKV("masked_nonce", m_message.masked_nonce.ToHex());
+        }
+
+        if (m_message.features & OutputMessage::EXTRA_DATA_FEATURE_BIT) {
+            uni.pushKV("extra_data", HexStr(m_message.extra_data));
+        }
+
+        return uni;
     }
 
     //

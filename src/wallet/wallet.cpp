@@ -1108,28 +1108,24 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
     return &wtx;
 }
 
-bool CWallet::LoadToWallet(const uint256& hash, const UpdateWalletTxFn& fill_wtx)
+bool CWallet::LoadToWallet(const CWalletTx& wtx_in)
 {
-    // MW: TODO - Investigate this
-    CWalletTx wtx_tmp(nullptr, TxStateInactive{}, std::nullopt);
-    if (!fill_wtx(wtx_tmp, true)) {
+    const auto& ins = mapWallet.emplace(std::piecewise_construct, std::forward_as_tuple(wtx_in.GetHash()), std::forward_as_tuple(wtx_in.tx, wtx_in.m_state, wtx_in.mweb_wtx_info));
+    if (!ins.second) {
+        // MW: TODO - Investigate this
+        //if (wtx_in.tx->IsNull()) {
+        //    WalletLogPrintf("%s already exists\n", wtx_in.GetHash().ToString());
+        //    return true;
+        //}
+
         return false;
     }
 
-    uint256 wtx_hash = wtx_tmp.GetHash();
-    if (mapWallet.count(wtx_hash) > 0 && wtx_tmp.tx->IsNull()) {
-        WalletLogPrintf("%s already exists\n", wtx_hash.ToString());
-        return true;
-    }
-    
-    //const auto& ins = mapWallet.emplace(std::piecewise_construct, std::forward_as_tuple(hash), std::forward_as_tuple(tx, state, mweb_wtx_info));
-    const auto& ins = mapWallet.emplace(std::piecewise_construct, std::forward_as_tuple(wtx_hash), std::forward_as_tuple(wtx_tmp.tx, wtx_tmp.m_state, wtx_tmp.mweb_wtx_info));
-    assert(ins.second);
-
     CWalletTx& wtx = ins.first->second;
-    wtx.nTimeReceived = wtx_tmp.nTimeReceived;
-    wtx.nTimeSmart = wtx_tmp.nTimeSmart;
-    wtx.nOrderPos = wtx_tmp.nOrderPos;
+    // MW: TODO - Are these really all the fields we need to copy?
+    wtx.nTimeReceived = wtx_in.nTimeReceived;
+    wtx.nTimeSmart = wtx_in.nTimeSmart;
+    wtx.nOrderPos = wtx_in.nOrderPos;
 
     // If wallet doesn't have a chain (e.g when using litecoin-wallet tool),
     // don't bother to update txn.
@@ -1152,9 +1148,8 @@ bool CWallet::LoadToWallet(const uint256& hash, const UpdateWalletTxFn& fill_wtx
             lookup_block(conf->conflicting_block_hash, conf->conflicting_block_height, wtx.m_state);
         }
     }
-    if (/* insertion took place */ ins.second) {
-        wtx.m_it_wtxOrdered = wtxOrdered.insert(std::make_pair(wtx.nOrderPos, &wtx));
-    }
+
+    wtx.m_it_wtxOrdered = wtxOrdered.insert(std::make_pair(wtx.nOrderPos, &wtx));
     AddToSpends(wtx);
     AddMWEBOrigins(wtx);
     for (const GenericInput& input : wtx.GetInputs()) {
@@ -1327,6 +1322,49 @@ bool CWallet::AbandonTransaction(const uint256& hashTx)
     }
 
     return true;
+}
+
+bool CWallet::TransactionCanBeRebroadcast(const uint256& hashTx) const
+{
+    LOCK(cs_wallet);
+
+    // Can't relay if wallet is not broadcasting
+    if (!GetBroadcastTransactions()) return false;
+
+    const CWalletTx* wtx = GetWalletTx(hashTx);
+    return wtx && !wtx->isAbandoned() && GetTxDepthInMainChain(*wtx) == 0;
+}
+
+bool CWallet::RebroadcastTransaction(const uint256& hashTx)
+{
+    LOCK(cs_wallet);
+
+    // Can't relay if wallet is not broadcasting
+    if (!GetBroadcastTransactions()) return false;
+
+    // Can't mark abandoned if confirmed or in mempool
+    auto it = mapWallet.find(hashTx);
+    assert(it != mapWallet.end());
+    const CWalletTx& wtx = it->second;
+
+    // Don't relay abandoned transactions
+    if (wtx.isAbandoned()) return false;
+    // Don't try to submit coinbase or HogEx transactions. These would fail anyway but would
+    // cause log spam.
+    if (wtx.IsCoinBase() || wtx.IsHogEx()) return false;
+    // Don't try to submit conflicted or confirmed transactions.
+    if (GetTxDepthInMainChain(wtx) != 0) return false;
+
+    // Submit transaction to mempool for relay
+    WalletLogPrintf("Submitting wtx %s to mempool for relay\n", wtx.GetHash().ToString());
+
+    std::string err_string;
+    const bool ret = chain().broadcastTransaction(wtx.tx, m_default_max_tx_fee, true, err_string);
+    if (!ret) {
+        WalletLogPrintf("RebroadcastTransaction(): Transaction cannot be broadcast immediately, %s\n", err_string);
+    }
+
+    return ret;
 }
 
 void CWallet::MarkConflicted(const uint256& hashBlock, int conflicting_height, const uint256& hashTx)
@@ -2342,9 +2380,23 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
         *n_signed = 0;
     }
     LOCK(cs_wallet);
+
+    std::unordered_map<mw::Hash, mw::Coin> mweb_coins;
+
     // Get all of the previous transactions
     for (PSBTInput& input : psbtx.inputs) {
         if (PSBTInputSigned(input)) {
+            continue;
+        }
+
+        // MWEB inputs don't need the previous transaction
+        if (input.IsMWEB()) {
+            if (input.mweb_output_id.has_value()) {
+                mw::Coin mweb_coin;
+                if (GetCoin(*input.mweb_output_id, mweb_coin)) {
+                    mweb_coins[*input.mweb_output_id] = mweb_coin;
+                }
+            }
             continue;
         }
 
@@ -2359,7 +2411,10 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
         }
     }
 
-    LogPrintf("DEBUG: Precomputing PSBT data\n");
+    if (sign) {
+        PSBTSignMWEBTx(psbtx, mweb_coins);
+    }
+
     const PrecomputedTransactionData txdata = PrecomputePSBTData(psbtx);
 
     // Fill in information from ScriptPubKeyMans
@@ -2375,8 +2430,6 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
             (*n_signed) += n_signed_this_spkm;
         }
     }
-
-    LogPrintf("DEBUG: Dropping non-witness\n");
 
     RemoveUnnecessaryTransactions(psbtx, sighash_type);
 

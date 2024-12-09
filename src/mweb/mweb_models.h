@@ -134,6 +134,15 @@ struct Tx {
         return spent_ids;
     }
 
+    std::vector<mw::Kernel> GetKernels() const noexcept
+    {
+        if (IsNull()) {
+            return std::vector<mw::Kernel>{};
+        }
+
+        return m_transaction->GetKernels();
+    }
+
     std::set<mw::Hash> GetKernelIDs() const noexcept
     {
         if (IsNull()) {

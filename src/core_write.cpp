@@ -193,7 +193,7 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     for (size_t i = 0; i < inputs.size(); i++) {
         const GenericInput& input = inputs[i];
         UniValue in(UniValue::VOBJ);
-        in.pushKV("ismweb", input.IsMWEB());
+        //in.pushKV("ismweb", input.IsMWEB());
 
         if (input.IsMWEB()) {
             in.pushKV("output_id", input.ToMWEB().ToHex());
@@ -247,7 +247,7 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     int64_t n = 0;
     for (const GenericOutput& output : tx.GetOutputs()) {
         UniValue out(UniValue::VOBJ);
-        out.pushKV("ismweb", output.IsMWEB());
+        //out.pushKV("ismweb", output.IsMWEB());
 
         if (output.IsMWEB()) {
             out.pushKV("output_id", output.ToMWEBOutputID().ToHex());

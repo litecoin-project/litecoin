@@ -173,7 +173,7 @@ public:
         }
 
         if (m_features & PEGOUT_FEATURE_BIT) {
-            s >>m_pegouts;
+            s >> m_pegouts;
         }
 
         if (m_features & HEIGHT_LOCK_FEATURE_BIT) {

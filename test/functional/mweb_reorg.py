@@ -72,9 +72,12 @@ class MWEBReorgTest(LitecoinTestFramework):
         self.generate(node0, 5, sync_fun=self.no_op)
         self.generate(node1, 5, sync_fun=self.no_op)
 
+        self.stop_nodes()
+        self.start_nodes()
+
         # reconnect the nodes and have node0 mine 1 block, forcing a reorg on node1
         self.connect_nodes(0, 1)
-        self.generate(node0, 1)
+        self.generate(node0, 1, sync_fun=self.sync_all)
 
 
 if __name__ == '__main__':

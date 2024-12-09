@@ -24,11 +24,30 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
 
     result.inputs.resize(psbtx.inputs.size());
 
+    // Determine the next role for the MWEB portion of the transaction
+    CMutableTransaction mutable_tx(psbtx.GetUnsignedTx());
+    if (!mutable_tx.mweb_tx.IsNull()) {
+        result.mweb_next = mutable_tx.mweb_tx.IsFinal() ? PSBTRole::EXTRACTOR : PSBTRole::SIGNER;
+    }
+
     const PrecomputedTransactionData txdata = PrecomputePSBTData(psbtx);
 
     for (unsigned int i = 0; i < psbtx.inputs.size(); ++i) {
         PSBTInput& input = psbtx.inputs[i];
         PSBTInputAnalysis& input_analysis = result.inputs[i];
+
+        // We currently only support signing all MWEB transactions at once, so next role for MWEB inputs will match mweb_next
+        if (input.IsMWEB()) {
+            if (!input.mweb_amount.has_value() || !MoneyRange(*input.mweb_amount) || !MoneyRange(in_amt + (*input.mweb_amount))) {
+                result.SetInvalid(strprintf("PSBT is not valid. Input %u has invalid value", i));
+                return result;
+            }
+            in_amt += *input.mweb_amount;
+            input_analysis.has_utxo = false;
+            input_analysis.is_final = (result.mweb_next == PSBTRole::EXTRACTOR);
+            input_analysis.next = *result.mweb_next;
+            continue;
+        }
 
         // We set next role here and ratchet backwards as required
         input_analysis.next = PSBTRole::EXTRACTOR;
@@ -105,6 +124,18 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
                 return a += *b.amount;
             }
         );
+
+        // Include pegout amounts
+        for (const PSBTKernel& kernel : psbtx.kernels) {
+            for (const PegOutCoin& pegout : kernel.pegouts) {
+                if (!MoneyRange(out_amt) || !MoneyRange(pegout.GetAmount()) || !MoneyRange(out_amt + pegout.GetAmount())) {
+                    out_amt = CAmount(-1);
+                } else {
+                    out_amt += pegout.GetAmount();
+                }
+            }
+        }
+
         if (!MoneyRange(out_amt)) {
             result.SetInvalid("PSBT is not valid. Output amount invalid");
             return result;
@@ -120,18 +151,22 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
         CCoinsViewCache view(&view_dummy);
         bool success = true;
 
+        unsigned int ltc_input_idx = 0;
         for (unsigned int i = 0; i < psbtx.inputs.size(); ++i) {
             PSBTInput& input = psbtx.inputs[i];
             Coin newcoin;
 
-            if (!SignPSBTInput(DUMMY_SIGNING_PROVIDER, psbtx, i, nullptr, 1) || !input.GetUTXO(newcoin.out)) {
-                success = false;
-                break;
-            } else {
-                mtx.vin[i].scriptSig = input.final_script_sig;
-                mtx.vin[i].scriptWitness = input.final_script_witness;
+            if (!input.IsMWEB()) {
+                if (!SignPSBTInput(DUMMY_SIGNING_PROVIDER, psbtx, i, nullptr, 1) || !input.GetUTXO(newcoin.out)) {
+                    success = false;
+                    break;
+                }
+
+                mtx.vin[ltc_input_idx].scriptSig = input.final_script_sig;
+                mtx.vin[ltc_input_idx].scriptWitness = input.final_script_witness;
                 newcoin.nHeight = 1;
                 view.AddCoin(input.GetOutPoint(), std::move(newcoin), true);
+                ++ltc_input_idx;
             }
         }
 

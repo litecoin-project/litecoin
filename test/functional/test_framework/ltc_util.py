@@ -5,9 +5,10 @@
 """Random assortment of utility functions"""
 
 import os
-from typing import Optional
+from typing import List, Optional
 
-from test_framework.messages import COIN, COutPoint, CTransaction, CTxIn, CTxOut, from_hex, MWEBHeader
+from test_framework.messages import COIN, COutPoint, CTransaction, CTxIn, CTxOut, Hash, from_hex, MWEBHeader, MWEBTxBody, MWEBInput, MWEBOutput, MWEBKernel, MWEBTransaction
+from test_framework.mweb.crypto import BlindingFactor, pedersen_blind_sum
 from test_framework.util import get_datadir_path, initialize_datadir, satoshi_round
 from test_framework.script_util import DUMMY_P2WPKH_SCRIPT, hogaddr_script
 from test_framework.test_framework import BitcoinTestFramework
@@ -137,3 +138,44 @@ def create_non_hd_wallet(chain, options) -> str:
     v15_node.wait_until_stopped()
     
     return os.path.join(v15_node.datadir, chain, "wallet.dat")
+
+
+def mweb_aggregate_txs(txs: List[MWEBTransaction]) -> Optional[MWEBTransaction]:
+    if len(txs) == 0:
+        return None
+
+    if len(txs) == 1:
+        return txs[0]
+    
+    inputs: List[MWEBInput] = []
+    outputs: List[MWEBOutput] = []
+    kernels: List[MWEBKernel] = []
+    kernel_offsets: List[BlindingFactor] = []
+    stealth_offsets: List[BlindingFactor] = []
+    
+    # Collect all the inputs, outputs, kernels, and owner sigs from the txs
+    for tx in txs:
+        for input in tx.body.mweb_inputs:
+            inputs.append(input)
+        #inputs.extend(tx.body.mweb_inputs)
+        outputs.extend(tx.body.mweb_outputs)
+        kernels.extend(tx.body.mweb_kernels)
+        
+        kernel_offset = BlindingFactor.from_bytes(tx.kernel_offset.to_byte_arr())
+        stealth_offset = BlindingFactor.from_bytes(tx.stealth_offset.to_byte_arr())
+        if kernel_offset is None or stealth_offset is None:
+            return None
+
+        kernel_offsets.append(kernel_offset)
+        stealth_offsets.append(stealth_offset)
+
+    # Sum the offsets up to give us an aggregate offsets for the transaction.
+    kernel_offset = Hash.from_byte_arr(pedersen_blind_sum(kernel_offsets).to_bytes())
+    stealth_offset = Hash.from_byte_arr(pedersen_blind_sum(stealth_offsets).to_bytes())
+
+    # Build a new aggregate tx
+    body = MWEBTxBody.new_sorted(inputs, outputs, kernels)
+    tx = MWEBTransaction(kernel_offset=kernel_offset, stealth_offset=stealth_offset, body=body)
+    tx.rehash()
+
+    return tx

@@ -111,7 +111,7 @@ public:
     const mw::Hash& GetHash() const noexcept final { return m_hash; }
 
     bool IsStandard() const noexcept;
-    void Validate() const; // MW: TODO - Return util::Result instead
+    void Validate() const;
     
     std::string Print() const noexcept
     {
