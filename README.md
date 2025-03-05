@@ -41,7 +41,7 @@ Visit our website at [https://penguincoin.org](https://penguincoin.org) for more
 
 For most users, we recommend downloading pre-compiled binaries:
 
-- [Download PenguinCoin Core](https://penguincoin.org/downloads) - Official releases for Windows, macOS, and Linux
+- [Download PenguinCoin Core](https://penguincoin.org/downloads) - Official releases for Windows and Linux
 
 ### Building from Source
 
@@ -51,7 +51,6 @@ For developers or advanced users who want to build from source:
 2. Follow the build instructions for your platform:
    - [Unix Build Notes](doc/build-unix.md)
    - [Windows Build Notes](doc/build-windows.md)
-   - [macOS Build Notes](doc/build-osx.md)
 
 ## Documentation
 
