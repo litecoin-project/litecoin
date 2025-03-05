@@ -7,7 +7,7 @@ using namespace MWEB;
 bool Policy::IsStandardTx(const CTransaction& tx, std::string& reason)
 {
     // MWEB: To help avoid mempool bugs, we don't yet allow transaction aggregation
-    // for transactions with canonical LTC data.
+    // for transactions with canonical PGC data.
     if (!tx.IsMWEBOnly()) {
         std::set<mw::Hash> pegin_kernels;
         for (const CTxOut& txout : tx.vout) {

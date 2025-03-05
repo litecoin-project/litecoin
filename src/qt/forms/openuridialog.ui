@@ -11,7 +11,7 @@
    </rect>
   </property>
   <property name="windowTitle">
-   <string>Open litecoin URI</string>
+   <string>Open penguincoin URI</string>
   </property>
   <layout class="QVBoxLayout" name="verticalLayout">
    <item>
@@ -26,7 +26,7 @@
      <item>
       <widget class="QValidatedLineEdit" name="uriEdit">
        <property name="placeholderText">
-        <string notr="true">litecoin:</string>
+        <string notr="true">penguincoin:</string>
        </property>
       </widget>
      </item>

@@ -1,6 +1,6 @@
 # Data Storage
 
-In addition to extending the existing `CBlock` and `CTransaction` objects already used in Litecoin, the following data stores are created or modified for MWEB.
+In addition to extending the existing `CBlock` and `CTransaction` objects already used in PenguinCoin, the following data stores are created or modified for MWEB.
 
 ### CBlockUndo
 
@@ -24,7 +24,7 @@ An `UnserializeBlockUndo` function was added to handle this.
 ### UTXOs
 ##### CoinDB (leveldb)
 
-Litecoin's leveldb instance is used to maintain a UTXO table (prefix: 'U') with `UTXO` objects, consisting of the following data fields:
+PenguinCoin's leveldb instance is used to maintain a UTXO table (prefix: 'U') with `UTXO` objects, consisting of the following data fields:
 
 * output_hash (key) - The hash of the output.
 * block_height - The block height the UTXO was included.
@@ -33,7 +33,7 @@ Litecoin's leveldb instance is used to maintain a UTXO table (prefix: 'U') with 
 
 ### PMMRs
 ##### MMR Info (leveldb)
-Litecoin's leveldb instance is used to maintain an MMR Info table (prefix: "M") with `MMRInfo` objects consisting of the following data fields:
+PenguinCoin's leveldb instance is used to maintain an MMR Info table (prefix: "M") with `MMRInfo` objects consisting of the following data fields:
 
 * version - A version byte that allows for future schema upgrades.
 * index (key) - File number of the PMMR files.
@@ -44,7 +44,7 @@ Litecoin's leveldb instance is used to maintain an MMR Info table (prefix: "M") 
 Each time the PMMRs are flushed to disk, a new MMRInfo object is written to the DB and marked as the latest.
 
 ##### Leaves (leveldb)
-Litecoin's leveldb instance is used to maintain MMR leaf tables (prefix: 'O' for outputs) to store uncompacted PMMR leaves consisting of the following data fields:
+PenguinCoin's leveldb instance is used to maintain MMR leaf tables (prefix: 'O' for outputs) to store uncompacted PMMR leaves consisting of the following data fields:
 
 * leaf_index (key) - The zero-based leaf position.
 * leaf - The raw leaf data committed to by the PMMR.

@@ -112,7 +112,7 @@ TxBuilder& TxBuilder::AddPegoutKernel(const CAmount amount, const CAmount fee, c
 {
     BlindingFactor kernel_excess = BlindingFactor::Random();
     m_kernelOffset.Sub(kernel_excess);
-    std::vector<uint8_t> ltc_address = SecretKey::Random().vec();
+    std::vector<uint8_t> pgc_address = SecretKey::Random().vec();
 
     boost::optional<SecretKey> stealth_excess = boost::none;
     if (add_stealth_excess) {
@@ -120,7 +120,7 @@ TxBuilder& TxBuilder::AddPegoutKernel(const CAmount amount, const CAmount fee, c
         m_stealthOffset.Sub(stealth_excess.value());
     }
     
-    PegOutCoin pegout(amount, CScript{ ltc_address.begin(), ltc_address.end() });
+    PegOutCoin pegout(amount, CScript{ pgc_address.begin(), pgc_address.end() });
     Kernel kernel = Kernel::Create(
         kernel_excess,
         stealth_excess,

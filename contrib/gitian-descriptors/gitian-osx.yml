@@ -1,5 +1,5 @@
 ---
-name: "litecoin-core-osx-0.21"
+name: "penguincoin-core-osx-0.21"
 enable_cache: true
 distro: "ubuntu"
 suites:
@@ -31,8 +31,8 @@ packages:
 - "fonts-tuffy"
 - "xorriso"
 remotes:
-- "url": "https://github.com/litecoin-project/litecoin.git"
-  "dir": "litecoin"
+- "url": "https://github.com/penguincoin-project/penguincoin.git"
+  "dir": "penguincoin"
 files:
 - "Xcode-12.1-12A7403-extracted-SDK-with-libcxx-headers.tar.gz"
 script: |
@@ -88,7 +88,7 @@ script: |
   create_per-host_faketime_wrappers "2000-01-01 12:00:00"
   export PATH=${WRAP_DIR}:${PATH}
 
-  cd litecoin
+  cd penguincoin
   BASEPREFIX="${PWD}/depends"
 
   mkdir -p ${BASEPREFIX}/SDKs
@@ -150,10 +150,10 @@ script: |
     find . -name "lib*.la" -delete
     find . -name "lib*.a" -delete
     
-    # Litecoin: Delete libbitcoin from binary distribution for now, see #192
+    # PenguinCoin: Delete libbitcoin from binary distribution for now, see #192
     rm -rf ${DISTNAME:?}/lib/
     rm -rf ${DISTNAME}/include/
-    # Litecoin: ends
+    # PenguinCoin: ends
     
     rm -rf ${DISTNAME}/lib/pkgconfig
     find ${DISTNAME} | sort | tar --mtime="$REFERENCE_DATETIME" --no-recursion --mode='u+rw,go+r-w,a+X' --owner=0 --group=0 -c -T - | gzip -9n > ${OUTDIR}/${DISTNAME}-${i}.tar.gz

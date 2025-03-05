@@ -31,7 +31,7 @@ void LocalTestingSetup :: ResetArgs(const std::string& strArg)
       boost::split(vecArg, strArg, IsSpace, boost::token_compress_on);
 
     // Insert dummy executable name:
-    vecArg.insert(vecArg.begin(), "testlitecoin");
+    vecArg.insert(vecArg.begin(), "testpenguincoin");
 
     // Convert to char*:
     std::vector<const char*> vecChar;

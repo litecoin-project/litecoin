@@ -73,7 +73,7 @@ class MWEBWalletAddressTest(BitcoinTestFramework):
         v15_1_wallet = os.path.join(v15_1_node.datadir, "regtest/wallet.dat")
         self.stop_node(1)
         
-        # Copy the 0.15.1 non hd wallet to the last Litecoin Core version and open it:
+        # Copy the 0.15.1 non hd wallet to the last PenguinCoin Core version and open it:
         node_master.get_wallet_rpc(self.default_wallet_name).unloadwallet()
         shutil.rmtree(node_master_wallet_dir)
         os.mkdir(node_master_wallet_dir)

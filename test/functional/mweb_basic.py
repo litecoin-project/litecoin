@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# Copyright (c) 2021 The Litecoin Core developers
+# Copyright (c) 2021 The PenguinCoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Basic MWEB test"""
@@ -51,7 +51,7 @@ class MWEBBasicTest(BitcoinTestFramework):
             utxo1 = utxos[0]
           
         assert utxo0['amount'] == 10 and utxo0['address'] == addr0
-        assert 2 < utxo1['amount'] < 2.5 # change from single 12.5 LTC coinbase being spent
+        assert 2 < utxo1['amount'] < 2.5 # change from single 12.5 PGC coinbase being spent
 
         self.log.info("Send MWEB coins to node 1")
         addr1 = self.nodes[1].getnewaddress(address_type='mweb')

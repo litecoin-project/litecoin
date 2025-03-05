@@ -1,16 +1,16 @@
-Litecoin Core version 0.21.2.1 is now available from:
+PenguinCoin Core version 0.21.2.1 is now available from:
 
- <https://download.litecoin.org/litecoin-0.21.2.1/>.
+ <https://download.penguincoin.org/penguincoin-0.21.2.1/>.
 
 This includes a critical bug fix for upgraded wallets to receive via MWEB.
 
 Please report bugs using the issue tracker at GitHub:
 
-  <https://github.com/litecoin-project/litecoin/issues>
+  <https://github.com/penguincoin-project/penguincoin/issues>
 
 To receive security and update notifications, please subscribe to:
 
-  <https://groups.google.com/forum/#!forum/litecoin-dev>
+  <https://groups.google.com/forum/#!forum/penguincoin-dev>
 
 Notable changes
 ===============

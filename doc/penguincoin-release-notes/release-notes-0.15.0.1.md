@@ -1,25 +1,25 @@
-Litecoin Core version *0.15.0* is now available from:
+PenguinCoin Core version *0.15.0* is now available from:
 
-  <https://download.litecoin.org/litecoin-0.15.0/>
+  <https://download.penguincoin.org/penguincoin-0.15.0/>
 
 This is a new major version release, including new features, various bugfixes
 and performance improvements, as well as updated translations.
 
 Please report bugs using the issue tracker at GitHub:
 
-  <https://github.com/litecoin-project/litecoin/issues>
+  <https://github.com/penguincoin-project/penguincoin/issues>
 
 To receive security and update notifications, please subscribe to:
 
-  <https://groups.google.com/forum/#!forum/litecoin-dev>
+  <https://groups.google.com/forum/#!forum/penguincoin-dev>
 
 How to Upgrade
 ==============
 
 If you are running an older version, shut it down. Wait until it has completely
 shut down (which might take a few minutes for older versions), then run the 
-installer (on Windows) or just copy over `/Applications/Litecoin-Qt` (on Mac)
-or `litecoind`/`litecoin-qt` (on Linux).
+installer (on Windows) or just copy over `/Applications/PenguinCoin-Qt` (on Mac)
+or `penguincoind`/`penguincoin-qt` (on Linux).
 
 The first time you run version 0.15.0, your chainstate database will be converted to a
 new format, which will take anywhere from a few minutes to half an hour,
@@ -48,10 +48,10 @@ processing the entire blockchain.
 Compatibility
 ==============
 
-Litecoin Core is extensively tested on multiple operating systems using
+PenguinCoin Core is extensively tested on multiple operating systems using
 the Linux kernel, macOS 10.8+, and Windows Vista and later. Windows XP is not supported.
 
-Litecoin Core should also work on most other Unix-like systems but is not
+PenguinCoin Core should also work on most other Unix-like systems but is not
 frequently tested on them.
 
 Notable changes
@@ -92,7 +92,7 @@ Initial Block Download, startup, transaction and block validation much faster:
   validation. In version 0.15, SHA256 hardware optimization is disabled in release builds by
   default, but can be enabled by using `--enable-experimental-asm` when building.
 - Refill of the keypool no longer flushes the wallet between each key which resulted in a ~20x speedup in creating a new wallet. Part of this speedup was used to increase the default keypool to 1000 keys to make recovery more robust. (See [PR 10831](https://github.com/bitcoin/bitcoin/pull/10831)).
-- Scrypt hashing has been optimized for architectures supporting SSE 2 (See [PR 362](https://github.com/litecoin-project/litecoin/pull/362)). This boosts scrypt hashing performance by a factor of 2. In version 0.15, scrypt hardware optimization is disabled in release builds by default, but can be enabled by using `--enable-sse2` when building.
+- Scrypt hashing has been optimized for architectures supporting SSE 2 (See [PR 362](https://github.com/penguincoin-project/penguincoin/pull/362)). This boosts scrypt hashing performance by a factor of 2. In version 0.15, scrypt hardware optimization is disabled in release builds by default, but can be enabled by using `--enable-sse2` when building.
 
 Fee Estimation Improvements
 ---------------------------
@@ -116,7 +116,7 @@ Fee estimation has been significantly improved in version 0.15, with more accura
     - The `nblocks` argument has been renamed to `conf_target` (to be consistent with other RPC methods).
     - An `estimate_mode` argument has been added. This argument takes one of the following strings: `CONSERVATIVE`, `ECONOMICAL` or `UNSET` (which defaults to `CONSERVATIVE`).
     - The RPC return object now contains an `errors` member, which returns errors encountered during processing.
-    - If Litecoin Core has not been running for long enough and has not seen enough blocks or transactions to produce an accurate fee estimation, an error will be returned (previously a value of -1 was used to indicate an error, which could be confused for a feerate).
+    - If PenguinCoin Core has not been running for long enough and has not seen enough blocks or transactions to produce an accurate fee estimation, an error will be returned (previously a value of -1 was used to indicate an error, which could be confused for a feerate).
 - A new `estimaterawfee` RPC is added to provide raw fee data. External clients can query and use this data in their own fee estimation logic.
 
 Opt into RBF When Sending
@@ -135,17 +135,17 @@ In version 0.15, creating an opt-in RBF transaction and replacing the unconfirme
 Multi-wallet support
 --------------------
 
-Litecoin Core now supports loading multiple, separate wallets (See [PR 8694](https://github.com/bitcoin/bitcoin/pull/8694), [PR 10849](https://github.com/bitcoin/bitcoin/pull/10849)). The wallets are completely separated, with individual balances, keys and received transactions.
+PenguinCoin Core now supports loading multiple, separate wallets (See [PR 8694](https://github.com/bitcoin/bitcoin/pull/8694), [PR 10849](https://github.com/bitcoin/bitcoin/pull/10849)). The wallets are completely separated, with individual balances, keys and received transactions.
 
-Multi-wallet is enabled by using more than one `-wallet` argument when starting Litecoin, either on the command line or in the Litecoin config file.
+Multi-wallet is enabled by using more than one `-wallet` argument when starting PenguinCoin, either on the command line or in the PenguinCoin config file.
 
-**In Litecoin-Qt, only the first wallet will be displayed and accessible for creating and signing transactions.** GUI selectable multiple wallets will be supported in a future version. However, even in 0.15 other loaded wallets will remain synchronized to the node's current tip in the background. This can be useful if running a pruned node, since loading a wallet where the most recent sync is beyond the pruned height results in having to download and revalidate the whole blockchain. Continuing to synchronize all wallets in the background avoids this problem.
+**In PenguinCoin-Qt, only the first wallet will be displayed and accessible for creating and signing transactions.** GUI selectable multiple wallets will be supported in a future version. However, even in 0.15 other loaded wallets will remain synchronized to the node's current tip in the background. This can be useful if running a pruned node, since loading a wallet where the most recent sync is beyond the pruned height results in having to download and revalidate the whole blockchain. Continuing to synchronize all wallets in the background avoids this problem.
 
-Litecoin Core 0.15.0 contains the following changes to the RPC interface and `litecoin-cli` for multi-wallet:
+PenguinCoin Core 0.15.0 contains the following changes to the RPC interface and `penguincoin-cli` for multi-wallet:
 
-* When running Litecoin Core with a single wallet, there are **no** changes to the RPC interface or `litecoin-cli`. All RPC calls and `litecoin-cli` commands continue to work as before.
-* When running Litecoin Core with multi-wallet, all *node-level* RPC methods continue to work as before. HTTP RPC requests should be send to the normal `<RPC IP address>:<RPC port>/` endpoint, and `litecoin-cli` commands should be run as before. A *node-level* RPC method is any method which does not require access to the wallet.
-* When running Litecoin Core with multi-wallet, *wallet-level* RPC methods must specify the wallet for which they're intended in every request. HTTP RPC requests should be send to the `<RPC IP address>:<RPC port>/wallet/<wallet name>/` endpoint, for example `127.0.0.1:9332/wallet/wallet1.dat/`. `litecoin-cli` commands should be run with a `-rpcwallet` option, for example `litecoin-cli -rpcwallet=wallet1.dat getbalance`.
+* When running PenguinCoin Core with a single wallet, there are **no** changes to the RPC interface or `penguincoin-cli`. All RPC calls and `penguincoin-cli` commands continue to work as before.
+* When running PenguinCoin Core with multi-wallet, all *node-level* RPC methods continue to work as before. HTTP RPC requests should be send to the normal `<RPC IP address>:<RPC port>/` endpoint, and `penguincoin-cli` commands should be run as before. A *node-level* RPC method is any method which does not require access to the wallet.
+* When running PenguinCoin Core with multi-wallet, *wallet-level* RPC methods must specify the wallet for which they're intended in every request. HTTP RPC requests should be send to the `<RPC IP address>:<RPC port>/wallet/<wallet name>/` endpoint, for example `127.0.0.1:9332/wallet/wallet1.dat/`. `penguincoin-cli` commands should be run with a `-rpcwallet` option, for example `penguincoin-cli -rpcwallet=wallet1.dat getbalance`.
 * A new *node-level* `listwallets` RPC method is added to display which wallets are currently loaded. The names returned by this method are the same as those used in the HTTP endpoint and for the `rpcwallet` argument.
 
 Note that while multi-wallet is now fully supported, the RPC multi-wallet interface should be considered unstable for version 0.15.0, and there may backwards-incompatible changes in future versions.
@@ -153,7 +153,7 @@ Note that while multi-wallet is now fully supported, the RPC multi-wallet interf
 Removal of Coin Age Priority
 ----------------------------
 
-In previous versions of Litecoin Core, a portion of each block could be reserved for transactions based on the age and value of UTXOs they spent. This concept (Coin Age Priority) is a policy choice by miners, and there are no consensus rules around the inclusion of Coin Age Priority transactions in blocks. In practice, only a few miners continue to use Coin Age Priority for transaction selection in blocks. Litecoin Core 0.15 removes all remaining support for Coin Age Priority (See [PR 9602](https://github.com/bitcoin/bitcoin/pull/9602)). This has the following implications:
+In previous versions of PenguinCoin Core, a portion of each block could be reserved for transactions based on the age and value of UTXOs they spent. This concept (Coin Age Priority) is a policy choice by miners, and there are no consensus rules around the inclusion of Coin Age Priority transactions in blocks. In practice, only a few miners continue to use Coin Age Priority for transaction selection in blocks. PenguinCoin Core 0.15 removes all remaining support for Coin Age Priority (See [PR 9602](https://github.com/bitcoin/bitcoin/pull/9602)). This has the following implications:
 
 - The concept of *free transactions* has been removed. High Coin Age Priority transactions would previously be allowed to be relayed even if they didn't attach a miner fee. This is no longer possible since there is no concept of Coin Age Priority. The `-limitfreerelay` and `-relaypriority` options which controlled relay of free transactions have therefore been removed.
 - The `-sendfreetransactions` option has been removed, since almost all miners do not include transactions which do not attach a transaction fee.
@@ -186,7 +186,7 @@ Version 0.15 introduces several new RPC methods:
 Low-level RPC changes
 ---------------------
 
-- When using Litecoin Core in multi-wallet mode, RPC requests for wallet methods must specify
+- When using PenguinCoin Core in multi-wallet mode, RPC requests for wallet methods must specify
   the wallet that they're intended for. See [Multi-wallet support](#multi-wallet-support) for full details.
 
 - The new database model no longer stores information about transaction

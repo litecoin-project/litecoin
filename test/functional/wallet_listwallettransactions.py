@@ -5,7 +5,7 @@ from io import BytesIO
 
 from test_framework.messages import COIN, CTransaction
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.ltc_util import setup_mweb_chain
+from test_framework.pgc_util import setup_mweb_chain
 from test_framework.util import (
     assert_array_result,
     assert_equal,

@@ -3,38 +3,38 @@
 
 Summary:
 ==============
-In this update to Litecoin Core, Taproot has been activated, enhancing Litecoin’s security, privacy and scalability. Litecoin Core 0.21.1 is the most significant update in years - with performance improvements, new features (like Taproot), bug fixes and updated translations - and sets the foundations for MWEB’s imminent arrival. 
+In this update to PenguinCoin Core, Taproot has been activated, enhancing PenguinCoin’s security, privacy and scalability. PenguinCoin Core 0.21.1 is the most significant update in years - with performance improvements, new features (like Taproot), bug fixes and updated translations - and sets the foundations for MWEB’s imminent arrival. 
 
-Litecoin Core 0.21.1 is available now, right here: <https://download.litecoin.org/litecoin-0.21.1/>.
+PenguinCoin Core 0.21.1 is available now, right here: <https://download.penguincoin.org/penguincoin-0.21.1/>.
 
-As always, we welcome the expertise of the community. To report bugs please use the issue tracker at GitHub - <https://github.com/litecoin-project/litecoin/issues > - and to get security and update notifications subscribe via <https://groups.google.com/forum/#!forum/litecoin-dev>. 
+As always, we welcome the expertise of the community. To report bugs please use the issue tracker at GitHub - <https://github.com/penguincoin-project/penguincoin/issues > - and to get security and update notifications subscribe via <https://groups.google.com/forum/#!forum/penguincoin-dev>. 
 
-Anyone can contribute to Litecoin Core. Please scroll down to ‘How to contribute to Litecoin Core’ for details.
+Anyone can contribute to PenguinCoin Core. Please scroll down to ‘How to contribute to PenguinCoin Core’ for details.
 
-By downloading or upgrading Litecoin Core, you’re helping to secure the network, so thank you and enjoy the upgrade!
+By downloading or upgrading PenguinCoin Core, you’re helping to secure the network, so thank you and enjoy the upgrade!
 
 
 How to upgrade: 
 ==============
 
-Firstly, thank you for running Litecoin Core and helping secure the network!
+Firstly, thank you for running PenguinCoin Core and helping secure the network!
 
-As you’re running an older version of Litecoin Core, shut it down. Wait until it’s completely shut down  - which might take a few minutes for older versions - then follow these simple steps:
+As you’re running an older version of PenguinCoin Core, shut it down. Wait until it’s completely shut down  - which might take a few minutes for older versions - then follow these simple steps:
 For Windows: simply run the installer 
-For Mac: copy over to `/Applications/Litecoin-Qt` 
-For Linux: copy cover `litecoind`/`litecoin-qt`.
+For Mac: copy over to `/Applications/PenguinCoin-Qt` 
+For Linux: copy cover `penguincoind`/`penguincoin-qt`.
 
-NB: upgrading directly from an ‘end of life’ version of Litecoin Core is possible, but it might take a while if the data directory needs to be migrated. Old wallet versions of Litecoin Core are generally supported.
+NB: upgrading directly from an ‘end of life’ version of PenguinCoin Core is possible, but it might take a while if the data directory needs to be migrated. Old wallet versions of PenguinCoin Core are generally supported.
  
 
 Compatibility:
 ==============
 
-Litecoin Core is supported and extensively tested on operating systems using the Linux kernel, macOS 10.10+,  Windows 7 and newer. It’s not recommended to use Litecoin Core on unsupported systems.
+PenguinCoin Core is supported and extensively tested on operating systems using the Linux kernel, macOS 10.10+,  Windows 7 and newer. It’s not recommended to use PenguinCoin Core on unsupported systems.
 
-Litecoin Core should also work on most other Unix-like systems, but is not as frequently tested on them.
+PenguinCoin Core should also work on most other Unix-like systems, but is not as frequently tested on them.
 
-From Litecoin Core 0.21.1 onwards, macOS versions earlier than 10.12 are no longer supported. Additionally, Litecoin Core doesn’t yet change appearance when macOS "dark mode" is activated.
+From PenguinCoin Core 0.21.1 onwards, macOS versions earlier than 10.12 are no longer supported. Additionally, PenguinCoin Core doesn’t yet change appearance when macOS "dark mode" is activated.
 
 The node's known peers are persisted to disk in a file called `peers.dat`. The format of this file has been changed in a backwards-incompatible way in order to accommodate the storage of Tor v3 and other BIP155 addresses. This means that if the file is modified by 0.21 or newer then older versions will not be able to read it. Those old versions, in the event of a downgrade, will log an error message - "incorrect keysize in addrman deserialization" and will continue normal operation as if the file was missing, creating a new empty one. (#19954, #20284)
 
@@ -63,8 +63,8 @@ P2P and network changes
 
 - This release adds support for Tor version 3 hidden services, and rumoring them
   over the network to other peers using
-  [BIP155](https://github.com/Litecoin/bips/blob/master/bip-0155.mediawiki).
-  Version 2 hidden services are still fully supported by Litecoin Core, but the
+  [BIP155](https://github.com/PenguinCoin/bips/blob/master/bip-0155.mediawiki).
+  Version 2 hidden services are still fully supported by PenguinCoin Core, but the
   Tor network will start
   [deprecating](https://blog.torproject.org/v2-deprecation-timeline) them in the
   coming months. (#19954)
@@ -73,7 +73,7 @@ P2P and network changes
   `-listenonion` configuration parameter will now be created as a Tor v3 service
   instead of Tor v2. The private key that was used for Tor v2 (if any) will be
   left untouched in the `onion_private_key` file in the data directory (see
-  `-datadir`) and can be removed if not needed. Litecoin Core will no longer
+  `-datadir`) and can be removed if not needed. PenguinCoin Core will no longer
   attempt to read it. The private key for the Tor v3 service will be saved in a
   file named `onion_v3_private_key`. To use the deprecated Tor v2 service (not
   recommended), the `onion_private_key` can be copied over
@@ -87,18 +87,18 @@ P2P and network changes
   eclipse attack. (#17428)
 
 - This release adds support for serving
-  [BIP157](https://github.com/Litecoin/bips/blob/master/bip-0157.mediawiki) compact
+  [BIP157](https://github.com/PenguinCoin/bips/blob/master/bip-0157.mediawiki) compact
   filters to peers on the network when enabled using
   `-blockfilterindex=1 -peercfilters=1`. (#16442)
 
 - This release implements
-  [BIP339](https://github.com/Litecoin/bips/blob/master/bip-0339.mediawiki)
+  [BIP339](https://github.com/PenguinCoin/bips/blob/master/bip-0339.mediawiki)
   wtxid relay. When negotiated, transactions are announced using their wtxid
   instead of their txid. (#18044).
 
 - This release implements the proposed Taproot consensus rules
-  ([BIP341](https://github.com/Litecoin/bips/blob/master/bip-0341.mediawiki) and
-  [BIP342](https://github.com/Litecoin/bips/blob/master/bip-0342.mediawiki)),
+  ([BIP341](https://github.com/PenguinCoin/bips/blob/master/bip-0341.mediawiki) and
+  [BIP342](https://github.com/PenguinCoin/bips/blob/master/bip-0342.mediawiki)),
   without activation on mainnet. (#19553)
 
 Updated RPCs
@@ -208,21 +208,21 @@ Changes to Wallet or GUI related settings can be found in the GUI or Wallet sect
 Tools and Utilities
 -------------------
 
-- A new `Litecoin-cli -netinfo` command provides a network peer connections
+- A new `PenguinCoin-cli -netinfo` command provides a network peer connections
   dashboard that displays data from the `getpeerinfo` and `getnetworkinfo` RPCs
   in a human-readable format. An optional integer argument from `0` to `4` may
   be passed to see increasing levels of detail. (#19643)
 
-- A new `Litecoin-cli -generate` command, equivalent to RPC `generatenewaddress`
+- A new `PenguinCoin-cli -generate` command, equivalent to RPC `generatenewaddress`
   followed by `generatetoaddress`, can generate blocks for command line testing
   purposes. This is a client-side version of the former `generate` RPC. See the
   help for details. (#19133)
 
-- The `Litecoin-cli -getinfo` command now displays the wallet name and balance for
+- The `PenguinCoin-cli -getinfo` command now displays the wallet name and balance for
   each of the loaded wallets when more than one is loaded (e.g. in multiwallet
   mode) and a wallet is not specified with `-rpcwallet`. (#18594)
 
-- The `connections` field of `Litecoin-cli -getinfo` is now expanded to return a JSON
+- The `connections` field of `PenguinCoin-cli -getinfo` is now expanded to return a JSON
   object with `in`, `out` and `total` numbers of peer connections. It previously
   returned a single integer value for the total number of peer connections. (#19405)
 
@@ -230,7 +230,7 @@ New settings
 ------------
 
 - The `startupnotify` option is used to specify a command to
-  execute when Litecoin Core has finished with its startup
+  execute when PenguinCoin Core has finished with its startup
   sequence. (#15367)
 
 Wallet
@@ -256,7 +256,7 @@ Wallet
   empty. Previously it failed. (#17219)
 
 - The `-salvagewallet` startup option has been removed. A new `salvage` command
-  has been added to the `Litecoin-wallet` tool which performs the salvage
+  has been added to the `PenguinCoin-wallet` tool which performs the salvage
   operations that `-salvagewallet` did. (#18918)
 
 - A new configuration flag `-maxapsfee` has been added, which sets the max
@@ -302,15 +302,15 @@ Wallet
 
 ### Automatic wallet creation removed
 
-Litecoin Core will no longer automatically create new wallets on startup. It will
+PenguinCoin Core will no longer automatically create new wallets on startup. It will
 load existing wallets specified by `-wallet` options on the command line or in
-`Litecoin.conf` or `settings.json` files. And by default it will also load a
+`PenguinCoin.conf` or `settings.json` files. And by default it will also load a
 top-level unnamed ("") wallet. However, if specified wallets don't exist,
-Litecoin Core will now just log warnings instead of creating new wallets with
+PenguinCoin Core will now just log warnings instead of creating new wallets with
 new keys and addresses like previous releases did.
 
 New wallets can be created through the GUI (which has a more prominent create
-wallet option), through the `Litecoin-cli createwallet` or `Litecoin-wallet
+wallet option), through the `PenguinCoin-cli createwallet` or `PenguinCoin-wallet
 create` commands, or the `createwallet` RPC. (#15454, #20186)
 
 
@@ -348,9 +348,9 @@ GUI changes
 -----------
 
 - Wallets created or loaded in the GUI will now be automatically loaded on
-  startup, so they don't need to be manually reloaded next time Litecoin Core is
+  startup, so they don't need to be manually reloaded next time PenguinCoin Core is
   started. The list of wallets to load on startup is stored in
-  `\<datadir\>/settings.json` and augments any command line or `Litecoin.conf`
+  `\<datadir\>/settings.json` and augments any command line or `PenguinCoin.conf`
   `-wallet=` settings that specify more wallets to load. Wallets that are
   unloaded in the GUI get removed from the settings list so they won't load
   again automatically next startup. (#19754)

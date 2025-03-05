@@ -1,21 +1,21 @@
 Benchmarking
 ============
 
-Litecoin Core has an internal benchmarking framework, with benchmarks
+PenguinCoin Core has an internal benchmarking framework, with benchmarks
 for cryptographic algorithms (e.g. SHA1, SHA256, SHA512, RIPEMD160, Poly1305, ChaCha20), rolling bloom filter, coins selection,
 thread queue, wallet balance.
 
 Running
 ---------------------
 
-For benchmarks purposes you only need to compile `litecoin_bench`. Beware of configuring without `--enable-debug` as this would impact
+For benchmarks purposes you only need to compile `penguincoin_bench`. Beware of configuring without `--enable-debug` as this would impact
 benchmarking by unlatching log printers and lock analysis.
 
-    make -C src litecoin_bench
+    make -C src penguincoin_bench
 
-After compiling litecoin-core, the benchmarks can be run with:
+After compiling penguincoin-core, the benchmarks can be run with:
 
-    src/bench/bench_litecoin
+    src/bench/bench_penguincoin
 
 The output will look similar to:
 ```
@@ -45,6 +45,6 @@ More benchmarks are needed for, in no particular order:
 Going Further
 --------------------
 
-To monitor Litecoin Core performance more in depth (like reindex or IBD): https://github.com/chaincodelabs/bitcoinperf
+To monitor PenguinCoin Core performance more in depth (like reindex or IBD): https://github.com/chaincodelabs/bitcoinperf
 
-To generate Flame Graphs for Litecoin Core: https://github.com/eklitzke/bitcoin/blob/flamegraphs/doc/flamegraphs.md
+To generate Flame Graphs for PenguinCoin Core: https://github.com/eklitzke/bitcoin/blob/flamegraphs/doc/flamegraphs.md

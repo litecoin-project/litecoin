@@ -51,8 +51,8 @@ BIPs that are implemented by Bitcoin Core (up-to-date up to **v0.21.1**):
 
 ------------------
 
-LIPs implemented by Litecoin Core (up-to-date up to v0.21.3)
-* [`LIP002`](https://github.com/litecoin-project/lips/blob/master/lip-0002.mediawiki): Extension blocks as a mechanism to implement new protocols to Litecoin without relaxing any consensus rules.
-* [`LIP003`](https://github.com/litecoin-project/lips/blob/master/lip-0003.mediawiki): Opt-in MimbleWimble through Extension Blocks.
-* [`LIP004`](https://github.com/litecoin-project/lips/blob/master/lip-0004.mediawiki): One sided MimbleWimble transactions without needing to build a transaction interactively with the receiving party. 
-* [`LIP006`](https://github.com/litecoin-project/lips/blob/c01068d06136fb21bf35fd6dac2977de60057714/LIP-0006.mediawiki): New p2p messages for supporting light-client syncing of MWEB components.
+LIPs implemented by PenguinCoin Core (up-to-date up to v0.21.3)
+* [`LIP002`](https://github.com/penguincoin-project/lips/blob/master/lip-0002.mediawiki): Extension blocks as a mechanism to implement new protocols to PenguinCoin without relaxing any consensus rules.
+* [`LIP003`](https://github.com/penguincoin-project/lips/blob/master/lip-0003.mediawiki): Opt-in MimbleWimble through Extension Blocks.
+* [`LIP004`](https://github.com/penguincoin-project/lips/blob/master/lip-0004.mediawiki): One sided MimbleWimble transactions without needing to build a transaction interactively with the receiving party. 
+* [`LIP006`](https://github.com/penguincoin-project/lips/blob/c01068d06136fb21bf35fd6dac2977de60057714/LIP-0006.mediawiki): New p2p messages for supporting light-client syncing of MWEB components.

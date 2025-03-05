@@ -8,7 +8,7 @@ from test_framework.blocktools import (create_coinbase, NORMAL_GBT_REQUEST_PARAM
 from test_framework.messages import (CBlock, MWEBBlock)
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
-from test_framework.ltc_util import create_hogex, get_mweb_header, setup_mweb_chain
+from test_framework.pgc_util import create_hogex, get_mweb_header, setup_mweb_chain
 
 class MWEBMiningTest(BitcoinTestFramework):
     def set_test_params(self):

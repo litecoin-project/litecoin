@@ -27,10 +27,10 @@
 #define COPYRIGHT_HOLDERS "The %s developers"
 
 /* Copyright holder(s) */
-#define COPYRIGHT_HOLDERS_FINAL "The Litecoin Core developers"
+#define COPYRIGHT_HOLDERS_FINAL "The PenguinCoin Core developers"
 
 /* Replacement for %s in copyright holders string */
-#define COPYRIGHT_HOLDERS_SUBSTITUTION "Litecoin Core"
+#define COPYRIGHT_HOLDERS_SUBSTITUTION "PenguinCoin Core"
 
 /* Copyright year */
 #define COPYRIGHT_YEAR 2024
@@ -247,19 +247,19 @@
 #define LT_OBJDIR ".libs/"
 
 /* Define to the address where bug reports for this package should be sent. */
-#define PACKAGE_BUGREPORT "https://github.com/litecoin-project/litecoin/issues"
+#define PACKAGE_BUGREPORT "https://github.com/penguincoin-project/penguincoin/issues"
 
 /* Define to the full name of this package. */
-#define PACKAGE_NAME "Litecoin Core"
+#define PACKAGE_NAME "PenguinCoin Core"
 
 /* Define to the full name and version of this package. */
-#define PACKAGE_STRING "Litecoin Core 0.21.3"
+#define PACKAGE_STRING "PenguinCoin Core 0.21.3"
 
 /* Define to the one symbol short name of this package. */
-#define PACKAGE_TARNAME "litecoin"
+#define PACKAGE_TARNAME "penguincoin"
 
 /* Define to the home page for this package. */
-#define PACKAGE_URL "https://litecoin.org/"
+#define PACKAGE_URL "https://penguincoin.org/"
 
 /* Define to the version of this package. */
 #define PACKAGE_VERSION "0.21.3"

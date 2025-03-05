@@ -3,10 +3,10 @@
 #include <stdexcept>
 #include <string>
 
-class LTCException : public std::runtime_error
+class PGCException : public std::runtime_error
 {
 public:
-    ~LTCException() = default;
+    ~PGCException() = default;
 
     const char* what() const noexcept override
     {
@@ -16,7 +16,7 @@ public:
     const std::string& GetMsg() const { return m_message; }
 
 protected:
-    LTCException(const std::string& type, const std::string& message, const std::string& function)
+    PGCException(const std::string& type, const std::string& message, const std::string& function)
         : std::runtime_error(function + ": " + message)
     {
         m_type = type;

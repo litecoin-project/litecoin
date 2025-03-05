@@ -13,7 +13,7 @@ import json
 from test_framework.blocktools import create_raw_transaction
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
-from test_framework.ltc_util import setup_mweb_chain
+from test_framework.pgc_util import setup_mweb_chain
 
 class MWEBReorgTest(BitcoinTestFramework):
     def set_test_params(self):

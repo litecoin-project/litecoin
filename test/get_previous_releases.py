@@ -71,11 +71,11 @@ def download_binary(tag, args) -> int:
             return 0
         shutil.rmtree(tag)
     Path(tag).mkdir()
-    release_path = 'litecoin-{}'.format(tag[1:])
+    release_path = 'penguincoin-{}'.format(tag[1:])
     os = 'linux' # TODO
-    tarball = 'litecoin-{tag}-{platform}.tar.gz'.format(
+    tarball = 'penguincoin-{tag}-{platform}.tar.gz'.format(
         tag=tag[1:], platform=args.platform)
-    tarballUrl = 'https://download.litecoin.org/{release_path}/{os}/{tarball}'.format(
+    tarballUrl = 'https://download.penguincoin.org/{release_path}/{os}/{tarball}'.format(
         release_path=release_path, os=os, tarball=tarball)
 
     print('Fetching: {tarballUrl}'.format(tarballUrl=tarballUrl))
@@ -108,7 +108,7 @@ def download_binary(tag, args) -> int:
     # Extract tarball
     ret = subprocess.run(['tar', '-zxf', tarball, '-C', tag,
                           '--strip-components=1',
-                          'litecoin-{tag}'.format(tag=tag[1:])]).returncode
+                          'penguincoin-{tag}'.format(tag=tag[1:])]).returncode
     if ret:
         return ret
 
@@ -117,7 +117,7 @@ def download_binary(tag, args) -> int:
 
 
 def build_release(tag, args) -> int:
-    githubUrl = "https://github.com/litecoin-project/litecoin"
+    githubUrl = "https://github.com/penguincoin-project/penguincoin"
     if args.remove_dir:
         if Path(tag).is_dir():
             shutil.rmtree(tag)
@@ -161,7 +161,7 @@ def build_release(tag, args) -> int:
         # Move binaries, so they're in the same place as in the
         # release download
         Path('bin').mkdir(exist_ok=True)
-        files = ['litecoind', 'litecoin-cli', 'litecoin-tx']
+        files = ['penguincoind', 'penguincoin-cli', 'penguincoin-tx']
         for f in files:
             Path('src/'+f).rename('bin/'+f)
     return 0

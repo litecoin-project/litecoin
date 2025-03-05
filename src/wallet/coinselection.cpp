@@ -330,7 +330,7 @@ std::vector<CInputCoin>::iterator OutputGroup::Discard(const CInputCoin& output)
 
 bool OutputGroup::EligibleForSpending(const CoinEligibilityFilter& eligibility_filter, const InputPreference& input_preference) const
 {
-    if ((input_preference == InputPreference::LTC_ONLY && IsMWEB()) || (input_preference == InputPreference::MWEB_ONLY && !IsMWEB())) {
+    if ((input_preference == InputPreference::PGC_ONLY && IsMWEB()) || (input_preference == InputPreference::MWEB_ONLY && !IsMWEB())) {
         return false;
     }
 

@@ -123,10 +123,10 @@ public:
         // This is fine at runtime as we'll fall back to using them as an addrfetch if they don't support the
         // service bits we want, but we should get them updated to support all service bits wanted by any
         // release ASAP to avoid it where possible.
-        vSeeds.emplace_back("seed-a.litecoin.loshan.co.uk");
+        vSeeds.emplace_back("seed-a.penguincoin.loshan.co.uk");
         vSeeds.emplace_back("dnsseed.thrasher.io");
-        vSeeds.emplace_back("dnsseed.litecointools.com");
-        vSeeds.emplace_back("dnsseed.litecoinpool.org");
+        vSeeds.emplace_back("dnsseed.penguincointools.com");
+        vSeeds.emplace_back("dnsseed.penguincoinpool.org");
         vSeeds.emplace_back("dnsseed.koin-project.com");
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,48);
@@ -136,8 +136,8 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x88, 0xB2, 0x1E};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x88, 0xAD, 0xE4};
 
-        bech32_hrp = "ltc";
-        mweb_hrp = "ltcmweb";
+        bech32_hrp = "pgc";
+        mweb_hrp = "pgcmweb";
 
         vFixedSeeds = std::vector<uint8_t>(std::begin(chainparams_seed_main), std::end(chainparams_seed_main));
 
@@ -235,8 +235,8 @@ public:
         vFixedSeeds.clear();
         vSeeds.clear();
         // nodes with support for servicebits filtering should be at the top
-        vSeeds.emplace_back("testnet-seed.litecointools.com");
-        vSeeds.emplace_back("seed-b.litecoin.loshan.co.uk");
+        vSeeds.emplace_back("testnet-seed.penguincointools.com");
+        vSeeds.emplace_back("seed-b.penguincoin.loshan.co.uk");
         vSeeds.emplace_back("dnsseed-testnet.thrasher.io");
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
@@ -246,7 +246,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
 
-        bech32_hrp = "tltc";
+        bech32_hrp = "tpgc";
         mweb_hrp = "tmweb";
 
         vFixedSeeds = std::vector<uint8_t>(std::begin(chainparams_seed_test), std::end(chainparams_seed_test));
@@ -358,7 +358,7 @@ public:
         base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
 
-        bech32_hrp = "rltc";
+        bech32_hrp = "rpgc";
         mweb_hrp = "tmweb";
     }
 

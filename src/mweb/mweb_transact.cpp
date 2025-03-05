@@ -12,13 +12,13 @@ TxType MWEB::GetTxType(const std::vector<CRecipient>& recipients, const std::set
 {
     assert(!recipients.empty());
 
-    static auto is_ltc = [](const CInputCoin& input) { return !input.IsMWEB(); };
+    static auto is_pgc = [](const CInputCoin& input) { return !input.IsMWEB(); };
     static auto is_mweb = [](const CInputCoin& input) { return input.IsMWEB(); };
 
     if (recipients.front().IsMWEB()) {
         // If any inputs are non-MWEB inputs, this is a peg-in transaction.
         // Otherwise, it's a simple MWEB-to-MWEB transaction.
-        if (std::any_of(input_coins.cbegin(), input_coins.cend(), is_ltc)) {
+        if (std::any_of(input_coins.cbegin(), input_coins.cend(), is_pgc)) {
             return TxType::PEGIN;
         } else {
             return TxType::MWEB_TO_MWEB;
@@ -26,11 +26,11 @@ TxType MWEB::GetTxType(const std::vector<CRecipient>& recipients, const std::set
     } else {
         // If any inputs are MWEB inputs, this is a peg-out transaction.
         // NOTE: This does not exclude the possibility that it's also pegging-in in addition to the pegout.
-        // Otherwise, if there are no MWEB inputs, it's a simple LTC-to-LTC transaction.
+        // Otherwise, if there are no MWEB inputs, it's a simple PGC-to-PGC transaction.
         if (std::any_of(input_coins.cbegin(), input_coins.cend(), is_mweb)) {
             return TxType::PEGOUT;
         } else {
-            return TxType::LTC_TO_LTC;
+            return TxType::PGC_TO_PGC;
         }
     }
 }
@@ -75,7 +75,7 @@ uint64_t MWEB::CalcMWEBWeight(const MWEB::TxType& mweb_type, const bool change_o
         mweb_weight += mw::STANDARD_OUTPUT_WEIGHT;
     }
 
-    if (mweb_type != MWEB::TxType::LTC_TO_LTC) {
+    if (mweb_type != MWEB::TxType::PGC_TO_PGC) {
         CScript pegout_script = (mweb_type == MWEB::TxType::PEGOUT) ? recipients.front().GetScript() : CScript();
         mweb_weight += Weight::CalcKernelWeight(true, pegout_script);
     }
@@ -120,28 +120,28 @@ void Transact::AddMWEBTx(InProcessTx& new_tx)
         }
     }
 
-    // Lookup the change paid on the LTC side
-    CAmount ltc_change = 0;
+    // Lookup the change paid on the PGC side
+    CAmount pgc_change = 0;
     if (new_tx.change_position != -1) {
         assert(new_tx.tx.vout.size() > (size_t)new_tx.change_position);
-        ltc_change = new_tx.tx.vout[new_tx.change_position].nValue;
+        pgc_change = new_tx.tx.vout[new_tx.change_position].nValue;
     }
 
     // Calculate pegin_amount
     boost::optional<CAmount> pegin_amount = boost::none;
-    CAmount ltc_input_amount = std::accumulate(
+    CAmount pgc_input_amount = std::accumulate(
         new_tx.selected_coins.cbegin(), new_tx.selected_coins.cend(), CAmount(0),
         [](CAmount amt, const CInputCoin& input) { return amt + (input.IsMWEB() ? 0 : input.GetAmount()); }
     );
-    if (ltc_input_amount > 0) {
-        const CAmount ltc_fee = new_tx.total_fee - new_tx.mweb_fee;
-        assert(ltc_fee <= ltc_input_amount);
-        pegin_amount = (ltc_input_amount - (ltc_fee + ltc_change));
+    if (pgc_input_amount > 0) {
+        const CAmount pgc_fee = new_tx.total_fee - new_tx.mweb_fee;
+        assert(pgc_fee <= pgc_input_amount);
+        pegin_amount = (pgc_input_amount - (pgc_fee + pgc_change));
     }
 
     // Add Change
     if (new_tx.change_on_mweb) {
-        receivers.push_back(BuildChangeRecipient(new_tx, pegin_amount, ltc_change));
+        receivers.push_back(BuildChangeRecipient(new_tx, pegin_amount, pgc_change));
     }
 
     std::vector<mw::Coin> input_coins;
@@ -188,7 +188,7 @@ void Transact::AddMWEBTx(InProcessTx& new_tx)
     }
 }
 
-mw::Recipient Transact::BuildChangeRecipient(const InProcessTx& new_tx, const boost::optional<CAmount>& pegin_amount, const CAmount& ltc_change)
+mw::Recipient Transact::BuildChangeRecipient(const InProcessTx& new_tx, const boost::optional<CAmount>& pegin_amount, const CAmount& pgc_change)
 {
     CAmount recipient_amount = std::accumulate(
         new_tx.recipients.cbegin(), new_tx.recipients.cend(), CAmount(0),
@@ -202,7 +202,7 @@ mw::Recipient Transact::BuildChangeRecipient(const InProcessTx& new_tx, const bo
         [](CAmount amt, const CInputCoin& input) { return amt + (input.IsMWEB() ? input.GetAmount() : 0); }
     );
 
-    CAmount change_amount = (pegin_amount.value_or(0) + mweb_input_amount) - (recipient_amount + new_tx.mweb_fee + ltc_change);
+    CAmount change_amount = (pegin_amount.value_or(0) + mweb_input_amount) - (recipient_amount + new_tx.mweb_fee + pgc_change);
     if (change_amount < 0) {
         throw CreateTxError(_("MWEB change calculation failed"));
     }

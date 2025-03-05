@@ -2,10 +2,10 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-bin_PROGRAMS += qt/litecoin-qt
+bin_PROGRAMS += qt/penguincoin-qt
 
 if BUILD_BITCOIN_GUI
-  bin_PROGRAMS += litecoin-gui
+  bin_PROGRAMS += penguincoin-gui
 endif
 
 EXTRA_LIBRARIES += qt/libbitcoinqt.a
@@ -192,7 +192,7 @@ RES_ICONS = \
   qt/res/icons/hd_disabled.png \
   qt/res/icons/hd_enabled.png \
   qt/res/icons/history.png \
-  qt/res/icons/litecoin_splash.png \
+  qt/res/icons/penguincoin_splash.png \
   qt/res/icons/lock_closed.png \
   qt/res/icons/lock_open.png \
   qt/res/icons/network_disabled.png \
@@ -305,40 +305,40 @@ $(QT_MOC): $(QT_FORMS_H)
 $(qt_libbitcoinqt_a_OBJECTS) $(qt_bitcoin_qt_OBJECTS) $(bitcoin_gui_OBJECTS) : | $(QT_MOC)
 
 # bitcoin-qt and bitcoin-gui binaries #
-litecoin_qt_cppflags = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BITCOIN_QT_INCLUDES) \
+penguincoin_qt_cppflags = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BITCOIN_QT_INCLUDES) \
   $(QT_INCLUDES) $(QR_CFLAGS)
-litecoin_qt_cxxflags = $(AM_CXXFLAGS) $(QT_PIE_FLAGS)
+penguincoin_qt_cxxflags = $(AM_CXXFLAGS) $(QT_PIE_FLAGS)
 
-litecoin_qt_sources = qt/main.cpp
+penguincoin_qt_sources = qt/main.cpp
 if TARGET_WINDOWS
-  litecoin_qt_sources += $(BITCOIN_RC)
+  penguincoin_qt_sources += $(BITCOIN_RC)
 endif
-litecoin_qt_ldadd = qt/libbitcoinqt.a $(LIBBITCOIN_SERVER)
+penguincoin_qt_ldadd = qt/libbitcoinqt.a $(LIBBITCOIN_SERVER)
 if ENABLE_WALLET
-litecoin_qt_ldadd += $(LIBBITCOIN_UTIL) $(LIBBITCOIN_WALLET)
+penguincoin_qt_ldadd += $(LIBBITCOIN_UTIL) $(LIBBITCOIN_WALLET)
 endif
 if ENABLE_ZMQ
-litecoin_qt_ldadd += $(LIBBITCOIN_ZMQ) $(ZMQ_LIBS)
+penguincoin_qt_ldadd += $(LIBBITCOIN_ZMQ) $(ZMQ_LIBS)
 endif
-litecoin_qt_ldadd += $(LIBBITCOIN_CLI) $(LIBBITCOIN_COMMON) $(LIBBITCOIN_UTIL) $(LIBBITCOIN_CONSENSUS) $(LIBBITCOIN_CRYPTO) $(LIBUNIVALUE) $(LIBLEVELDB) $(LIBLEVELDB_SSE42) $(LIBMEMENV) \
+penguincoin_qt_ldadd += $(LIBBITCOIN_CLI) $(LIBBITCOIN_COMMON) $(LIBBITCOIN_UTIL) $(LIBBITCOIN_CONSENSUS) $(LIBBITCOIN_CRYPTO) $(LIBUNIVALUE) $(LIBLEVELDB) $(LIBLEVELDB_SSE42) $(LIBMEMENV) \
   $(LIBMW) $(MWEB_LIBS) $(BOOST_LIBS) $(QT_LIBS) $(QT_DBUS_LIBS) $(QR_LIBS) $(BDB_LIBS) $(MINIUPNPC_LIBS) $(LIBSECP256K1) $(CRYPTO_LIBS) \
   $(EVENT_PTHREADS_LIBS) $(EVENT_LIBS) $(SQLITE_LIBS)
-litecoin_qt_ldflags = $(RELDFLAGS) $(AM_LDFLAGS) $(QT_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)
-litecoin_qt_libtoolflags = $(AM_LIBTOOLFLAGS) --tag CXX
+penguincoin_qt_ldflags = $(RELDFLAGS) $(AM_LDFLAGS) $(QT_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS)
+penguincoin_qt_libtoolflags = $(AM_LIBTOOLFLAGS) --tag CXX
 
-qt_litecoin_qt_CPPFLAGS = $(litecoin_qt_cppflags)
-qt_litecoin_qt_CXXFLAGS = $(litecoin_qt_cxxflags)
-qt_litecoin_qt_SOURCES = $(litecoin_qt_sources)
-qt_litecoin_qt_LDADD = $(litecoin_qt_ldadd)
-qt_litecoin_qt_LDFLAGS = $(litecoin_qt_ldflags)
-qt_litecoin_qt_LIBTOOLFLAGS = $(litecoin_qt_libtoolflags)
+qt_penguincoin_qt_CPPFLAGS = $(penguincoin_qt_cppflags)
+qt_penguincoin_qt_CXXFLAGS = $(penguincoin_qt_cxxflags)
+qt_penguincoin_qt_SOURCES = $(penguincoin_qt_sources)
+qt_penguincoin_qt_LDADD = $(penguincoin_qt_ldadd)
+qt_penguincoin_qt_LDFLAGS = $(penguincoin_qt_ldflags)
+qt_penguincoin_qt_LIBTOOLFLAGS = $(penguincoin_qt_libtoolflags)
 
-litecoin_gui_CPPFLAGS = $(litecoin_qt_cppflags)
-litecoin_gui_CXXFLAGS = $(litecoin_qt_cxxflags)
-litecoin_gui_SOURCES = $(litecoin_qt_sources)
-litecoin_gui_LDADD = $(litecoin_qt_ldadd)
-litecoin_gui_LDFLAGS = $(litecoin_qt_ldflags)
-litecoin_gui_LIBTOOLFLAGS = $(litecoin_qt_libtoolflags)
+penguincoin_gui_CPPFLAGS = $(penguincoin_qt_cppflags)
+penguincoin_gui_CXXFLAGS = $(penguincoin_qt_cxxflags)
+penguincoin_gui_SOURCES = $(penguincoin_qt_sources)
+penguincoin_gui_LDADD = $(penguincoin_qt_ldadd)
+penguincoin_gui_LDFLAGS = $(penguincoin_qt_ldflags)
+penguincoin_gui_LIBTOOLFLAGS = $(penguincoin_qt_libtoolflags)
 
 #locale/foo.ts -> locale/foo.qm
 QT_QM=$(QT_TS:.ts=.qm)
@@ -370,9 +370,9 @@ CLEAN_QT = $(nodist_qt_libbitcoinqt_a_SOURCES) $(QT_QM) $(QT_FORMS_H) qt/*.gcda 
 CLEANFILES += $(CLEAN_QT)
 
 bitcoin_qt_clean: FORCE
-	rm -f $(CLEAN_QT) $(qt_libbitcoinqt_a_OBJECTS) $(qt_litecoin_qt_OBJECTS) qt/litecoin-qt$(EXEEXT) $(LIBBITCOINQT)
+	rm -f $(CLEAN_QT) $(qt_libbitcoinqt_a_OBJECTS) $(qt_penguincoin_qt_OBJECTS) qt/penguincoin-qt$(EXEEXT) $(LIBBITCOINQT)
 
-bitcoin_qt : qt/litecoin-qt$(EXEEXT)
+bitcoin_qt : qt/penguincoin-qt$(EXEEXT)
 
 ui_%.h: %.ui
 	@test -f $(UIC)

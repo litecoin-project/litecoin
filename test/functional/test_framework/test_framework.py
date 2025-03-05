@@ -43,7 +43,7 @@ TEST_EXIT_PASSED = 0
 TEST_EXIT_FAILED = 1
 TEST_EXIT_SKIPPED = 77
 
-TMPDIR_PREFIX = "litecoin_func_test_"
+TMPDIR_PREFIX = "penguincoin_func_test_"
 
 
 class SkipTest(Exception):
@@ -74,9 +74,9 @@ class BitcoinTestMetaClass(type):
 
 
 class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
-    """Base class for a litecoin test script.
+    """Base class for a penguincoin test script.
 
-    Individual litecoin test scripts should subclass this class and override the set_test_params() and run_test() methods.
+    Individual penguincoin test scripts should subclass this class and override the set_test_params() and run_test() methods.
 
     Individual tests can also override the following methods to customize the test setup:
 
@@ -153,9 +153,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         previous_releases_path = os.getenv("PREVIOUS_RELEASES_DIR") or os.getcwd() + "/releases"
         parser = argparse.ArgumentParser(usage="%(prog)s [options]")
         parser.add_argument("--nocleanup", dest="nocleanup", default=False, action="store_true",
-                            help="Leave litecoinds and test.* datadir on exit or error")
+                            help="Leave penguincoinds and test.* datadir on exit or error")
         parser.add_argument("--noshutdown", dest="noshutdown", default=False, action="store_true",
-                            help="Don't stop litecoinds after the test execution")
+                            help="Don't stop penguincoinds after the test execution")
         parser.add_argument("--cachedir", dest="cachedir", default=os.path.abspath(os.path.dirname(os.path.realpath(__file__)) + "/../../cache"),
                             help="Directory for caching pregenerated datadirs (default: %(default)s)")
         parser.add_argument("--tmpdir", dest="tmpdir", help="Root directory for datadirs")
@@ -210,12 +210,12 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         fname_bitcoind = os.path.join(
             config["environment"]["BUILDDIR"],
             "src",
-            "litecoind" + config["environment"]["EXEEXT"],
+            "penguincoind" + config["environment"]["EXEEXT"],
         )
         fname_bitcoincli = os.path.join(
             config["environment"]["BUILDDIR"],
             "src",
-            "litecoin-cli" + config["environment"]["EXEEXT"],
+            "penguincoin-cli" + config["environment"]["EXEEXT"],
         )
         self.options.bitcoind = os.getenv("BITCOIND", default=fname_bitcoind)
         self.options.bitcoincli = os.getenv("BITCOINCLI", default=fname_bitcoincli)
@@ -279,7 +279,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         else:
             for node in self.nodes:
                 node.cleanup_on_exit = False
-            self.log.info("Note: litecoinds were not stopped and may still be running")
+            self.log.info("Note: penguincoinds were not stopped and may still be running")
 
         should_clean_up = (
             not self.options.nocleanup and
@@ -446,9 +446,9 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
         if versions is None:
             versions = [None] * num_nodes
         if binary is None:
-            binary = [get_bin_from_version(v, 'litecoind', self.options.bitcoind) for v in versions]
+            binary = [get_bin_from_version(v, 'penguincoind', self.options.bitcoind) for v in versions]
         if binary_cli is None:
-            binary_cli = [get_bin_from_version(v, 'litecoin-cli', self.options.bitcoincli) for v in versions]
+            binary_cli = [get_bin_from_version(v, 'penguincoin-cli', self.options.bitcoincli) for v in versions]
         assert_equal(len(extra_confs), num_nodes)
         assert_equal(len(extra_args), num_nodes)
         assert_equal(len(versions), num_nodes)
@@ -484,7 +484,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                     conf.write(conf_data.replace('[regtest]', ''))
 
     def start_node(self, i, *args, **kwargs):
-        """Start a litecoind"""
+        """Start a penguincoind"""
 
         node = self.nodes[i]
 
@@ -495,7 +495,7 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
             coverage.write_all_rpc_commands(self.options.coveragedir, node.rpc)
 
     def start_nodes(self, extra_args=None, *args, **kwargs):
-        """Start multiple litecoinds"""
+        """Start multiple penguincoinds"""
 
         if extra_args is None:
             extra_args = [None] * self.num_nodes
@@ -515,12 +515,12 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
                 coverage.write_all_rpc_commands(self.options.coveragedir, node.rpc)
 
     def stop_node(self, i, expected_stderr='', wait=0):
-        """Stop a litecoind test node"""
+        """Stop a penguincoind test node"""
         self.nodes[i].stop_node(expected_stderr, wait=wait)
         self.nodes[i].wait_until_stopped()
 
     def stop_nodes(self, wait=0):
-        """Stop multiple litecoind test nodes"""
+        """Stop multiple penguincoind test nodes"""
         for node in self.nodes:
             # Issue RPC to stop nodes
             node.stop_node(wait=wait)

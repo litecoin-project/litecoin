@@ -19,11 +19,11 @@ CFeeRate::CFeeRate(const CAmount& nFeePaid, size_t nBytes_, uint64_t mweb_weight
     if (mweb_fee > 0 && nFeePaid < mweb_fee) {
         nSatoshisPerK = 0;
     } else {
-        CAmount ltc_fee = (nFeePaid - mweb_fee);
+        CAmount pgc_fee = (nFeePaid - mweb_fee);
 
         int64_t nSize = int64_t(nBytes_);
         if (nSize > 0)
-            nSatoshisPerK = ltc_fee * 1000 / nSize;
+            nSatoshisPerK = pgc_fee * 1000 / nSize;
         else
             nSatoshisPerK = 0;
     }

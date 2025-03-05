@@ -250,7 +250,7 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
 
         # Instead, we stop node and try to launch it with the wallet:
         self.stop_node(3)
-        node_v17.assert_start_raises_init_error(["-wallet=w3_v18"], "Error: Error loading w3_v18: Wallet requires newer version of Litecoin Core")
+        node_v17.assert_start_raises_init_error(["-wallet=w3_v18"], "Error: Error loading w3_v18: Wallet requires newer version of PenguinCoin Core")
         if self.options.descriptors:
             # Descriptor wallets appear to be corrupted wallets to old software
             node_v17.assert_start_raises_init_error(["-wallet=w1"], "Error: wallet.dat corrupt, salvage failed")

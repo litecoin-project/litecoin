@@ -19,13 +19,13 @@ BEGIN
     BEGIN
         BLOCK "040904E4" // U.S. English - multilingual (hex)
         BEGIN
-            VALUE "CompanyName",        "Litecoin"
-            VALUE "FileDescription",    PACKAGE_NAME " (GUI node for Litecoin)"
+            VALUE "CompanyName",        "PenguinCoin"
+            VALUE "FileDescription",    PACKAGE_NAME " (GUI node for PenguinCoin)"
             VALUE "FileVersion",        VER_FILEVERSION_STR
-            VALUE "InternalName",       "litecoin-qt"
+            VALUE "InternalName",       "penguincoin-qt"
             VALUE "LegalCopyright",     COPYRIGHT_STR
             VALUE "LegalTrademarks1",   "Distributed under the MIT software license, see the accompanying file COPYING or http://www.opensource.org/licenses/mit-license.php."
-            VALUE "OriginalFilename",   "litecoin-qt.exe"
+            VALUE "OriginalFilename",   "penguincoin-qt.exe"
             VALUE "ProductName",        PACKAGE_NAME
             VALUE "ProductVersion",     VER_PRODUCTVERSION_STR
         END

@@ -24,7 +24,7 @@ from test_framework.messages import (
 from test_framework.p2p import P2PInterface, p2p_lock
 from test_framework.script import MAX_SCRIPT_ELEMENT_SIZE
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.ltc_util import FIRST_MWEB_HEIGHT, get_hogex_tx, get_mweb_header
+from test_framework.pgc_util import FIRST_MWEB_HEIGHT, get_hogex_tx, get_mweb_header
 from test_framework.util import assert_equal
 
 # Can be used to mimic a light client requesting MWEB data from a full node

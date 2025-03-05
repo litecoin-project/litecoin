@@ -1,6 +1,6 @@
 # Prunable Merkle Mountain Ranges (PMMRs)
 
-Merkle Mountain Ranges (MMRs), an invention of Peter Todd for use in [Open Timestamps](https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/merkle-mountain-range.md), are append-only binary trees that can be used to commit to a collection of elements. In addition to supporting efficient insertion, they also come in a prunable form,called Prunable Merkle Mountain Ranges (PMMRs), which support pruning of entire subtrees. They are used in Litecoin\'s MWEB to build TXO commitments.
+Merkle Mountain Ranges (MMRs), an invention of Peter Todd for use in [Open Timestamps](https://github.com/opentimestamps/opentimestamps-server/blob/master/doc/merkle-mountain-range.md), are append-only binary trees that can be used to commit to a collection of elements. In addition to supporting efficient insertion, they also come in a prunable form,called Prunable Merkle Mountain Ranges (PMMRs), which support pruning of entire subtrees. They are used in PenguinCoin\'s MWEB to build TXO commitments.
 
 ## Example 1
 

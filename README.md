@@ -1,85 +1,121 @@
-Litecoin Core integration/staging tree
-=====================================
+<div align="center">
+  <img src="doc/images/penguincoin-logo.png" alt="PenguinCoin Logo" width="200"/>
+  <h1>PenguinCoin Core</h1>
+  <p>A peer-to-peer digital currency for the global economy</p>
 
-[![Build Status](https://travis-ci.org/litecoin-project/litecoin.svg?branch=master)](https://travis-ci.org/litecoin-project/litecoin)
+  [![Build Status](https://travis-ci.org/penguincoin-project/penguincoin.svg?branch=master)](https://travis-ci.org/penguincoin-project/penguincoin)
+  [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+  [![GitHub Release](https://img.shields.io/github/release/penguincoin-project/penguincoin.svg)](https://github.com/penguincoin-project/penguincoin/releases)
+  [![Contributor Covenant](https://img.shields.io/badge/Contributor%20Covenant-v2.0%20adopted-ff69b4.svg)](CODE_OF_CONDUCT.md)
+</div>
 
-https://litecoin.org
+## Table of Contents
+- [What is PenguinCoin?](#what-is-penguincoin)
+- [Key Features](#key-features)
+- [Getting Started](#getting-started)
+- [Documentation](#documentation)
+- [Development](#development)
+- [Testing](#testing)
+- [Contributing](#contributing)
+- [Community](#community)
+- [License](#license)
 
-What is Litecoin?
-----------------
+## What is PenguinCoin?
 
-Litecoin is an experimental digital currency that enables instant payments to
-anyone, anywhere in the world. Litecoin uses peer-to-peer technology to operate
-with no central authority: managing transactions and issuing money are carried
-out collectively by the network. Litecoin Core is the name of open source
-software which enables the use of this currency.
+PenguinCoin is an innovative digital currency that enables instant payments to anyone, anywhere in the world. Built on peer-to-peer technology, PenguinCoin operates with no central authority: transaction management and money issuance are carried out collectively by the network. PenguinCoin Core is the name of the open source software which enables the use of this currency.
 
-For more information, as well as an immediately useable, binary version of
-the Litecoin Core software, see [https://litecoin.org](https://litecoin.org).
+Visit our website at [https://penguincoin.org](https://penguincoin.org) for more information.
 
-License
--------
+## Key Features
 
-Litecoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for more
-information or see https://opensource.org/licenses/MIT.
+- **Decentralized**: No central authority controls PenguinCoin
+- **Secure**: Built with state-of-the-art cryptography
+- **Fast**: Near-instant transactions worldwide
+- **Low Fees**: Send money globally for pennies
+- **Privacy-Focused**: Control your financial information
+- **Open Source**: Transparent code anyone can verify
 
-Development Process
--------------------
+## Getting Started
 
-The `master` branch is regularly built (see `doc/build-*.md` for instructions) and tested, but it is not guaranteed to be
-completely stable. [Tags](https://github.com/litecoin-project/litecoin/tags) are created
-regularly from release branches to indicate new official, stable release versions of Litecoin Core.
+### Binary Downloads
 
-The https://github.com/litecoin-project/gui repository is used exclusively for the
-development of the GUI. Its master branch is identical in all monotree
-repositories. Release branches and tags do not exist, so please do not fork
-that repository unless it is for development reasons.
+For most users, we recommend downloading pre-compiled binaries:
 
-The contribution workflow is described in [CONTRIBUTING.md](CONTRIBUTING.md)
-and useful hints for developers can be found in [doc/developer-notes.md](doc/developer-notes.md).
+- [Download PenguinCoin Core](https://penguincoin.org/downloads) - Official releases for Windows, macOS, and Linux
 
-The developer [mailing list](https://groups.google.com/forum/#!forum/litecoin-dev)
-should be used to discuss complicated or controversial changes before working
-on a patch set.
+### Building from Source
 
-Developer IRC can be found on Freenode at #litecoin-dev.
+For developers or advanced users who want to build from source:
 
-Testing
--------
+1. Clone this repository
+2. Follow the build instructions for your platform:
+   - [Unix Build Notes](doc/build-unix.md)
+   - [Windows Build Notes](doc/build-windows.md)
+   - [macOS Build Notes](doc/build-osx.md)
 
-Testing and code review is the bottleneck for development; we get more pull
-requests than we can review and test on short notice. Please be patient and help out by testing
-other people's pull requests, and remember this is a security-critical project where any mistake might cost people
-lots of money.
+## Documentation
+
+- [PenguinCoin Wiki](https://github.com/penguincoin-project/penguincoin/wiki)
+- [Setup Instructions](doc/README.md)
+- [Developer Documentation](doc/developer-notes.md)
+
+## Development
+
+PenguinCoin Core development follows an open process. Anyone can contribute code or documentation through pull requests on GitHub.
+
+### Repository Organization
+
+The `master` branch is regularly built and tested, but is not guaranteed to be stable. For production use, refer to the [release tags](https://github.com/penguincoin-project/penguincoin/tags) which indicate stable versions.
+
+The GUI is developed in the separate [penguincoin-project/gui](https://github.com/penguincoin-project/gui) repository.
+
+### Development Process
+
+Our development workflow is described in detail in [CONTRIBUTING.md](CONTRIBUTING.md). Key points:
+
+- Code changes happen through pull requests
+- All PRs need review and approval
+- Continuous integration ensures quality
+- Semantic versioning is used for releases
+
+## Testing
+
+Quality assurance is critical for a currency system. We employ several testing strategies:
 
 ### Automated Testing
 
-Developers are strongly encouraged to write [unit tests](src/test/README.md) for new code, and to
-submit new unit tests for old code. Unit tests can be compiled and run
-(assuming they weren't disabled in configure) with: `make check`. Further details on running
-and extending unit tests can be found in [/src/test/README.md](/src/test/README.md).
+- **Unit Tests**: Run with `make check`
+- **Functional Tests**: Run with `test/functional/test_runner.py`
 
-There are also [regression and integration tests](/test), written
-in Python, that are run automatically on the build server.
-These tests can be run (if the [test dependencies](/test) are installed) with: `test/functional/test_runner.py`
+Developers are encouraged to write tests for new code. See [src/test/README.md](src/test/README.md) for more information.
 
-The Travis CI system makes sure that every pull request is built for Windows, Linux, and macOS, and that unit/sanity tests are run automatically.
+### Manual QA Testing
 
-### Manual Quality Assurance (QA) Testing
+Changes should be tested by someone other than the developer who wrote the code, especially for large or high-risk changes. Adding a test plan to pull requests helps reviewers.
 
-Changes should be tested by somebody other than the developer who wrote the
-code. This is especially important for large or high-risk changes. It is useful
-to add a test plan to the pull request description if testing the changes is
-not straightforward.
+## Contributing
 
-Translations
-------------
+We welcome contributions from everyone! Please read our [contribution guidelines](CONTRIBUTING.md) before submitting pull requests.
 
-We only accept translation fixes that are submitted through [Bitcoin Core's Transifex page](https://www.transifex.com/projects/p/bitcoin/).
-Translations are converted to Litecoin periodically.
+- 👾 **Code**: Bug fixes, new features, performance improvements
+- 📚 **Documentation**: Help improve our docs or translations
+- 🧪 **Testing**: Report bugs or test new features
+- 💡 **Ideas**: Suggest improvements or new features
 
-Translations are periodically pulled from Transifex and merged into the git repository. See the
-[translation process](doc/translation_process.md) for details on how this works.
+## Community
 
-**Important**: We do not accept translation changes as GitHub pull requests because the next
-pull from Transifex would automatically overwrite them again.
+- [PenguinCoin Forum](https://forum.penguincoin.org)
+- [Developer Mailing List](https://groups.google.com/forum/#!forum/penguincoin-dev)
+- [IRC](irc://irc.freenode.net/penguincoin-dev) (#penguincoin-dev on Freenode)
+- [Twitter](https://twitter.com/PenguinCoinOrg)
+- [Reddit](https://reddit.com/r/penguincoin)
+
+## Translations
+
+We only accept translation fixes submitted through [Bitcoin Core's Transifex page](https://www.transifex.com/projects/p/bitcoin/). Translations are periodically pulled and merged into the repository following the [translation process](doc/translation_process.md).
+
+**Important**: We do not accept translation changes as GitHub pull requests.
+
+## License
+
+PenguinCoin Core is released under the terms of the MIT license. See [COPYING](COPYING) for more information or visit https://opensource.org/licenses/MIT.

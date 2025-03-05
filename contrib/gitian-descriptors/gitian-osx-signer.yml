@@ -1,5 +1,5 @@
 ---
-name: "litecoin-dmg-signer"
+name: "penguincoin-dmg-signer"
 distro: "ubuntu"
 suites:
 - "bionic"
@@ -10,13 +10,13 @@ packages:
 - "xorriso"
 - "python3-pip"
 remotes:
-- "url": "https://github.com/litecoin-project/litecoin-detached-sigs.git"
+- "url": "https://github.com/penguincoin-project/penguincoin-detached-sigs.git"
   "dir": "signature"
 - "url": "https://github.com/achow101/signapple.git"
   "dir": "signapple"
   "commit": "0777ce58e61b0e6be753a5f524149d6d47905186"
 files:
-- "litecoin-osx-unsigned.tar.gz"
+- "penguincoin-osx-unsigned.tar.gz"
 script: |
   set -e -o pipefail
 
@@ -42,9 +42,9 @@ script: |
   export PATH="$HOME/.local/bin":$PATH
   cd ..
 
-  UNSIGNED_TARBALL=litecoin-osx-unsigned.tar.gz
-  UNSIGNED_APP=dist/Litecoin-Qt.app
-  SIGNED=litecoin-osx-signed.dmg
+  UNSIGNED_TARBALL=penguincoin-osx-unsigned.tar.gz
+  UNSIGNED_APP=dist/PenguinCoin-Qt.app
+  SIGNED=penguincoin-osx-signed.dmg
 
   tar -xf ${UNSIGNED_TARBALL}
   OSX_VOLNAME="$(cat osx_volname)"

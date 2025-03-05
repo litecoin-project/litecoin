@@ -1,20 +1,20 @@
-Litecoin Core version 0.13.2 is now available from:
+PenguinCoin Core version 0.13.2 is now available from:
 
-  <https://download.litecoin.org/litecoin-0.13.2.1/>
+  <https://download.penguincoin.org/penguincoin-0.13.2.1/>
 
 This is a new major version release, including new features, various bugfixes and performance improvements, as well as updated translations.
 It is recommended to upgrade to this version.
 
 Please report bugs using the issue tracker at github:
 
-  <https://github.com/litecoin-project/litecoin/issues>
+  <https://github.com/penguincoin-project/penguincoin/issues>
 
 Compatibility
 ==============
 
 Microsoft ended support for Windows XP on [April 8th, 2014](https://www.microsoft.com/en-us/WindowsForBusiness/end-of-xp-support),
 an OS initially released in 2001. This means that not even critical security
-updates will be released anymore. Without security updates, using a litecoin
+updates will be released anymore. Without security updates, using a penguincoin
 wallet on a XP machine is irresponsible at least.
 
 In addition to that, with 0.12.x there have been varied reports of Bitcoin Core
@@ -41,7 +41,7 @@ Notable changes
 Signature validation using libsecp256k1
 ---------------------------------------
 
-ECDSA signatures inside Litecoin transactions now use validation using
+ECDSA signatures inside PenguinCoin transactions now use validation using
 [libsecp256k1](https://github.com/bitcoin-core/secp256k1) instead of OpenSSL.
 
 Depending on the platform, this means a significant speedup for raw signature
@@ -88,15 +88,15 @@ can often prevent an extra roundtrip before the actual block is downloaded.
 Memory pool limiting
 --------------------
 
-Previous versions of Litecoin Core had their mempool limited by checking
+Previous versions of PenguinCoin Core had their mempool limited by checking
 a transaction's fees against the node's minimum relay fee. There was no
 upper bound on the size of the mempool and attackers could send a large
 number of transactions paying just slighly more than the default minimum
 relay fee to crash nodes with relatively low RAM. A temporary workaround
-for previous versions of Litecoin Core was to raise the default minimum
+for previous versions of PenguinCoin Core was to raise the default minimum
 relay fee.
 
-Litecoin Core 0.13.2 will have a strict maximum size on the mempool. The
+PenguinCoin Core 0.13.2 will have a strict maximum size on the mempool. The
 default value is 300 MB and can be configured with the `-maxmempool`
 parameter. Whenever a transaction would cause the mempool to exceed
 its maximum size, the transaction that (along with in-mempool descendants) has
@@ -105,7 +105,7 @@ minimum relay feerate will be increased to match this feerate plus the initial
 minimum relay feerate. The initial minimum relay feerate is set to
 1000 satoshis per kB.
 
-Litecoin Core 0.13.2 also introduces new default policy limits on the length and
+PenguinCoin Core 0.13.2 also introduces new default policy limits on the length and
 size of unconfirmed transaction chains that are allowed in the mempool
 (generally limiting the length of unconfirmed chains to 25 transactions, with a
 total size of 101 KB).  These limits can be overriden using command line
@@ -124,7 +124,7 @@ overridden with the option `-rpccookiefile`.
 This is similar to Tor's CookieAuthentication: see
 https://www.torproject.org/docs/tor-manual.html.en
 
-This allows running litecoind without having to do any manual configuration.
+This allows running penguincoind without having to do any manual configuration.
 
 Relay: Any sequence of pushdatas in OP_RETURN outputs now allowed
 -----------------------------------------------------------------
@@ -147,10 +147,10 @@ returned (previously all relevant hashes were returned).
 Relay and Mining: Priority transactions
 ---------------------------------------
 
-Litecoin Core has a heuristic 'priority' based on coin value and age. This
+PenguinCoin Core has a heuristic 'priority' based on coin value and age. This
 calculation is used for relaying of transactions which do not pay the
 minimum relay fee, and can be used as an alternative way of sorting
-transactions for mined blocks. Litecoin Core will relay transactions with
+transactions for mined blocks. PenguinCoin Core will relay transactions with
 insufficient fees depending on the setting of `-limitfreerelay=<r>` (default:
 `r=15` kB per minute) and `-blockprioritysize=<s>`.
 
@@ -175,7 +175,7 @@ Note, however, that if mining priority transactions is left disabled, the
 priority delta will be ignored and only the fee metric will be effective.
 
 This internal automatic prioritization handling is being considered for removal
-entirely in Litecoin Core 0.13, and it is at this time undecided whether the
+entirely in PenguinCoin Core 0.13, and it is at this time undecided whether the
 more accurate priority calculation for chained unconfirmed transactions will be
 restored. Community direction on this topic is particularly requested to help
 set project priorities.
@@ -185,15 +185,15 @@ Automatically use Tor hidden services
 
 Starting with Tor version 0.2.7.1 it is possible, through Tor's control socket
 API, to create and destroy 'ephemeral' hidden services programmatically.
-Litecoin Core has been updated to make use of this.
+PenguinCoin Core has been updated to make use of this.
 
 This means that if Tor is running (and proper authorization is available),
-Litecoin Core automatically creates a hidden service to listen on, without
-manual configuration. Litecoin Core will also use Tor automatically to connect
+PenguinCoin Core automatically creates a hidden service to listen on, without
+manual configuration. PenguinCoin Core will also use Tor automatically to connect
 to other .onion nodes if the control socket can be successfully opened. This
 will positively affect the number of available .onion nodes and their usage.
 
-This new feature is enabled by default if Litecoin Core is listening, and
+This new feature is enabled by default if PenguinCoin Core is listening, and
 a connection to Tor can be made. It can be configured with the `-listenonion`,
 `-torcontrol` and `-torpassword` settings. To show verbose debugging
 information, pass `-debug=tor`.
@@ -201,7 +201,7 @@ information, pass `-debug=tor`.
 Notifications through ZMQ
 -------------------------
 
-Litecoind can now (optionally) asynchronously notify clients through a
+PenguinCoind can now (optionally) asynchronously notify clients through a
 ZMQ-based PUB socket of the arrival of new transactions and blocks.
 This feature requires installation of the ZMQ C API library 4.x and
 configuring its use through the command line or configuration file.
@@ -214,8 +214,8 @@ Various improvements have been made to how the wallet calculates
 transaction fees.
 
 Users can decide to pay a predefined fee rate by setting `-paytxfee=<n>`
-(or `settxfee <n>` rpc during runtime). A value of `n=0` signals Litecoin
-Core to use floating fees. By default, Litecoin Core will use floating
+(or `settxfee <n>` rpc during runtime). A value of `n=0` signals PenguinCoin
+Core to use floating fees. By default, PenguinCoin Core will use floating
 fees.
 
 Based on past transaction data, floating fees approximate the fees
@@ -224,11 +224,11 @@ with `-txconfirmtarget=<m>` (default: `2`).
 
 Sometimes, it is not possible to give good estimates, or an estimate
 at all. Therefore, a fallback value can be set with `-fallbackfee=<f>`
-(default: `0.0002` LTC/kB).
+(default: `0.0002` PGC/kB).
 
-At all times, Litecoin Core will cap fees at `-maxtxfee=<x>` (default:
-0.10) LTC.
-Furthermore, Litecoin Core will never create transactions paying less than
+At all times, PenguinCoin Core will cap fees at `-maxtxfee=<x>` (default:
+0.10) PGC.
+Furthermore, PenguinCoin Core will never create transactions paying less than
 the current minimum relay fee.
 Finally, a user can set the minimum fee rate for all transactions with
 `-mintxfee=<i>`, which defaults to 1000 satoshis per kB.
@@ -271,7 +271,7 @@ However, rescans as well as the RPCs `importwallet`, `importaddress`,
 `importprivkey` are disabled.
 
 To enable block pruning set `prune=<N>` on the command line or in
-`litecoin.conf`, where `N` is the number of MiB to allot for
+`penguincoin.conf`, where `N` is the number of MiB to allot for
 raw block & undo data.
 
 A value of 0 disables pruning. The minimal value above 0 is 550. Your
@@ -330,7 +330,7 @@ and are affected by this change:
 - RPC `decodescript`
 - REST `/rest/tx/` (JSON format)
 - REST `/rest/block/` (JSON format when including extended tx details)
-- `litecoin-tx -json`
+- `penguincoin-tx -json`
 
 For example, the `scriptSig.asm` property of a transaction input that
 previously showed an assembly representation of:
@@ -380,16 +380,16 @@ caching. A sample config for apache2 could look like:
     SSLCertificateFile /etc/apache2/ssl/server.crt
     SSLCertificateKeyFile /etc/apache2/ssl/server.key
 
-    <Location /litecoinrpc>
+    <Location /penguincoinrpc>
         ProxyPass http://127.0.0.1:9332/
         ProxyPassReverse http://127.0.0.1:9332/
         # optional enable digest auth
         # AuthType Digest
         # ...
 
-        # optional bypass litecoind rpc basic auth
+        # optional bypass penguincoind rpc basic auth
         # RequestHeader set Authorization "Basic <hash>"
-        # get the <hash> from the shell with: base64 <<< litecoinrpc:<password>
+        # get the <hash> from the shell with: base64 <<< penguincoinrpc:<password>
     </Location>
 
     # Or, balance the load:
@@ -401,7 +401,7 @@ Other P2P Changes
 -----------------
 
 The list of banned peers is now stored on disk rather than in memory.
-Restarting litecoind will no longer clear out the list of banned peers; instead
+Restarting penguincoind will no longer clear out the list of banned peers; instead
 a new RPC call (`clearbanned`) can be used to manually clear the list.  The new
 `setban` RPC call can also be used to manually ban or unban a peer.
 
@@ -415,21 +415,21 @@ For this reason the default was changed to 300 MiB in this release.
 For nodes on low-memory systems, the database cache can be changed back to
 100 MiB (or to another value) by either:
 
-- Adding `dbcache=100` in litecoin.conf
+- Adding `dbcache=100` in penguincoin.conf
 - Changing it in the GUI under `Options → Size of database cache`
 
 Note that the database cache setting has the most performance impact
 during initial sync of a node, and when catching up after downtime.
 
 
-litecoin-cli: arguments privacy
+penguincoin-cli: arguments privacy
 ------------------------------
 
 The RPC command line client gained a new argument, `-stdin`
 to read extra arguments from standard input, one per line until EOF/Ctrl-D.
 For example:
 
-    $ src/litecoin-cli -stdin walletpassphrase
+    $ src/penguincoin-cli -stdin walletpassphrase
     mysecretcode
     120
     ..... press Ctrl-D here to end input
@@ -443,7 +443,7 @@ table by any user on the system.
 C++11 and Python 3
 ------------------
 
-Various code modernizations have been done. The Litecoin Core code base has
+Various code modernizations have been done. The PenguinCoin Core code base has
 started using C++11. This means that a C++11-capable compiler is now needed for
 building. Effectively this means GCC 4.7 or higher, or Clang 3.3 or higher.
 
@@ -462,9 +462,9 @@ executables.
 
 The following extra files can be found in the download directory or torrent:
 
-- `litecoin-${VERSION}-arm-linux-gnueabihf.tar.gz`: Linux binaries for the most
+- `penguincoin-${VERSION}-arm-linux-gnueabihf.tar.gz`: Linux binaries for the most
   common 32-bit ARM architecture.
-- `litecoin-${VERSION}-aarch64-linux-gnu.tar.gz`: Linux binaries for the most
+- `penguincoin-${VERSION}-aarch64-linux-gnu.tar.gz`: Linux binaries for the most
   common 64-bit ARM architecture.
 
 ARM builds are still experimental. If you have problems on a certain device or
@@ -489,7 +489,7 @@ BIP112 soft fork to enforce OP_CHECKSEQUENCEVERIFY
 --------------------------------------------------
 
 [BIP112][] redefines the existing OP_NOP3 as OP_CHECKSEQUENCEVERIFY (CSV)
-for a new opcode in the Litecoin scripting system that in combination with
+for a new opcode in the PenguinCoin scripting system that in combination with
 [BIP68][] allows execution pathways of a script to be restricted based
 on the age of the output being spent.
 
@@ -502,7 +502,7 @@ BIP113 locktime enforcement soft fork
 This release seeks to make mempool-only locktime enforcement using GetMedianTimePast() 
 a consensus rule.
 
-Litecoin transactions currently may specify a locktime indicating when
+PenguinCoin transactions currently may specify a locktime indicating when
 they may be added to a valid block.  Current consensus rules require
 that blocks have a block header time greater than the locktime specified
 in any transaction in that block.
@@ -592,7 +592,7 @@ You can't disable HD key generation once you have created a HD wallet.
 
 There is no distinction between internal (change) and external keys.
 
-HD wallets are incompatible with older versions of Litecoin Core.
+HD wallets are incompatible with older versions of PenguinCoin Core.
 
 [Pull request](https://github.com/bitcoin/bitcoin/pull/8035/files), [BIP 32](https://github.com/bitcoin/bips/blob/master/bip-0032.mediawiki)
 
@@ -645,7 +645,7 @@ files on disk. These two have now been split up, so that all blocks are known
 before validation starts. This was necessary to make certain optimizations that
 are available during normal synchronizations also available during reindexing.
 
-The two phases are distinct in the Litecoin-Qt GUI. During the first one,
+The two phases are distinct in the PenguinCoin-Qt GUI. During the first one,
 "Reindexing blocks on disk" is shown. During the second (slower) one,
 "Processing blocks on disk" is shown.
 
@@ -751,7 +751,7 @@ Low-level RPC changes
     - RPC `decodescript`
     - REST `/rest/tx/` (JSON format)
     - REST `/rest/block/` (JSON format when including extended tx details)
-    - `litecoin-tx -json`
+    - `penguincoin-tx -json`
 
 - The sorting of the output of the `getrawmempool` output has changed.
 
@@ -786,9 +786,9 @@ covered by the txid. This provides several immediate benefits:
   identifier (txid) of transactions without referencing the witness, which can
   sometimes be changed by third-parties (such as miners) or by co-signers in a
   multisig spend. This solves all known cases of unwanted transaction
-  malleability, which is a problem that makes programming Litecoin wallet
+  malleability, which is a problem that makes programming PenguinCoin wallet
   software more difficult and which seriously complicates the design of smart
-  contracts for Litecoin.
+  contracts for PenguinCoin.
 
 - **Capacity increase:** Segwit transactions contain new fields that are not
   part of the data currently used to calculate the size of a block, which
@@ -802,7 +802,7 @@ covered by the txid. This provides several immediate benefits:
   following section for details).
 
 - **Weighting data based on how it affects node performance:** Some parts of
-  each Litecoin block need to be stored by nodes in order to validate future
+  each PenguinCoin block need to be stored by nodes in order to validate future
   blocks; other parts of a block can be immediately forgotten (pruned) or used
   only for helping other nodes sync their copy of the block chain.  One large
   part of the immediately prunable data are transaction signatures (witnesses),
@@ -819,8 +819,8 @@ covered by the txid. This provides several immediate benefits:
   (such as hardware wallets), reduces the amount of data the signature
   generator needs to download, and allows the signature generator to operate
   more quickly.  This is made possible by having the generator sign the amount
-  of litecoins they think they are spending, and by having full nodes refuse to
-  accept those signatures unless the amount of litecoins being spent is exactly
+  of penguincoins they think they are spending, and by having full nodes refuse to
+  accept those signatures unless the amount of penguincoins being spent is exactly
   the same as was signed.  For non-segwit transactions, wallets instead had to
   download the complete previous transactions being spent for every payment
   they made, which could be a slow operation on hardware wallets and in other
@@ -835,7 +835,7 @@ covered by the txid. This provides several immediate benefits:
   different signature method that doesn't suffer from this problem and doesn't
   have any unwanted side-effects.
 
-- **Increased security for multisig:** Litecoin addresses (both P2PKH addresses
+- **Increased security for multisig:** PenguinCoin addresses (both P2PKH addresses
   that start with a '1' and P2SH addresses that start with a '3' or 'M') use a hash
   function known as RIPEMD-160.  For P2PKH addresses, this provides about 160
   bits of security---which is beyond what cryptographers believe can be broken
@@ -845,7 +845,7 @@ covered by the txid. This provides several immediate benefits:
   Segwit allows advanced transactions to use the SHA256 hash function instead,
   which provides about 128 bits of security  (that is 281 trillion times as
   much security as 80 bits and is equivalent to the maximum bits of security
-  believed to be provided by Litecoin's choice of parameters for its Elliptic
+  believed to be provided by PenguinCoin's choice of parameters for its Elliptic
   Curve Digital Security Algorithm [ECDSA].)
 
 - **More efficient almost-full-node security** Satoshi Nakamoto's original
@@ -853,7 +853,7 @@ covered by the txid. This provides several immediate benefits:
   skip downloading and validating some data from historic blocks that are
   protected by large amounts of proof of work.  Unfortunately, Nakamoto's
   method can't guarantee that a newly-started node using this method will
-  produce an accurate copy of Litecoin's current ledger (called the UTXO set),
+  produce an accurate copy of PenguinCoin's current ledger (called the UTXO set),
   making the node vulnerable to falling out of consensus with other nodes.
   Although the problems with Nakamoto's method can't be fixed in a soft fork,
   Segwit accomplishes something similar to his original proposal: it makes it
@@ -861,13 +861,13 @@ covered by the txid. This provides several immediate benefits:
   (specifically, the segregated witnesses) while still ensuring that the node
   can build an accurate copy of the UTXO set for the block chain with the most
   proof of work.  Segwit enables this capability at the consensus layer, but
-  note that Litecoin Core does not provide an option to use this capability as
+  note that PenguinCoin Core does not provide an option to use this capability as
   of this 0.13.2 release.
 
 - **Script versioning:** Segwit makes it easy for future soft forks to allow
-  Litecoin users to individually opt-in to almost any change in the Litecoin
+  PenguinCoin users to individually opt-in to almost any change in the PenguinCoin
   Script language when those users receive new transactions.  Features
-  currently being researched by Bitcoin and Litecoin Core contributors that may
+  currently being researched by Bitcoin and PenguinCoin Core contributors that may
   use this capability include support for Schnorr signatures, which can improve
   the privacy and efficiency of multisig transactions (or transactions with
   multiple inputs), and Merklized Abstract Syntax Trees (MAST), which can
@@ -877,8 +877,8 @@ covered by the txid. This provides several immediate benefits:
 
 Activation for the segwit soft fork is being managed using
 BIP9. At the beginning of the first retarget period after
-segwit's start date of 1 January 2017 miners can update the Litecoin
-client to Litecoin Core 0.13.2 to signal for segwit support. When a
+segwit's start date of 1 January 2017 miners can update the PenguinCoin
+client to PenguinCoin Core 0.13.2 to signal for segwit support. When a
 super-majority of 75% is reached segwit is activated by optional, and
 if 75% of blocks within a 8,064-block retarget period (about 3.5 days)
 signal support for segwit, after another 8,064 blocks, segwit will
@@ -911,7 +911,7 @@ a third-party to insert data into other people's transactions, changing
 the transaction's txid (called transaction malleability) and possibly
 causing other problems.
 
-Since Litecoin Core 0.10.0, nodes have defaulted to only relaying and
+Since PenguinCoin Core 0.10.0, nodes have defaulted to only relaying and
 mining transactions whose dummy element was a null value (0x00, also
 called OP_0).  The null dummy soft fork turns this relay rule into a
 consensus rule both for non-segwit transactions and segwit transactions,
@@ -942,9 +942,9 @@ Additional detail on the ARM architecture targeted by each is provided below.
 
 The following extra files can be found in the download directory or torrent:
 
-- `litecoin-${VERSION}-arm-linux-gnueabihf.tar.gz`: Linux binaries targeting
+- `penguincoin-${VERSION}-arm-linux-gnueabihf.tar.gz`: Linux binaries targeting
   the 32-bit ARMv7-A architecture.
-- `litecoin-${VERSION}-aarch64-linux-gnu.tar.gz`: Linux binaries targeting
+- `penguincoin-${VERSION}-aarch64-linux-gnu.tar.gz`: Linux binaries targeting
   the 64-bit ARMv8-A architecture.
 
 ARM builds are still experimental. If you have problems on a certain device or

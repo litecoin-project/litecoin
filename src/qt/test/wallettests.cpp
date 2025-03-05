@@ -95,7 +95,7 @@ QModelIndex FindTx(const QAbstractItemModel& model, const uint256& txid)
 }
 
 //! Invoke bumpfee on txid and check results.
-/* Litecoin: Disable RBF
+/* PenguinCoin: Disable RBF
 void BumpFee(TransactionView& view, const uint256& txid, bool expectDisabled, std::string expectError, bool cancel)
 {
     QTableView* table = view.findChild<QTableView*>("transactionView");
@@ -195,7 +195,7 @@ void TestGUI(interfaces::Node& node)
     QVERIFY(FindTx(*transactionTableModel, txid2).isValid());
 
     // Call bumpfee. Test disabled, canceled, enabled, then failing cases.
-    // Litecoin: Disable BumpFee tests
+    // PenguinCoin: Disable BumpFee tests
     // BumpFee(transactionView, txid1, true /* expect disabled */, "not BIP 125 replaceable" /* expected error */, false /* cancel */);
     // BumpFee(transactionView, txid2, false /* expect disabled */, {} /* expected error */, true /* cancel */);
     // BumpFee(transactionView, txid2, false /* expect disabled */, {} /* expected error */, false /* cancel */);
@@ -236,7 +236,7 @@ void TestGUI(interfaces::Node& node)
             QCOMPARE(receiveRequestDialog->QObject::findChild<QLabel*>("payment_header")->text(), QString("Payment information"));
             QCOMPARE(receiveRequestDialog->QObject::findChild<QLabel*>("uri_tag")->text(), QString("URI:"));
             QString uri = receiveRequestDialog->QObject::findChild<QLabel*>("uri_content")->text();
-            QCOMPARE(uri.count("litecoin:"), 2);
+            QCOMPARE(uri.count("penguincoin:"), 2);
             QCOMPARE(receiveRequestDialog->QObject::findChild<QLabel*>("address_tag")->text(), QString("Address:"));
 
             QCOMPARE(uri.count("amount=0.00000001"), 2);

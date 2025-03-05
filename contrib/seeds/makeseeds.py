@@ -27,7 +27,7 @@ PATTERN_IPV4 = re.compile(r"^((\d{1,3})\.(\d{1,3})\.(\d{1,3})\.(\d{1,3})):(\d+)$
 PATTERN_IPV6 = re.compile(r"^\[([0-9a-z:]+)\]:(\d+)$")
 PATTERN_ONION = re.compile(r"^([abcdefghijklmnopqrstuvwxyz234567]{16}\.onion):(\d+)$")
 PATTERN_AGENT = re.compile(
-    r"^/LitecoinCore:("
+    r"^/PenguinCoinCore:("
     r"0.14.(0|1|2|3|99)|"
     r"0.15.(0|1|2|99)|"
     r"0.16.(0|1|2|3|99)|"

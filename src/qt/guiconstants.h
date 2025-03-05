@@ -42,12 +42,12 @@ static const int TOOLTIP_WRAP_THRESHOLD = 80;
 /* Number of frames in spinner animation */
 #define SPINNER_FRAMES 36
 
-#define QAPP_ORG_NAME "Litecoin"
-#define QAPP_ORG_DOMAIN "litecoin.org"
-#define QAPP_APP_NAME_DEFAULT "Litecoin-Qt"
+#define QAPP_ORG_NAME "PenguinCoin"
+#define QAPP_ORG_DOMAIN "penguincoin.org"
+#define QAPP_APP_NAME_DEFAULT "PenguinCoin-Qt"
 #define QAPP_APP_NAME_TESTNET "Liteocin-Qt-testnet"
-#define QAPP_APP_NAME_SIGNET "Litecoin-Qt-signet"
-#define QAPP_APP_NAME_REGTEST "Litecoin-Qt-regtest"
+#define QAPP_APP_NAME_SIGNET "PenguinCoin-Qt-signet"
+#define QAPP_APP_NAME_REGTEST "PenguinCoin-Qt-regtest"
 
 /* One gigabyte (GB) in bytes */
 static constexpr uint64_t GB_BYTES{1000000000};

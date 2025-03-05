@@ -111,7 +111,7 @@ void TxList::List_Credit(std::vector<WalletTxRecord>& tx_records, const CWalletT
             sub.involvesWatchAddress = ismine & ISMINE_WATCH_ONLY;
 
             if (IsAddressMine(output)) {
-                // Received by Litecoin Address
+                // Received by PenguinCoin Address
                 sub.type = WalletTxRecord::Type::RecvWithAddress;
                 sub.address = GetAddress(output).Encode();
             } else {
@@ -172,7 +172,7 @@ void TxList::List_Debit(std::vector<WalletTxRecord>& tx_records, const CWalletTx
 
         DestinationAddr address = GetAddress(output);
         if (!address.IsEmpty()) {
-            // Sent to Litecoin Address
+            // Sent to PenguinCoin Address
             tx_record.type = WalletTxRecord::Type::SendToAddress;
             tx_record.address = address.Encode();
         } else {

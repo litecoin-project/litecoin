@@ -1,37 +1,37 @@
-Litecoin Core version 0.21.2 is now available from:
+PenguinCoin Core version 0.21.2 is now available from:
 
- <https://download.litecoin.org/litecoin-0.21.2/>.
+ <https://download.penguincoin.org/penguincoin-0.21.2/>.
 
 This is the largest update ever, providing full node, wallet, and mining support for MWEB.
 
 Please report bugs using the issue tracker at GitHub:
 
-  <https://github.com/litecoin-project/litecoin/issues>
+  <https://github.com/penguincoin-project/penguincoin/issues>
 
 To receive security and update notifications, please subscribe to:
 
-  <https://groups.google.com/forum/#!forum/litecoin-dev>
+  <https://groups.google.com/forum/#!forum/penguincoin-dev>
 
 
 How to upgrade: 
 ==============
 
-Firstly, thank you for running Litecoin Core and helping secure the network!
+Firstly, thank you for running PenguinCoin Core and helping secure the network!
 
-As you’re running an older version of Litecoin Core, shut it down. Wait until it’s completely shut down  - which might take a few minutes for older versions - then follow these simple steps:
+As you’re running an older version of PenguinCoin Core, shut it down. Wait until it’s completely shut down  - which might take a few minutes for older versions - then follow these simple steps:
 For Windows: simply run the installer 
-For Mac: copy over to `/Applications/Litecoin-Qt` 
-For Linux: copy cover `litecoind`/`litecoin-qt`.
+For Mac: copy over to `/Applications/PenguinCoin-Qt` 
+For Linux: copy cover `penguincoind`/`penguincoin-qt`.
 
-NB: upgrading directly from an ‘end of life’ version of Litecoin Core is possible, but it might take a while if the data directory needs to be migrated. Old wallet versions of Litecoin Core are generally supported.
+NB: upgrading directly from an ‘end of life’ version of PenguinCoin Core is possible, but it might take a while if the data directory needs to be migrated. Old wallet versions of PenguinCoin Core are generally supported.
  
 
 Compatibility:
 ==============
 
-Litecoin Core is supported and extensively tested on operating systems using the Linux kernel, macOS 10.10+,  Windows 7 and newer. It’s not recommended to use Litecoin Core on unsupported systems.
+PenguinCoin Core is supported and extensively tested on operating systems using the Linux kernel, macOS 10.10+,  Windows 7 and newer. It’s not recommended to use PenguinCoin Core on unsupported systems.
 
-Litecoin Core should also work on most other Unix-like systems, but is not as frequently tested on them.
+PenguinCoin Core should also work on most other Unix-like systems, but is not as frequently tested on them.
 
 MWEB fields added to BlockIndex, and block serialization format has changed. Downgrading to older versions is unsafe.
 
@@ -44,9 +44,9 @@ Consensus changes
 -----------------
 
 - This release implements the proposed MWEB consensus rules
-  ([LIP002](https://github.com/litecoin-project/lips/blob/master/lip-0002.mediawiki),
-  [LIP003](https://github.com/litecoin-project/lips/blob/master/lip-0003.mediawiki), and
-  [LIP004](https://github.com/litecoin-project/lips/blob/master/lip-0004.mediawiki))
+  ([LIP002](https://github.com/penguincoin-project/lips/blob/master/lip-0002.mediawiki),
+  [LIP003](https://github.com/penguincoin-project/lips/blob/master/lip-0003.mediawiki), and
+  [LIP004](https://github.com/penguincoin-project/lips/blob/master/lip-0004.mediawiki))
 
 P2P and network changes
 -----------------------

@@ -1,17 +1,17 @@
-Litecoin Core version 0.18.1 is now available from:
+PenguinCoin Core version 0.18.1 is now available from:
 
-  <https://download.litecoin.org/litecoin-0.18.1/>
+  <https://download.penguincoin.org/penguincoin-0.18.1/>
 
 This is a major version release, including new features, various bug
 fixes and performance improvements, as well as updated translations.
 
 Please report bugs using the issue tracker at GitHub:
 
-  <https://github.com/litecoin-project/litecoin/issues>
+  <https://github.com/penguincoin-project/penguincoin/issues>
 
 To receive security and update notifications, please subscribe to:
 
-  <https://groups.google.com/forum/#!forum/litecoin-dev>
+  <https://groups.google.com/forum/#!forum/penguincoin-dev>
 
 How to Upgrade
 ==============
@@ -19,7 +19,7 @@ How to Upgrade
 If you are running an older version, shut it down. Wait until it has
 completely shut down (which might take a few minutes for older
 versions), then run the installer (on Windows) or just copy over
-`/Applications/Litecoin-Qt` (on Mac) or `litecoind`/`litecoin-qt` (on
+`/Applications/PenguinCoin-Qt` (on Mac) or `penguincoind`/`penguincoin-qt` (on
 Linux).
 
 The first time you run version 0.15.0 or newer, your chainstate database
@@ -35,16 +35,16 @@ wallet versions are still supported.
 Compatibility
 ==============
 
-Litecoin Core is supported and extensively tested on operating systems
+PenguinCoin Core is supported and extensively tested on operating systems
 using the Linux kernel, macOS 10.10+, and Windows 7 and newer. It is not
-recommended to use Litecoin Core on unsupported systems.
+recommended to use PenguinCoin Core on unsupported systems.
 
-Litecoin Core should also work on most other Unix-like systems but is not
+PenguinCoin Core should also work on most other Unix-like systems but is not
 as frequently tested on them.
 
 From 0.17.0 onwards, macOS <10.10 is no longer supported. 0.17.0 is
 built using Qt 5.9.x, which doesn't support versions of macOS older than
-10.10. Additionally, Litecoin Core does not yet change appearance when
+10.10. Additionally, PenguinCoin Core does not yet change appearance when
 macOS "dark mode" is activated.
 
 In addition to previously-supported CPU platforms, this release's
@@ -86,7 +86,7 @@ Configuration option changes
   messages that ZMQ will queue in memory (the "high water mark") before
   dropping additional messages.  The default value is 1,000, the same as
   was used for previous releases.  See the [ZMQ
-  documentation](https://github.com/litecoin-project/litecoin/blob/master/doc/zmq.md#usage)
+  documentation](https://github.com/penguincoin-project/penguincoin/blob/master/doc/zmq.md#usage)
   for details.
 
 - The `rpcallowip` option can no longer be used to automatically listen
@@ -110,38 +110,38 @@ Configuration option changes
   disconnect/ban behavior will not cause a node that is whitelisting
   another to be dropped by peers.  Users can still explicitly enable
   this behavior with the command line option (and may want to consider
-  [contacting](mailto:contact@litecoin.org) the Litecoin Core
+  [contacting](mailto:contact@penguincoin.org) the PenguinCoin Core
   project to let us know about their use-case, as this feature could be
   deprecated in the future).
 
 Wallet changes
 --------------
-When creating a transaction with a fee above `-maxtxfee` (default 0.1 LTC),
+When creating a transaction with a fee above `-maxtxfee` (default 0.1 PGC),
 the RPC commands `walletcreatefundedpsbt` and  `fundrawtransaction` will now fail
 instead of rounding down the fee. Beware that the `feeRate` argument is specified
-in LTC per kilobyte, not litoshi per byte.
+in PGC per kilobyte, not litoshi per byte.
 
 Documentation
 -------------
 
-- A new short [document](https://github.com/litecoin-project/litecoin/blob/master/doc/JSON-RPC-interface.md)
+- A new short [document](https://github.com/penguincoin-project/penguincoin/blob/master/doc/JSON-RPC-interface.md)
   about the JSON-RPC interface describes cases where the results of an
   RPC might contain inconsistencies between data sourced from different
   subsystems, such as wallet state and mempool state.  A note is added
-  to the [REST interface documentation](https://github.com/litecoin-project/litecoin/blob/master/doc/REST-interface.md)
+  to the [REST interface documentation](https://github.com/penguincoin-project/penguincoin/blob/master/doc/REST-interface.md)
   indicating that the same rules apply.
 
 - Further information is added to the [JSON-RPC
-  documentation](https://github.com/litecoin-project/litecoin/blob/master/doc/JSON-RPC-interface.md)
+  documentation](https://github.com/penguincoin-project/penguincoin/blob/master/doc/JSON-RPC-interface.md)
   about how to secure this interface.
 
-- A new [document](https://github.com/litecoin-project/litecoin/blob/master/doc/litecoin-conf.md)
-  about the `litecoin.conf` file describes how to use it to configure
-  Litecoin Core.
+- A new [document](https://github.com/penguincoin-project/penguincoin/blob/master/doc/penguincoin-conf.md)
+  about the `penguincoin.conf` file describes how to use it to configure
+  PenguinCoin Core.
 
-- A new document introduces Litecoin Core's BIP174 [Partially-Signed
-  Litecoin Transactions
-  (PSBT)](https://github.com/litecoin-project/litecoin/blob/master/doc/psbt.md)
+- A new document introduces PenguinCoin Core's BIP174 [Partially-Signed
+  PenguinCoin Transactions
+  (PSBT)](https://github.com/penguincoin-project/penguincoin/blob/master/doc/psbt.md)
   interface, which is used to allow multiple programs to collaboratively
   work to create, sign, and broadcast new transactions.  This is useful
   for offline (cold storage) wallets, multisig wallets, coinjoin
@@ -149,7 +149,7 @@ Documentation
   to interact to generate a complete transaction.
 
 - The [output script
-  descriptor](https://github.com/litecoin-project/litecoin/blob/master/doc/descriptors.md)
+  descriptor](https://github.com/penguincoin-project/penguincoin/blob/master/doc/descriptors.md)
   documentation has been updated with information about new features in
   this still-developing language for describing the output scripts that
   a wallet or other program wants to receive notifications for, such as
@@ -162,15 +162,15 @@ Build system changes
 --------------------
 
 - A new `--disable-bip70` option may be passed to `./configure` to
-  prevent Litecoin-Qt from being built with support for the BIP70 payment
+  prevent PenguinCoin-Qt from being built with support for the BIP70 payment
   protocol or from linking libssl.  As the payment protocol has exposed
-  Litecoin Core to libssl vulnerabilities in the past, builders who don't
+  PenguinCoin Core to libssl vulnerabilities in the past, builders who don't
   need BIP70 support are encouraged to use this option to reduce their
   exposure to future vulnerabilities.
 
 - The minimum required version of Qt (when building the GUI) has been
   increased from 5.2 to 5.5.1 (the [depends
-  system](https://github.com/litecoin-project/litecoin/blob/master/depends/README.md)
+  system](https://github.com/penguincoin-project/penguincoin/blob/master/depends/README.md)
   provides 5.9.7)
 
 New RPCs
@@ -188,7 +188,7 @@ New RPCs
   they've been running.
 
 - `deriveaddresses` returns one or more addresses corresponding to an
-  [output descriptor](https://github.com/litecoin-project/litecoin/blob/master/doc/descriptors.md).
+  [output descriptor](https://github.com/penguincoin-project/penguincoin/blob/master/doc/descriptors.md).
 
 - `getdescriptorinfo` accepts a descriptor and returns information about
   it, including its computed checksum.
@@ -255,7 +255,7 @@ in the Low-level Changes section below.
   ignored or are inconsistent, if there are any.
 
 - `getaddressinfo` now returns an additional `solvable` boolean field
-  when Litecoin Core knows enough about the address's scriptPubKey,
+  when PenguinCoin Core knows enough about the address's scriptPubKey,
   optional redeemScript, and optional witnessScript in order for the
   wallet to be able to generate an unsigned input spending funds sent to
   that address.
@@ -269,7 +269,7 @@ in the Low-level Changes section below.
 - `importprivkey` will preserve previously-set labels for addresses or
   public keys corresponding to the private key being imported.  For
   example, if you imported a watch-only address with the label "cold
-  wallet" in earlier releases of Litecoin Core, subsequently importing
+  wallet" in earlier releases of PenguinCoin Core, subsequently importing
   the private key would default to resetting the address's label to the
   default empty-string label ("").  In this release, the previous label
   of "cold wallet" will be retained.  If you optionally specify any
@@ -297,7 +297,7 @@ in the Low-level Changes section below.
   origin information imported through `importmulti` will have their key
   origin information stored in the wallet for use with creating PSBTs.
   More information about descriptors can be found
-  [here](https://github.com/litecoin-project/litecoin/blob/master/doc/descriptors.md).
+  [here](https://github.com/penguincoin-project/penguincoin/blob/master/doc/descriptors.md).
 
 - `listunspent` has been modified so that it also returns
   `witnessScript`, the witness script in the case of a P2WSH or
@@ -320,7 +320,7 @@ Deprecated or removed RPCs
 - The 'account' API is removed after being deprecated in v0.17.  The
   'label' API was introduced in v0.17 as a replacement for accounts.
   See the [release notes from
-  v0.17](https://github.com/litecoin-project/litecoin/blob/master/doc/release-notes/release-notes-0.17.0.md#label-and-account-apis-for-wallet)
+  v0.17](https://github.com/penguincoin-project/penguincoin/blob/master/doc/release-notes/release-notes-0.17.0.md#label-and-account-apis-for-wallet)
   for a full description of the changes from the 'account' API to the
   'label' API.
 
@@ -336,7 +336,7 @@ Deprecated or removed RPCs
   require or use the wallet component. Calling `generatetoaddress` with
   an address returned by the `getnewaddress` RPC gives the same
   functionality as the old `generate` RPC.  To continue using `generate`
-  in this version, restart litecoind with the `-deprecatedrpc=generate`
+  in this version, restart penguincoind with the `-deprecatedrpc=generate`
   configuration option.
 
 - Be reminded that parts of the `validateaddress` command have been
@@ -383,7 +383,7 @@ Graphical User Interface (GUI)
 Tools
 -----
 
-- A new `litecoin-wallet` tool is now distributed alongside Litecoin
+- A new `penguincoin-wallet` tool is now distributed alongside PenguinCoin
   Core's other executables.  Without needing to use any RPCs, this tool
   can currently create a new wallet file or display some basic
   information about an existing wallet, such as whether the wallet is
@@ -393,24 +393,24 @@ Tools
 Planned changes
 ===============
 
-This section describes planned changes to Litecoin Core that may affect
-other Litecoin software and services.
+This section describes planned changes to PenguinCoin Core that may affect
+other PenguinCoin software and services.
 
-- Since version 0.16.0, Litecoin Core’s built-in wallet has defaulted to
+- Since version 0.16.0, PenguinCoin Core’s built-in wallet has defaulted to
   generating P2SH-wrapped segwit addresses when users want to receive
   payments. These addresses are backwards compatible with all
-  widely-used software.  Starting with Litecoin Core 0.20 (expected about
-  a year after 0.18), Litecoin Core will default to native segwit
+  widely-used software.  Starting with PenguinCoin Core 0.20 (expected about
+  a year after 0.18), PenguinCoin Core will default to native segwit
   addresses (bech32) that provide additional fee savings and other
   benefits. Currently, many wallets and services already support sending
-  to bech32 addresses, and if the Litecoin Core project sees enough
+  to bech32 addresses, and if the PenguinCoin Core project sees enough
   additional adoption, it will instead default to bech32 receiving
-  addresses in Litecoin Core 0.20.
+  addresses in PenguinCoin Core 0.20.
   P2SH-wrapped segwit addresses will continue to be provided if the user
   requests them in the GUI or by RPC, and anyone who doesn’t want the
   update will be able to configure their default address type.
   (Similarly, pioneering users who want to change their default now may
-  set the `addresstype=bech32` configuration option in any Litecoin Core
+  set the `addresstype=bech32` configuration option in any PenguinCoin Core
   release from 0.16.0 up.)
 
 Deprecated P2P messages
@@ -472,7 +472,7 @@ Network
   a misbehaving node will be disconnected to make room for nodes without
   a history of problems (unless the misbehaving node helps your node in
   some other way, such as by connecting to a part of the Internet from
-  which you don't have many other peers).  Previously, Litecoin Core
+  which you don't have many other peers).  Previously, PenguinCoin Core
   banned the IP addresses of misbehaving peers for a period of time
   (default of 1 day); this was easily circumvented by attackers with
   multiple IP addresses. If you manually ban a peer, such as by using
@@ -491,18 +491,18 @@ Wallet
   software. Instead such wallets will be completely unloaded and
   reloaded to achieve the same effect.
 
-- A sub-project of Litecoin Core now provides Hardware Wallet Interaction
+- A sub-project of PenguinCoin Core now provides Hardware Wallet Interaction
   (HWI) scripts that allow command-line users to use several popular
-  hardware key management devices with Litecoin Core.  See their [project
+  hardware key management devices with PenguinCoin Core.  See their [project
   page](https://github.com/bitcoin-core/HWI#readme) for details.
 
 Security
 --------
 
 - This release changes the Random Number Generator (RNG) used from
-  OpenSSL to Litecoin Core's own implementation, although entropy
-  gathered by Litecoin Core is fed out to OpenSSL and then read back in
-  when the program needs strong randomness. This moves Litecoin Core a
+  OpenSSL to PenguinCoin Core's own implementation, although entropy
+  gathered by PenguinCoin Core is fed out to OpenSSL and then read back in
+  when the program needs strong randomness. This moves PenguinCoin Core a
   little closer to no longer needing to depend on OpenSSL, a dependency
   that has caused security issues in the past.  The new implementation
   gathers entropy from multiple sources, including from hardware
@@ -511,7 +511,7 @@ Security
 Changes for particular platforms
 --------------------------------
 
-- On macOS, Litecoin Core now opts out of application CPU throttling
+- On macOS, PenguinCoin Core now opts out of application CPU throttling
   ("app nap") during initial blockchain download, when catching up from
   over 100 blocks behind the current chain tip, or when reindexing chain
   data. This helps prevent these operations from taking an excessively
