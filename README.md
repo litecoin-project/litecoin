@@ -36,7 +36,7 @@ While PenguinCoin supports all traditional cryptocurrency functions, it truly sh
 
 PenguinCoin makes digital transactions fun, social, and accessible to everyone - bringing a playful twist to cryptocurrency!
 
-Visit our website at [https://penguincoin.org](https://penguincoin.org) for more information.
+For more information, see documentation.
 
 ## Key Features
 

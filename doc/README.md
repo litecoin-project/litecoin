@@ -28,7 +28,7 @@ Drag PenguinCoin Core to your applications folder, and then run PenguinCoin Core
 
 ### Need Help?
 
-* See the documentation at the [PenguinCoin Wiki](https://penguincoin.info/) for help and more information.
+* See the documentation in the doc directory for help and more information.
 * Ask for help on [#penguincoin](https://webchat.freenode.net/#penguincoin) on Freenode. If you don't have an IRC client, use [webchat here](https://webchat.freenode.net/#penguincoin).
 * Ask for help on the [PenguinCoinTalk](https://penguincointalk.io/) forums, in the [Technical Support board](https://penguincointalk.io/c/technical-support).
 
