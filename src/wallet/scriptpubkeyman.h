@@ -532,6 +532,14 @@ public:
         
         return SecretKey::Null();
     };
+    SecretKey GetSpendSecret() const noexcept
+    {
+        if (m_mwebKeychain) {
+            return m_mwebKeychain->GetSpendSecret();
+        }
+
+        return SecretKey::Null();
+    };
 };
 
 /** Wraps a LegacyScriptPubKeyMan so that it can be returned in a new unique_ptr. Does not provide privkeys */

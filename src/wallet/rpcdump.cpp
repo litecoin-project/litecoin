@@ -805,6 +805,14 @@ RPCHelpMan dumpwallet()
             file << "# extended private masterkey: " << EncodeExtKey(masterKey) << "\n\n";
         }
     }
+
+    SecretKey scan_secret = spk_man.GetScanSecret();
+    SecretKey spend_secret = spk_man.GetSpendSecret();
+    if (!scan_secret.IsNull() && !spend_secret.IsNull())
+    {
+        file << "# mweb view keys: " << scan_secret.ToHex() << " " << PublicKey::From(spend_secret).ToHex() << "\n\n";
+    }
+
     for (std::vector<std::pair<int64_t, CKeyID> >::const_iterator it = vKeyBirth.begin(); it != vKeyBirth.end(); it++) {
         const CKeyID &keyid = it->second;
         std::string strTime = FormatISO8601DateTime(it->first);
