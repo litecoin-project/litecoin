@@ -56,7 +56,24 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
     try {
         pTransaction->Validate();
     } catch (std::exception& e) {
-        LOG_DEBUG_F("Failed to add transaction {}. Error: {}", pTransaction, e.what());
+        LOG_ERROR_F("Failed to validate transaction {}. Error: {}", pTransaction, e.what());
+        return false;
+    }
+    
+    try {
+        std::vector<Commitment> input_commits = pTransaction->GetInputCommits();
+        std::vector<Commitment> output_commits = pTransaction->GetOutputCommits();
+        for (const auto& tx : m_stagedTxs) {
+            std::vector<Commitment> staged_tx_input_commits = tx->GetInputCommits();
+            input_commits.insert(input_commits.end(), staged_tx_input_commits.begin(), staged_tx_input_commits.end());
+            std::vector<Commitment> staged_tx_output_commits = tx->GetOutputCommits();
+            output_commits.insert(output_commits.end(), staged_tx_output_commits.begin(), staged_tx_output_commits.end());
+        }
+        Commitment commit = Pedersen::AddCommitments(input_commits, output_commits);
+        assert(!commit.IsZero());
+    } catch (std::exception& e) {
+        LOG_ERROR_F("Staged inputs and outputs would sum to zero. Error: {}", e.what());
+        return false;
     }
 
     // Make sure all inputs are available.
