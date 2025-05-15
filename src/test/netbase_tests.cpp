@@ -107,6 +107,7 @@ BOOST_AUTO_TEST_CASE(netbase_splithost)
     BOOST_CHECK(TestSplitHost("[]:8333", "", 8333));
     BOOST_CHECK(TestSplitHost("", "", -1));
     BOOST_CHECK(TestSplitHost(":65535", "", 65535));
+    BOOST_CHECK(TestSplitHost(":+1", ":+1", -1, false));
     BOOST_CHECK(TestSplitHost(":65536", ":65536", -1, false));
     BOOST_CHECK(TestSplitHost(":-1", ":-1", -1, false));
     BOOST_CHECK(TestSplitHost("[]:70001", "[]:70001", -1, false));
@@ -116,6 +117,7 @@ BOOST_AUTO_TEST_CASE(netbase_splithost)
     BOOST_CHECK(TestSplitHost("[]:1/2", "[]:1/2", -1, false));
     BOOST_CHECK(TestSplitHost("[]:1E2", "[]:1E2", -1, false));
     BOOST_CHECK(TestSplitHost("127.0.0.1:65536", "127.0.0.1:65536", -1, false));
+    BOOST_CHECK(TestSplitHost("127.0.0.1:+8333", "127.0.0.1:+8333", -1, false));
     BOOST_CHECK(TestSplitHost("127.0.0.1:0", "127.0.0.1", 0, false));
     BOOST_CHECK(TestSplitHost("127.0.0.1:", "127.0.0.1:", -1, false));
     BOOST_CHECK(TestSplitHost("127.0.0.1:1/2", "127.0.0.1:1/2", -1, false));
