@@ -485,19 +485,19 @@ Signing is only possible with addresses of the type 'legacy'.</source>
     </message>
     <message>
         <source>&amp;Load PSBT from file...</source>
-        <translation>&amp;Load PSBT from file...</translation>
+        <translation>&amp;Завантажити PSBT-транзакцію з файлу...</translation>
     </message>
     <message>
         <source>Load Partially Signed Bitcoin Transaction</source>
-        <translation>Load Partially Signed Bitcoin Transaction</translation>
+        <translation>Завантажити частково підписану біткоїн-транзакцію (PSBT)</translation>
     </message>
     <message>
         <source>Load PSBT from clipboard...</source>
-        <translation>Load PSBT from clipboard...</translation>
+        <translation>Завантажити PSBT-транзакцію з буфера обміну...</translation>
     </message>
     <message>
         <source>Load Partially Signed Bitcoin Transaction from clipboard</source>
-        <translation>Load Partially Signed Bitcoin Transaction from clipboard</translation>
+        <translation>Завантажити частково підписану біткоїн-транзакцію (PSBT) з буфера обміну</translation>
     </message>
     <message>
         <source>Node window</source>
@@ -2471,7 +2471,7 @@ Note:  Since the fee is calculated on a per-byte basis, a fee of "100 satoshis p
     </message>
     <message>
         <source>With Replace-By-Fee (BIP-125) you can increase a transaction's fee after it is sent. Without this, a higher fee may be recommended to compensate for increased transaction delay risk.</source>
-        <translation>With Replace-By-Fee (BIP-125) you can increase a transaction's fee after it is sent. Without this, a higher fee may be recommended to compensate for increased transaction delay risk.</translation>
+        <translation>З опцією Заміна-Через-Комісію (RBF, BIP-125) можна збільшити комісію за транзакцію після її надсилання. Без такої опції для компенсації підвищеного ризику затримки транзакції може бути рекомендована комісія більшого розміру.</translation>
     </message>
     <message>
         <source>Clear &amp;All</source>
