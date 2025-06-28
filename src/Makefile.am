@@ -145,9 +145,12 @@ libmw_a_SOURCES = \
 	libmw/src/node/BlockValidator.cpp \
 	libmw/src/node/BlockBuilder.cpp \
 	libmw/src/node/CoinsViewCache.cpp \
-	libmw/src/node/CoinsViewDB.cpp \
+	libmw/src/node/CoinsViewDB.cpp
+if ENABLE_WALLET
+libmw_a_SOURCES += \
 	libmw/src/wallet/Keychain.cpp \
 	libmw/src/wallet/TxBuilder.cpp
+endif
 
 .PHONY: FORCE check-symbols check-security
 # bitcoin core #
