@@ -921,6 +921,11 @@ static RPCHelpMan getmempoolentry()
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Transaction not in mempool");
     }
 
+    if (RPCSerializationFlags() & SERIALIZE_NO_MWEB && it->GetTx().IsMWEBOnly()) {
+        // Don't return MWEB-only transactions to clients that don't support them.
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "MWEB-only transaction not serializable for rpcserialversion<2");
+    }
+
     const CTxMemPoolEntry &e = *it;
     UniValue info(UniValue::VOBJ);
     entryToJSON(mempool, info, e);
