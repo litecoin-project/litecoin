@@ -206,6 +206,16 @@ ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<
     if (vtx_missing.size() != tx_missing_offset)
         return READ_STATUS_INVALID;
 
+    // We need to clear the MWEB transaction data from the block's transactions,
+    // which should already be included in the mweb_block.
+    for (size_t i = 0; i < block.vtx.size(); i++) {
+        if (block.vtx[i]->HasMWEBTx()) {
+            CMutableTransaction mutable_tx(*block.vtx[i]);
+            mutable_tx.mweb_tx.SetNull();
+            block.vtx[i] = MakeTransactionRef(std::move(mutable_tx));
+        }
+    }
+
     BlockValidationState state;
     if (!CheckBlock(block, state, Params().GetConsensus())) {
         // TODO: We really want to just check merkle tree manually here,
