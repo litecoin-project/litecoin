@@ -236,14 +236,18 @@ CoinsResult AvailableCoins(const CWallet& wallet,
         bool tx_from_me = CachedTxIsFromMe(wallet, wtx, ISMINE_ALL);
         
         for (const GenericOutputID& output_id : wtx.GetOutputIDs(true)) {
-            if (coinControl && ((output_id.IsMWEB() && coinControl->fPegIn) || (!output_id.IsMWEB() && coinControl->fPegOut)))
-                continue;
+            if (coinControl) {
+                if ((output_id.IsMWEB() && coinControl->fPegIn) || (!output_id.IsMWEB() && coinControl->fPegOut)) {
+                    continue;
+                }
+
+                if (coinControl->HasSelected() && !coinControl->m_allow_other_inputs && !coinControl->IsSelected(output_id)) {
+                    continue;
+                }
+            }
             
             CAmount value = wallet.GetValue(wtx, output_id);
             if (value < nMinimumAmount || value > nMaximumAmount)
-                continue;
-
-            if (coinControl && coinControl->HasSelected() && !coinControl->m_allow_other_inputs && !coinControl->IsSelected(output_id))
                 continue;
 
             if (wallet.IsLockedCoin(output_id))
@@ -276,7 +280,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
                 MWWalletUTXO mweb_utxo{mweb_coin, nDepth, address, tx_from_me, wtx.GetHash()};
                 result.Add(OutputType::MWEB, mweb_utxo);
             } else {
-                const CTxOut& txout = wtx.tx->vout[output_id.ToOutPoint().n];
+                CTxOut txout = wtx.GetOutput(output_id).GetTxOut();
                 std::unique_ptr<SigningProvider> provider = wallet.GetSolvingProvider(txout.scriptPubKey);
 
                 int input_bytes = CalculateMaximumSignedInputSize(txout, COutPoint(), provider.get(), coinControl);
@@ -586,13 +590,13 @@ std::optional<SelectionResult> SelectCoins(const CWallet& wallet, CoinsResult& a
                 return std::nullopt;
             }
 
-            mw::Coin mweb_coin;
-            if (!wallet.GetCoin(output_id.ToMWEB(), mweb_coin) || !mweb_coin.IsMine()) {
+            const GenericWalletUTXO* coin = available_coins.Find(output_id);
+            if (coin == nullptr) {
                 return std::nullopt;
             }
 
-            const GenericWalletUTXO* coin = available_coins.Find(output_id);
-            if (coin == nullptr) {
+            mw::Coin mweb_coin;
+            if (!wallet.GetCoin(output_id.ToMWEB(), mweb_coin) || !mweb_coin.IsMine()) {
                 return std::nullopt;
             }
 

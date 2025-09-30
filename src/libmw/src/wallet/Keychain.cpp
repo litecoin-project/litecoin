@@ -17,14 +17,14 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
     }
 
     assert(!GetScanSecret().IsNull());
-    PublicKey shared_secret = output.Ke().Mul(GetScanSecret());
-    uint8_t view_tag = Hashed(EHashTag::TAG, shared_secret)[0];
+    PublicKey shared_secret_pk = output.Ke().Mul(GetScanSecret());
+    uint8_t view_tag = Hashed(EHashTag::TAG, shared_secret_pk)[0];
     if (view_tag != output.GetViewTag()) {
         return false;
     }
 
-    SecretKey t = Hashed(EHashTag::DERIVE, shared_secret);
-    PublicKey B_i = output.Ko().Div(Hashed(EHashTag::OUT_KEY, t));
+    SecretKey shared_secret = Hashed(EHashTag::DERIVE, shared_secret_pk);
+    PublicKey B_i = output.Ko().Div(Hashed(EHashTag::OUT_KEY, shared_secret));
 
     // Check if B_i belongs to wallet
     StealthAddress address(B_i.Mul(m_scanSecret), B_i);
@@ -34,7 +34,7 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
     }
 
     // Calc blinding factor and unmask nonce and amount.
-    OutputMask mask = OutputMask::FromShared(t);
+    OutputMask mask = OutputMask::FromShared(shared_secret);
     uint64_t value = mask.MaskValue(output.GetMaskedValue());
     BigInt<16> n = mask.MaskNonce(output.GetMaskedNonce());
 
@@ -60,8 +60,9 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
     coin.amount = value;
     coin.output_id = output.GetOutputID();
     coin.address = address;
-    coin.shared_secret = std::make_optional(std::move(t));
+    coin.shared_secret = std::make_optional(std::move(shared_secret));
     coin.spend_key = CalculateOutputSpendKey(coin);
+    coin.master_scan_key_id = PublicKey::From(m_scanSecret).GetID();
 
     return true;
 }
@@ -82,8 +83,8 @@ std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::Coin& coin)
         return std::nullopt;
     }
 
-    auto derive_output_key = [](const SecretKey& spend_key, const SecretKey& shared_secret) -> SecretKey {
-        return SecretKeys::From(spend_key)
+    auto derive_output_key = [](const SecretKey& subaddress_spend_key, const SecretKey& shared_secret) -> SecretKey {
+        return SecretKeys::From(subaddress_spend_key)
             .Mul(Hashed(EHashTag::OUT_KEY, shared_secret))
             .Total();
     };
@@ -103,7 +104,7 @@ std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::Coin& coin)
         return derive_output_key(SecretKey(key.begin()), *coin.shared_secret);
     }
 
-    return derive_output_key(GetSpendKey(coin.address_index), *coin.shared_secret);
+    return derive_output_key(GetSubaddressSpendKey(coin.address_index), *coin.shared_secret);
 }
 
 StealthAddress Keychain::GetStealthAddress(const uint32_t index) const
@@ -120,7 +121,7 @@ StealthAddress Keychain::GetStealthAddress(const uint32_t index) const
     return StealthAddress(Ai, Bi);
 }
 
-SecretKey Keychain::GetSpendKey(const uint32_t index) const
+SecretKey Keychain::GetSubaddressSpendKey(const uint32_t index) const
 {
     assert(HasSpendSecret());
 

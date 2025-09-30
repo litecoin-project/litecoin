@@ -53,9 +53,12 @@ private:
     
     CAmount CalcSelectionTarget(const TxType& tx_type) const;
 
-    std::optional<util::Error> AddInputs(const std::vector<GenericWalletUTXO>& shuffled_inputs);
+    void AddInputs(const std::vector<GenericWalletUTXO>& shuffled_inputs);
     std::optional<util::Error> AddOutputs(const SelectionResult& selection_result);
-    std::optional<util::Error> SubtractFeeFromOutputs();
+    std::optional<util::Error> AddChangeOutput(const SelectionResult& selection_result);
+    std::optional<util::Error> AddPeginOutput(const SelectionResult& selection_result);
+    void GrowChangeBy(const CAmount growth_amount);
+    std::optional<util::Error> SubtractFeeFromOutputs(const CAmount fee_to_distribute);
     std::optional<util::Error> SignMWEBTx();
 
     TxType GetTxType() const noexcept { return m_selection_params.m_tx_type; }
