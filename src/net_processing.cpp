@@ -63,7 +63,7 @@ static constexpr auto UNCONDITIONAL_RELAY_DELAY = 2min;
 /** Headers download timeout.
  *  Timeout = base + per_header * (expected number of headers) */
 static constexpr auto HEADERS_DOWNLOAD_TIMEOUT_BASE = 15min;
-static constexpr auto HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER = 1ms;
+static constexpr auto HEADERS_DOWNLOAD_TIMEOUT_PER_HEADER = 10ms;
 /** How long to wait for a peer to respond to a getheaders request */
 static constexpr auto HEADERS_RESPONSE_TIME{2min};
 /** Protect at least this many outbound peers from disconnection due to slow/
@@ -71,7 +71,7 @@ static constexpr auto HEADERS_RESPONSE_TIME{2min};
  */
 static constexpr int32_t MAX_OUTBOUND_PEERS_TO_PROTECT_FROM_DISCONNECT = 4;
 /** Timeout for (unprotected) outbound peers to sync to our chainwork */
-static constexpr auto CHAIN_SYNC_TIMEOUT{20min};
+static constexpr auto CHAIN_SYNC_TIMEOUT{60min};
 /** How frequently to check for stale tips */
 static constexpr auto STALE_CHECK_INTERVAL{150s}; // 2.5 minutes
 /** How frequently to check for extra outbound peers and disconnect */
@@ -867,6 +867,14 @@ private:
     /** The m_headers_presync_stats improved, and needs signalling. */
     std::atomic_bool m_headers_presync_should_signal{false};
 
+    // --------  Resume support for low-work headers pre-sync  --------
+    // When a peer disconnects mid pre-sync, we can move its HeadersSyncState
+    // into this single-slot "parking lot". If a new peer starts a low-work
+    // pre-sync that connects to the same chain-start block, we transfer the
+    // parked state to that new peer and continue without starting from 0.
+    // TODO - If further improvements are needed, we could change this to a small map of states by highest header hash
+    std::unique_ptr<HeadersSyncState> m_headers_presync_resume_state GUARDED_BY(m_headers_presync_mutex) {};
+
     /** Height of the highest block announced using BIP 152 high-bandwidth mode. */
     int m_highest_fast_announce{0};
 
@@ -1547,6 +1555,23 @@ void PeerManagerImpl::FinalizeNode(const CNode& node)
         misbehavior = WITH_LOCK(peer->m_misbehavior_mutex, return peer->m_misbehavior_score);
         m_wtxid_relay_peers -= peer->m_wtxid_relay;
         assert(m_wtxid_relay_peers >= 0);
+        
+
+        // If this peer was the best peer in headers pre-sync, try to park its state for reuse with a future peer.
+        LOCK(peer->m_headers_sync_mutex);
+        if (peer->m_headers_sync) {
+            const auto state_enum = peer->m_headers_sync->GetState();
+            if (state_enum != HeadersSyncState::State::FINAL) {
+                const int64_t presync_height = peer->m_headers_sync->GetPresyncHeight();
+                const uint256 header_hash = peer->m_headers_sync->GetLastHeaderHash();
+                LOCK(m_headers_presync_mutex);
+                if (m_headers_presync_bestpeer == nodeid) {
+                    m_headers_presync_resume_state = std::move(peer->m_headers_sync);
+                    LogPrint(BCLog::NET, "Presync: parking resume state (start=%s, height=%d) after peer=%d disconnect\n",
+                        header_hash.ToString(), presync_height, nodeid);
+                }
+            }
+        }
     }
     CNodeState *state = State(nodeid);
     assert(state != nullptr);
@@ -2708,6 +2733,24 @@ bool PeerManagerImpl::CheckHeadersAreContinuous(const std::vector<CBlockHeader>&
 
 bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfrom, std::vector<CBlockHeader>& headers)
 {
+    if (!peer.m_headers_sync) {
+        // Try to resume from a previously parked pre-sync state if (and
+        // only if) the new peer's headers connect to the same
+        // chain-start block hash.
+        LOCK(m_headers_presync_mutex);
+        if (m_headers_presync_resume_state) {
+            Assert(!headers.empty());
+            if (m_headers_presync_resume_state->GetLastHeaderHash() == headers[0].hashPrevBlock) {
+                peer.m_headers_sync = std::move(m_headers_presync_resume_state);
+                peer.m_headers_sync->SetNodeId(peer.m_id);
+                const int64_t presync_height = m_headers_presync_resume_state->GetPresyncHeight();
+                const uint256 header_hash = m_headers_presync_resume_state->GetLastHeaderHash();
+                LogPrint(BCLog::NET, "Presync: resuming low-work headers sync with peer=%d from parked state (start=%s, height=%d)\n",
+                    pfrom.GetId(), header_hash.ToString(), presync_height);
+            }
+        }
+    }
+
     if (peer.m_headers_sync) {
         auto result = peer.m_headers_sync->ProcessNextHeaders(headers, headers.size() == MAX_HEADERS_RESULTS);
         if (result.request_more) {
@@ -3915,9 +3958,19 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
             // use if we turned on sync with all peers).
             CNodeState& state{*Assert(State(pfrom.GetId()))};
             if (state.fSyncStarted || (!peer->m_inv_triggered_getheaders_before_sync && *best_block != m_last_block_inv_triggering_headers_sync)) {
-                if (MaybeSendGetHeaders(pfrom, GetLocator(m_chainman.m_best_header), *peer)) {
+                
+                std::optional<int64_t> presync_height = std::nullopt;
+                CBlockLocator locator = GetLocator(m_chainman.m_best_header);
+                {
+                    LOCK(m_headers_presync_mutex);
+                    if (m_headers_presync_resume_state) {
+                        locator = m_headers_presync_resume_state->NextHeadersRequestLocator();
+                        presync_height = m_headers_presync_resume_state->GetPresyncHeight();
+                    }
+                }
+                if (MaybeSendGetHeaders(pfrom, locator, *peer)) {
                     LogPrint(BCLog::NET, "getheaders (%d) %s to peer=%d\n",
-                            m_chainman.m_best_header->nHeight, best_block->ToString(),
+                            presync_height.value_or(m_chainman.m_best_header->nHeight), best_block->ToString(),
                             pfrom.GetId());
                 }
                 if (!state.fSyncStarted) {
@@ -5614,8 +5667,24 @@ bool PeerManagerImpl::SendMessages(CNode* pto)
                    got back an empty response.  */
                 if (pindexStart->pprev)
                     pindexStart = pindexStart->pprev;
-                if (MaybeSendGetHeaders(*pto, GetLocator(pindexStart), *peer)) {
-                    LogPrint(BCLog::NET, "initial getheaders (%d) to peer=%d (startheight:%d)\n", pindexStart->nHeight, pto->GetId(), peer->m_starting_height);
+
+                
+                std::optional<int64_t> presync_height = std::nullopt;
+                std::optional<CBlockLocator> locator = std::nullopt;
+                {
+                    LOCK(m_headers_presync_mutex);
+                    if (m_headers_presync_resume_state) {
+                        locator = m_headers_presync_resume_state->NextHeadersRequestLocator();
+                        presync_height = m_headers_presync_resume_state->GetPresyncHeight();
+                    }
+                }
+
+                if (MaybeSendGetHeaders(*pto, locator.value_or(GetLocator(pindexStart)), *peer)) {
+                    if (presync_height) {
+                        LogPrint(BCLog::NET, "Presync: attempting to resume headers sync for peer=%d from parked state at height %d\n", peer->m_id, *presync_height);
+                    } else {
+                        LogPrint(BCLog::NET, "initial getheaders (%d) to peer=%d (startheight:%d)\n", pindexStart->nHeight, pto->GetId(), peer->m_starting_height);
+                    }
 
                     state.fSyncStarted = true;
                     state.m_headers_sync_timeout = current_time + HEADERS_DOWNLOAD_TIMEOUT_BASE +
