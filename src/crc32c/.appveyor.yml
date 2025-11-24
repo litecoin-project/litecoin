@@ -1,17 +1,17 @@
-# Build matrix / environment variables are explained on:
-# https://www.appveyor.com/docs/appveyor-yml/
-# This file can be validated on: https://ci.appveyor.com/tools/validate-yaml
+# --- APP VEYOR CI CONFIGURATION ---
 
+# Standard: Use the build number as the version.
 version: "{build}"
 
+# Environment Setup and Variable Mapping
 environment:
   matrix:
-    # AppVeyor currently has no custom job name feature.
-    # http://help.appveyor.com/discussions/questions/1623-can-i-provide-a-friendly-name-for-jobs
+    # Define the Visual Studio worker image and CMake generator
     - JOB: Visual Studio 2019
       APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2019
       CMAKE_GENERATOR: Visual Studio 16 2019
-
+      
+# Build Matrix
 platform:
   - x86
   - x64
@@ -20,19 +20,39 @@ configuration:
   - RelWithDebInfo
   - Debug
 
+# Initialize Step: Used to set variables derived from platform/configuration.
+# This runs in PowerShell, which is ideal for conditional logic.
+init:
+  # Map AppVeyor's 'x86' platform to CMake/Visual Studio's required 'Win32' target platform.
+  - ps: |
+      if ($env:PLATFORM -eq "x86") {
+        $env:CMAKE_GENERATOR_PLATFORM = "Win32"
+      } else {
+        $env:CMAKE_GENERATOR_PLATFORM = $env:PLATFORM
+      }
+  - ps: Write-Host "Building for platform: $env:CMAKE_GENERATOR_PLATFORM"
+
+# Build Script (runs in PowerShell by default)
 build_script:
+  # 1. Prepare Environment
   - git submodule update --init --recursive
   - mkdir build
   - cd build
-  - if "%platform%"=="x86" (set CMAKE_GENERATOR_PLATFORM="Win32")
-      else (set CMAKE_GENERATOR_PLATFORM="%platform%")
-  - cmake --version
-  - cmake .. -G "%CMAKE_GENERATOR%" -A "%CMAKE_GENERATOR_PLATFORM%"
-      -DCMAKE_CONFIGURATION_TYPES="%CONFIGURATION%" -DCRC32C_USE_GLOG=0
-  - cmake --build . --config "%CONFIGURATION%"
-  - cd ..
 
+  # 2. Configure CMake
+  - cmake --version
+  - cmake .. -G "$env:CMAKE_GENERATOR" -A "$env:CMAKE_GENERATOR_PLATFORM" -DCMAKE_CONFIGURATION_TYPES="$env:CONFIGURATION" -DCRC32C_USE_GLOG=0
+  
+  # 3. Build the Solution
+  - cmake --build . --config "$env:CONFIGURATION"
+  - cd .. # Return to project root
+
+# Test Script (runs in PowerShell by default)
 test_script:
-  - build\%CONFIGURATION%\crc32c_tests.exe
-  - build\%CONFIGURATION%\crc32c_capi_tests.exe
-  - build\%CONFIGURATION%\crc32c_bench.exe
+  # Define the base path for executables
+  - $build_path = "build\$env:CONFIGURATION"
+  
+  # Execute tests and benchmarks
+  - $build_path\crc32c_tests.exe
+  - $build_path\crc32c_capi_tests.exe
+  - $build_path\crc32c_bench.exe
