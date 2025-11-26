@@ -1,63 +1,98 @@
+# AppVeyor CI/CD Configuration for Bitcoin-like C++ Project (Windows)
+
+# --- General Configuration ---
 version: '{branch}.{build}'
 skip_tags: true
+# Use Visual Studio 2019 image for required compiler and toolchain
 image: Visual Studio 2019
 configuration: Release
 platform: x64
+# Shallow clone for faster checkout
 clone_depth: 5
+
+# --- Environment Setup ---
 environment:
+  # Add Python 3.7 to PATH for utilities
   PATH: 'C:\Python37-x64;C:\Python37-x64\Scripts;%PATH%'
-  PYTHONUTF8: 1
+  # PYTHONUTF8: 1 is generally unnecessary on Python 3.7+ Windows, but kept for explicit compatibility.
+  PYTHONUTF8: 1 
+  
+  # Qt Library Configuration (Pre-built static binaries)
   QT_DOWNLOAD_URL: 'https://github.com/sipsorcery/qt_win_binary/releases/download/qt598x64_vs2019_v1681/qt598_x64_vs2019_1681.zip'
   QT_DOWNLOAD_HASH: '00cf7327818c07d74e0b1a4464ffe987c2728b00d49d4bf333065892af0515c3'
   QT_LOCAL_PATH: 'C:\Qt5.9.8_x64_static_vs2019'
+  
+  # Vcpkg Configuration (Pinned to a specific commit for stability)
   VCPKG_TAG: '75522bb1f2e7d863078bcd06322348f053a9e33f'
+
+# --- Installation Steps ---
 install:
-# Disable zmq test for now since python zmq library on Windows would cause Access violation sometimes.
-# - cmd: pip install zmq
-# The powershell block below is to set up vcpkg to install the c++ dependencies. The pseudo code is:
-#    a. Checkout the vcpkg source (including port files) for the specific checkout and build the vcpkg binary,
-#    b. Append a setting to the vcpkg cmake config file to only do release builds of dependencies (skipping deubg builds saves ~5 mins).
-# Note originally this block also installed the dependencies using 'vcpkg install'. Dependencies are now installed
-# as part of the msbuild command using vcpkg mainfests.
+# Setup vcpkg: Pin version, bootstrap, and configure to build only 'release' dependencies.
 - ps: |
-      cd c:\tools\vcpkg
-      $env:GIT_REDIRECT_STDERR = '2>&1' # git is writing non-errors to STDERR when doing git pull. Send to STDOUT instead.
-      git -c advice.detachedHead=false checkout $env:VCPKG_TAG
-      .\bootstrap-vcpkg.bat > $null
-      Add-Content "C:\tools\vcpkg\triplets\$env:PLATFORM-windows-static.cmake" "set(VCPKG_BUILD_TYPE release)"
-      cd "$env:APPVEYOR_BUILD_FOLDER"
+    # Set GIT_REDIRECT_STDERR to suppress warnings from showing as errors
+    $env:GIT_REDIRECT_STDERR = '2>&1';
+    
+    # 1. Checkout specific vcpkg version
+    cd c:\tools\vcpkg;
+    git -c advice.detachedHead=false checkout $env:VCPKG_TAG;
+    
+    # 2. Build the vcpkg executable
+    .\bootstrap-vcpkg.bat > $null;
+    
+    # 3. Optimize: Append a setting to ensure only release dependencies are built, saving time.
+    Add-Content "C:\tools\vcpkg\triplets\$env:PLATFORM-windows-static.cmake" "set(VCPKG_BUILD_TYPE release)";
+    
+    # Return to the project directory
+    cd "$env:APPVEYOR_BUILD_FOLDER";
+
+# --- Pre-Build Steps ---
 before_build:
-# Powershell block below is to download and extract the Qt static libraries. The pseudo code is:
-#    a. Download the zip file with the prebuilt Qt static libraries.
-#    b. Check that the downloaded file matches the expected hash.
-#    c. Extract the zip file to the specific destination path expected by the msbuild projects.
+# Download and Extract Pre-built Qt Static Libraries
 - ps: |
-      Write-Host "Downloading Qt binaries.";
-      Invoke-WebRequest -Uri $env:QT_DOWNLOAD_URL -Out qtdownload.zip;
-      Write-Host "Qt binaries successfully downloaded, checking hash against $env:QT_DOWNLOAD_HASH...";
-      if((Get-FileHash qtdownload.zip).Hash -eq $env:QT_DOWNLOAD_HASH) {
-        Expand-Archive qtdownload.zip -DestinationPath $env:QT_LOCAL_PATH;
-        Write-Host "Qt binary download matched the expected hash.";
-      }
-      else {
-        Write-Host "ERROR: Qt binary download did not match the expected hash.";
-        Exit-AppveyorBuild;
-      }
+    Write-Host "Starting Qt binaries download and verification.";
+    Invoke-WebRequest -Uri $env:QT_DOWNLOAD_URL -Out qtdownload.zip;
+    
+    $downloadedHash = (Get-FileHash qtdownload.zip).Hash;
+    Write-Host "Downloaded hash: $downloadedHash, Expected hash: $env:QT_DOWNLOAD_HASH";
+
+    if($downloadedHash -eq $env:QT_DOWNLOAD_HASH) {
+      Expand-Archive qtdownload.zip -DestinationPath $env:QT_LOCAL_PATH -Force;
+      Write-Host "Qt binary verification successful. Extracted to $env:QT_LOCAL_PATH.";
+    }
+    else {
+      Write-Error "ERROR: Qt binary hash mismatch. Aborting build.";
+      Exit-AppveyorBuild;
+    }
+    
+# Run necessary autogen script (e.g., for version headers or configuration)
 - cmd: python build_msvc\msvc-autogen.py
+
+# --- Build Step ---
 build_script:
+# Build the solution using msbuild. TrackFileAccess=false improves speed.
 - cmd: msbuild /p:TrackFileAccess=false build_msvc\bitcoin.sln /m /v:q /nologo
+
+# --- Post-Build Steps ---
 after_build:
-#- 7z a bitcoin-%APPVEYOR_BUILD_VERSION%.zip %APPVEYOR_BUILD_FOLDER%\build_msvc\%platform%\%configuration%\*.exe
+# NOTE: Artifact compression is currently disabled in the artifacts section below.
+# Uncomment the following line to enable artifact creation:
+# - 7z a bitcoin-%APPVEYOR_BUILD_VERSION%.zip %APPVEYOR_BUILD_FOLDER%\build_msvc\%platform%\%configuration%\*.exe
+
+# --- Test Steps ---
 test_script:
+# Run unit tests
 - cmd: src\test_bitcoin.exe -l test_suite
+# Run micro-benchmarks (output silenced)
 - cmd: src\bench_bitcoin.exe > NUL
-- ps:  python test\util\bitcoin-util-test.py
+# Run Python utility tests
+- ps: python test\util\bitcoin-util-test.py
 - cmd: python test\util\rpcauth-test.py
-# Fee estimation test failing on appveyor with: WinError 10048] Only one usage of each socket address (protocol/network address/port) is normally permitted.
-# functional tests disabled for now. See
-# https://github.com/bitcoin/bitcoin/pull/18626#issuecomment-613396202
-# https://github.com/bitcoin/bitcoin/issues/18623
+# NOTE: Functional tests are disabled due to known socket/port binding issues on AppVeyor Windows environment.
+# Enable when the underlying platform issue is resolved.
 # - cmd: python test\functional\test_runner.py --ci --quiet --combinedlogslen=4000 --failfast --exclude feature_fee_estimation
+
+# --- Artifacts and Deployment ---
 artifacts:
+# Uncomment the following line to publish the compressed build artifact.
 #- path: bitcoin-%APPVEYOR_BUILD_VERSION%.zip
 deploy: off
