@@ -79,7 +79,7 @@ WalletView::WalletView(const PlatformStyle *_platformStyle, QWidget *parent):
     // Highlight transaction after send
     connect(sendCoinsPage, &SendCoinsDialog::coinsSent, transactionView, static_cast<void (TransactionView::*)(const uint256&)>(&TransactionView::focusTransaction));
 
-    // Clicking on "Export" allows to export the transaction list
+    // Export the transaction list when the "Export" button is clicked.
     connect(exportButton, &QPushButton::clicked, transactionView, &TransactionView::exportClicked);
 
     // Pass through messages from sendCoinsPage
