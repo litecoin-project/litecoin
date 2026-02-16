@@ -52,12 +52,6 @@
    obj:*/libdb_cxx-*.so
 }
 {
-   Suppress uninitialized bytes warning in compat code
-   Memcheck:Param
-   ioctl(TCSET{S,SW,SF})
-   fun:tcsetattr
-}
-{
    Suppress libdb warning
    Memcheck:Leak
    fun:malloc
