@@ -13,8 +13,7 @@ isminetype InputIsMine(const CWallet& wallet, const GenericInput& input)
 {
     AssertLockHeld(wallet.cs_wallet);
     if (input.IsMWEB()) {
-        mw::Coin coin;
-        return wallet.GetCoin(input.ToMWEB(), coin) && coin.IsMine() ? ISMINE_SPENDABLE : ISMINE_NO;
+        return wallet.IsMine(GenericOutputID{input.ToMWEB()});
     }
     
     const CTxIn& txin = input.GetTxIn();
@@ -54,25 +53,25 @@ CAmount TxGetCredit(const CWallet& wallet, const CWalletTx& wtx, const isminefil
             throw std::runtime_error(std::string(__func__) + ": value out of range");
     }
 
-    bool has_my_inputs = false;
-    for (const GenericInput& txin : wtx.GetInputs()) {
-        LOCK(wallet.cs_wallet);
-        if (InputIsMine(wallet, txin)) {
-            has_my_inputs = true;
-            break;
-        }
-    }
+    //bool has_my_inputs = false;
+    //for (const GenericInput& txin : wtx.GetInputs()) {
+    //    LOCK(wallet.cs_wallet);
+    //    if (InputIsMine(wallet, txin)) {
+    //        has_my_inputs = true;
+    //        break;
+    //    }
+    //}
 
-    if (!has_my_inputs) { // MW: TODO - Why does this have to be false?
-        for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
-            LOCK(wallet.cs_wallet);
-            if (wallet.IsMine(pegout.GetScriptPubKey()) & filter) {
-                nCredit += pegout.GetAmount();
-                if (!MoneyRange(nCredit))
-                    throw std::runtime_error(std::string(__func__) + ": value out of range");
-            }
+    //if (!has_my_inputs) { // MW: TODO - Why does this have to be false?
+    LOCK(wallet.cs_wallet);
+    for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
+        if (wallet.IsMine(pegout.GetScriptPubKey()) & filter) {
+            nCredit += pegout.GetAmount();
+            if (!MoneyRange(nCredit))
+                throw std::runtime_error(std::string(__func__) + ": value out of range");
         }
     }
+    //}
 
     return nCredit;
 }
@@ -82,7 +81,7 @@ bool AddressIsChange(const CWallet& wallet, const GenericAddress& address)
     AssertLockHeld(wallet.cs_wallet);
     if (wallet.IsMine(address)) {
         if (address.IsMWEB()) {
-            // MW: TODO - Figure out the best way to determine this
+            return wallet.GetMWWallet()->IsChange(address.GetMWEBAddress());
         } else {
             return ScriptIsChange(wallet, address.GetScript());
         }
@@ -113,6 +112,7 @@ bool ScriptIsChange(const CWallet& wallet, const CScript& script)
     return false;
 }
 
+// MW: TODO - Should this take a CWalletTx instead of CTransactionRef? If partial_mweb_tx with received_coin, it could be change
 bool OutputIsChange(const CWallet& wallet, const CTransactionRef& tx, const GenericOutputID& output_id)
 {
     AssertLockHeld(wallet.cs_wallet);
@@ -128,7 +128,7 @@ bool OutputIsChange(const CWallet& wallet, const CTransactionRef& tx, const Gene
     return ScriptIsChange(wallet, tx->vout[output_id.ToOutPoint().n].scriptPubKey);
 }
 
-CAmount OutputGetChange(const CWallet& wallet, const CWalletTx& wtx, const GenericOutputID& output_id)
+static CAmount OutputGetChange(const CWallet& wallet, const CWalletTx& wtx, const GenericOutputID& output_id)
 {
     AssertLockHeld(wallet.cs_wallet);
     const CAmount amount = wallet.GetValue(wtx, output_id);
@@ -307,8 +307,7 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
     CAmount nDebit = CachedTxGetDebit(wallet, wtx, filter);
     if (nDebit > 0) // debit>0 means we signed/sent this transaction
     {
-        CAmount nValueOut = wtx.tx->GetValueOut();
-        nFee = nDebit - nValueOut;
+        nFee = CachedTxGetFee(wallet, wtx, filter);
     }
 
     LOCK(wallet.cs_wallet);
@@ -360,7 +359,7 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
             //   2) the output is to us (received)
             if (nDebit > 0) {
                 // Don't report 'change' txouts
-                if (ScriptIsChange(wallet, pegout_script))
+                if (!include_change && ScriptIsChange(wallet, pegout_script))
                     continue;
             } else if (!(fIsMine & filter))
                 continue;
@@ -403,15 +402,15 @@ bool CachedTxIsTrusted(const CWallet& wallet, const CWalletTx& wtx, std::set<uin
     if (!wtx.InMempool()) return false;
 
     // Trusted if all inputs are from us and are in the mempool:
-    for (const GenericInput& input : wtx.tx->GetInputs())
+    for (const GenericInput& input : wtx.GetInputs())
     {
         // Transactions not sent by us: not trusted
         const CWalletTx* parent = wallet.FindPrevTx(input);
         if (parent == nullptr) return false;
-        // Check that this specific input being spent is trusted
-        if (wallet.IsMine(input.GetID()) != ISMINE_SPENDABLE) return false;
         // If we've already trusted this parent, continue
         if (trusted_parents.count(parent->GetHash())) continue;
+        // Check that this specific input being spent is trusted
+        if (wallet.IsMine(input.GetID()) != ISMINE_SPENDABLE) return false;
         // Recurse to check that the parent is also trusted
         if (!CachedTxIsTrusted(wallet, *parent, trusted_parents)) return false;
         trusted_parents.insert(parent->GetHash());

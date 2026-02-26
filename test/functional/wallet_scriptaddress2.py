@@ -47,15 +47,15 @@ class ScriptAddress2Test(BitcoinTestFramework):
         tx = self.nodes[0].getrawtransaction(txid, 1)
         dest_addrs = [tx["vout"][0]['scriptPubKey']['address'],
                       tx["vout"][1]['scriptPubKey']['address']]
-        assert(multisig_addr in dest_addrs)
+        assert multisig_addr in dest_addrs
 
         # Spend from the new multisig address
         addr3 = self.nodes[1].getnewaddress()
         txid = self.nodes[0].sendtoaddress(addr3, 0.8)
         self.generate(self.nodes[0], 2)
         self.sync_all()
-        assert(self.nodes[0].getbalance("*", 1) < 0.2)
-        assert(self.nodes[1].listtransactions()[-1]['address'] == addr3)
+        assert self.nodes[0].getbalance("*", 1) < 0.2
+        assert self.nodes[1].listtransactions()[-1]['address'] == addr3
 
         # Send to an old multisig address. The api addmultisigaddress
         # can only generate a new address so we manually compute
@@ -83,16 +83,16 @@ class ScriptAddress2Test(BitcoinTestFramework):
         dest_addrs = [tx["vout"][0]['scriptPubKey']['address'],
                       tx["vout"][1]['scriptPubKey']['address']]
 
-        assert(multisig_addr_new in dest_addrs)
-        assert(multisig_addr_old not in dest_addrs)
+        assert multisig_addr_new in dest_addrs
+        assert multisig_addr_old not in dest_addrs
 
         # Spend from the new multisig address
         addr4 = self.nodes[1].getnewaddress()
         txid = self.nodes[0].sendtoaddress(addr4, 0.8)
         self.generate(self.nodes[0], 2)
         self.sync_all()
-        assert(self.nodes[0].getbalance("*", 1) < 0.4)
-        assert(self.nodes[1].listtransactions()[-1]['address'] == addr4)
+        assert self.nodes[0].getbalance("*", 1) < 0.4
+        assert self.nodes[1].listtransactions()[-1]['address'] == addr4
 
 if __name__ == '__main__':
     ScriptAddress2Test().main()

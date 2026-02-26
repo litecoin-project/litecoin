@@ -298,8 +298,9 @@ std::optional<util::Error> TxBuilder::AddOutputs(const SelectionResult& selectio
     // we are subtracting the fee from the outputs. If this occurs at any other time, it is a bug.
     assert(m_selection_params.m_subtract_fee_outputs || need_fee <= have_fee);
 
-    // If we’re short and user asked to subtract from outputs
-    if (have_fee < need_fee && m_selection_params.m_subtract_fee_outputs) {
+    // If we’re under-paying or over-paying fees and user asked to subtract from outputs
+    if (have_fee != need_fee && m_selection_params.m_subtract_fee_outputs) {
+        // Note that missing_fee could be negative, in which case SubtractFeeFromOutputs will add the difference to the outputs.
         const CAmount missing_fee = need_fee - have_fee;
         auto error = SubtractFeeFromOutputs(missing_fee);
         if (error) {
@@ -559,7 +560,7 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
             sign_tx_result->coins_by_output_id.cbegin(), sign_tx_result->coins_by_output_id.cend(), std::back_inserter(mweb_coins),
             [](const std::pair<mw::Hash, mw::Coin>& entry) { return entry.second; });
         // MW: TODO - Save the sender key somewhere temporary, and retrieve it if RewindCoins is called
-        //m_wallet.GetMWWallet()->SaveToWallet(mweb_coins); // MW: TODO - This should only be done in CommitTransaction, since this could be called with add_to_wallet=false
+        m_wallet.GetMWWallet()->SaveToWallet(mweb_coins); // MW: TODO - This should only be done in CommitTransaction, since this could be called with add_to_wallet=false
     }
 
     LogPrintf("DEBUG: END\n");

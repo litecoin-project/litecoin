@@ -22,6 +22,7 @@ struct FundTransactionResult {
     ChangePosition change_pos;
 };
 
+// MW: TODO - Should be something like "UnfinishedTransaction" or "TransactionBuilder"
 class RawTransaction
 {
 public:

@@ -186,7 +186,6 @@ Result CreateRateBumpTransaction(CWallet& wallet, const uint256& txid, const CCo
             return Result::MISC_ERROR;
         }
         if (coin.IsMWEB()) {
-            // MW: TODO - Finish supporting MWEB here
             errors.push_back(Untranslated("MWEB inputs not yet supported"));
             return Result::MISC_ERROR;
         }

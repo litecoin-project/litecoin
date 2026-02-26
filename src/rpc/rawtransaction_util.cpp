@@ -285,17 +285,6 @@ void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keyst
     }
 }
 
-void SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<GenericOutputID, GenericCoin>& coins, const UniValue& hashType, UniValue& result)
-{
-    int nHashType = ParseSighashString(hashType);
-
-    // Script verification errors
-    std::map<int, bilingual_str> input_errors;
-
-    bool complete = SignTransaction(mtx, keystore, coins, nHashType, input_errors);
-    SignTransactionResultToJSON(mtx, complete, coins, input_errors, result);
-}
-
 // MW: TODO - input_errors should be keyed by GenericOutputID
 void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<GenericOutputID, GenericCoin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result)
 {

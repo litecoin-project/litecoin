@@ -30,7 +30,7 @@ public:
     //
     // Constructors
     //
-    TxBody(std::vector<Input> inputs, std::vector<mw::Output> outputs, std::vector<mw::Kernel> kernels)
+    TxBody(std::vector<mw::Input> inputs, std::vector<mw::Output> outputs, std::vector<mw::Kernel> kernels)
         : m_inputs(std::move(inputs)), m_outputs(std::move(outputs)), m_kernels(std::move(kernels)) { }
     TxBody(const TxBody& other) = default;
     TxBody(TxBody&& other) noexcept = default;
@@ -58,7 +58,7 @@ public:
     //
     // Getters
     //
-    const std::vector<Input>& GetInputs() const noexcept { return m_inputs; }
+    const std::vector<mw::Input>& GetInputs() const noexcept { return m_inputs; }
     const std::vector<mw::Output>& GetOutputs() const noexcept { return m_outputs; }
     const std::vector<mw::Kernel>& GetKernels() const noexcept { return m_kernels; }
 
@@ -73,7 +73,7 @@ public:
         std::transform(
             m_inputs.cbegin(), m_inputs.cend(),
             std::back_inserter(output_ids),
-            [](const Input& input) { return input.GetOutputID(); });
+            [](const mw::Input& input) { return input.GetOutputID(); });
         return output_ids;
     }
     std::vector<mw::Hash> GetOutputIDs() const noexcept { return Hashes::From(m_outputs); }
@@ -108,7 +108,7 @@ public:
 
 private:
     // List of inputs spent by the transaction.
-    std::vector<Input> m_inputs;
+    std::vector<mw::Input> m_inputs;
 
     // List of outputs the transaction produces.
     std::vector<mw::Output> m_outputs;

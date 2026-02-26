@@ -44,7 +44,7 @@ class MWEBPegoutAllTest(LitecoinTestFramework):
         mweb_to_mweb_fee = abs(node.gettransaction(mweb_to_mweb_tx)['fee'])
 
         assert_equal(len(node.getrawmempool()), 1)
-        block_id = self.generate(node, 1)[0]
+        self.generate(node, 1)[0]
         assert_equal(len(node.getrawmempool()), 0)
         self.sync_all()
 
@@ -62,7 +62,7 @@ class MWEBPegoutAllTest(LitecoinTestFramework):
         self.sync_all()
 
         assert_equal(len(node.getrawmempool()), 1)
-        block_id = self.generate(node, 1, sync_fun=self.no_op)[0]
+        self.generate(node, 1, sync_fun=self.no_op)[0]
         assert_equal(len(node.getrawmempool()), 0)
 
         self.log.info("Check that pegged in amount is 0")

@@ -208,7 +208,7 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
         }
 
         try {
-            blockundo.mwundo = mweb_view.ApplyBlock(block.mweb_block.m_block);
+            blockundo.mwundo = mweb_view.ApplyBlock(block.mweb_block.m_block); // TODO: This can probably be CONSENSUS
         } catch (const std::exception& e) {
             // MWEB: Need to distinguish between invalid blocks and mutated blocks
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-connect-failed", strprintf("MWEB::Node::ConnectBlock(): Failed to connect MWEB block: %s", e.what()));
@@ -234,6 +234,7 @@ bool Node::CheckTransaction(const CTransaction& tx, TxValidationState& state)
     
     auto pegin_coins = tx.mweb_tx.GetPegIns();
     if (pegin_coins.size() != tx_pegins.size()) {
+        LogPrintf("DEBUG: Pegin count mismatch. Tx pegins: %zu, MWEB pegins: %zu\n", tx_pegins.size(), pegin_coins.size());
         return state.Invalid(TxValidationResult::TX_WITNESS_MUTATED, "pegin-count-mismatch");
     }
 

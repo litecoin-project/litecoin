@@ -372,7 +372,7 @@ public:
         base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
 
         bech32_hrp = "rltc";
-        mweb_hrp = "tmweb";
+        mweb_hrp = "rmweb";
     }
 
     /**

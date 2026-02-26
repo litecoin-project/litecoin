@@ -42,7 +42,7 @@ public:
     const mw::Header::CPtr& GetHeader() const noexcept { return m_pHeader; }
     const mw::TxBody& GetTxBody() const noexcept { return m_body; }
 
-    const std::vector<Input>& GetInputs() const noexcept { return m_body.GetInputs(); }
+    const std::vector<mw::Input>& GetInputs() const noexcept { return m_body.GetInputs(); }
     const std::vector<mw::Output>& GetOutputs() const noexcept { return m_body.GetOutputs(); }
     const std::vector<mw::Kernel>& GetKernels() const noexcept { return m_body.GetKernels(); }
 
@@ -93,7 +93,7 @@ public:
           m_outputs(pBlock->GetOutputs()),
           m_kernels(pBlock->GetKernels()) {}
 
-    MutBlock& SetInputs(std::vector<Input> inputs) noexcept
+    MutBlock& SetInputs(std::vector<mw::Input> inputs) noexcept
     {
         m_inputs = std::move(inputs);
         return *this;
@@ -121,7 +121,7 @@ public:
 
 private:
     MutHeader m_header;
-    std::vector<Input> m_inputs;
+    std::vector<mw::Input> m_inputs;
     std::vector<mw::Output> m_outputs;
     std::vector<mw::Kernel> m_kernels;
 };

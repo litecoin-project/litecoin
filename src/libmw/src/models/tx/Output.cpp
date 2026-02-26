@@ -20,7 +20,7 @@ Output Output::Create(
     // Generate 128-bit secret nonce 'n' = Hash128(T_nonce, sender_privkey)
     BigInt<16> n(Hashed(EHashTag::NONCE, sender_privkey).data());
 
-    // Calculate unique sending key 's' = H(T_send, A, B, v, n)
+    // Calculate unique sending key 's' = H(T_send, Ai, Bi, v, n)
     SecretKey s = Hasher(EHashTag::SEND_KEY)
         .Append(receiver_addr.A())
         .Append(receiver_addr.B())
@@ -28,20 +28,18 @@ Output Output::Create(
         .Append(n)
         .hash();
 
-    // Derive shared secret 't' = H(T_derive, s*A)
+    // Derive shared secret 'e' = H(T_derive, s*Ai)
     PublicKey sA = receiver_addr.A().Mul(s);
-    SecretKey t = Hasher(EHashTag::DERIVE)
-        .Append(sA)
-        .hash();
+    SecretKey e = Hashed(EHashTag::DERIVE, sA);
 
-    // Construct one-time public key for receiver 'Ko' = H(T_outkey, t)*B
-    PublicKey Ko = receiver_addr.B().Mul(Hashed(EHashTag::OUT_KEY, t));
+    // Construct one-time public key for receiver 'Ko' = H(T_outkey, e)*Bi
+    PublicKey Ko = receiver_addr.B().Mul(Hashed(EHashTag::OUT_KEY, e));
 
-    // Key exchange public key 'Ke' = s*B
+    // Key exchange public key 'Ke' = s*Bi
     PublicKey Ke = receiver_addr.B().Mul(s);
 
     // Calc blinding factor and mask nonce and amount.
-    OutputMask mask = OutputMask::FromShared(t);
+    OutputMask mask = OutputMask::FromShared(e);
     BlindingFactor blind = mask.BlindSwitch(value);
     uint64_t mv = mask.MaskValue(value);
     BigInt<16> mn = mask.MaskNonce(n);
@@ -55,9 +53,11 @@ Output Output::Create(
     // Derive view tag as first byte of H(T_tag, sA)
     uint8_t view_tag = Hashed(EHashTag::TAG, sA)[0];
 
-    OutputMessage message{features, Ke, view_tag, mv, mn};
+    OutputMessage message{features, OutputStandardFields(Ke, view_tag, mv, mn)};
 
-    // MW: TODO - Probably best to store sender_key so sender can identify all outputs they've sent?
+    // MW: TODO - Need to store:
+    // * Shared message = kernel_id where nonce is H(tag || shared_secret)
+    // * Private message = keychain idx of sender_key + sender_key nonce + checksum where nonce is H(tag || seed-derived key || output commitment)
     RangeProof::CPtr pRangeProof = Bulletproofs::Generate(
         value,
         SecretKey(blind.vec()),

@@ -12,7 +12,7 @@ public:
     {
         size_t input_weight = std::accumulate(
             tx_body.GetInputs().begin(), tx_body.GetInputs().end(), (size_t)0,
-            [](size_t sum, const Input& input) {
+            [](size_t sum, const mw::Input& input) {
                 return sum + CalcInputWeight(input.GetExtraData());
             }
         );

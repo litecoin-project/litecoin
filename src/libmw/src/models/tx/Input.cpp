@@ -2,6 +2,8 @@
 #include <mw/crypto/Schnorr.h>
 #include <mw/crypto/SecretKeys.h>
 
+using namespace mw;
+
 // Creates a standard input with a stealth key (feature bit = 1)
 Input Input::Create(const mw::Hash& output_id, const Commitment& commitment, const SecretKey& input_key, const SecretKey& output_key)
 {

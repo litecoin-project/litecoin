@@ -272,7 +272,12 @@ public:
 
     // Creates an MWEB KeyChain from the appropriate keychain paths.
     virtual void LoadMWEBKeychain() { }
+
+    // Returns the active MWEB keychain, if any.
     const mw::Keychain::Ptr& GetMWEBKeychain() const noexcept { return m_mwebKeychain; }
+
+    // Returns all inactive MWEB keychains, if any.
+    virtual std::vector<mw::Keychain::Ptr> GetInactiveMWEBKeychains() const { return {}; }
 	
     /** Prepends the wallet name in logging output to ease debugging in multi-wallet use cases */
     template<typename... Params>
@@ -551,18 +556,47 @@ public:
     bool DeleteRecords();
 
     void LoadMWEBKeychain() override;
-    SecretKey GetScanSecret() const noexcept
+
+    std::optional<SecretKey> GetScanSecretForChain(const CHDChain& chain) const noexcept;
+    SecretKey GetScanSecret(const std::optional<CKeyID>& seed_id = std::nullopt) const noexcept
     {
-        if (m_mwebKeychain) {
-            return m_mwebKeychain->GetScanSecret();
+        std::optional<SecretKey> scan_secret = std::nullopt;
+
+        CKeyID effective_seed_id = seed_id.value_or(m_hd_chain.seed_id);
+        if (effective_seed_id == m_hd_chain.seed_id) {
+            if (m_mwebKeychain) {
+                return m_mwebKeychain->GetScanSecret();
+            }
+
+            scan_secret = GetScanSecretForChain(m_hd_chain);
+        } else {
+            auto it = m_inactive_hd_chains.find(effective_seed_id);
+            if (it != m_inactive_hd_chains.end()) {
+                scan_secret = GetScanSecretForChain(it->second);
+            }
         }
 
-        if (IsHDEnabled() && m_hd_chain.mweb_scan_key) {
-            return *m_hd_chain.mweb_scan_key;
+        return scan_secret.value_or(SecretKey::Null());
+    }
+
+    std::vector<SecretKey> GetAllScanSecrets() const noexcept
+    {
+        std::vector<SecretKey> secrets;
+
+        std::optional<SecretKey> active_secret = GetScanSecretForChain(m_hd_chain);
+        if (active_secret) {
+            secrets.push_back(*active_secret);
         }
-        
-        return SecretKey::Null();
-    };
+
+        for (const auto& [_, chain] : m_inactive_hd_chains) {
+            std::optional<SecretKey> inactive_secret = GetScanSecretForChain(chain);
+            if (inactive_secret) {
+                secrets.push_back(*inactive_secret);
+            }
+        }
+
+        return secrets;
+    }
 };
 
 /** Wraps a LegacyScriptPubKeyMan so that it can be returned in a new unique_ptr. Does not provide privkeys */
@@ -654,6 +688,8 @@ public:
     bool SetupDescriptor(std::unique_ptr<Descriptor>desc);
 
     bool HavePrivateKeys() const override;
+
+    bool HaveMWEBSpendSecret() const;
 
     bool GetKey(const CKeyID& address, CKey& keyOut) const override;
 

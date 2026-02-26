@@ -157,6 +157,7 @@ def deser_fixed_bytes(f, size):
         r.append(struct.unpack("B", f.read(1))[0])
     return r
 
+
 def ser_fixed_bytes(u, size):
     rs = b""
     for i in range(size):
@@ -618,7 +619,7 @@ class CTransaction:
         flags = 0
         if len(self.vin) == 0:
             flags = struct.unpack("<B", f.read(1))[0]
-            if (flags != 0):
+            if flags != 0:
                 self.vin = deser_vector(f, CTxIn)
                 self.vout = deser_vector(f, CTxOut)
         else:
@@ -662,7 +663,7 @@ class CTransaction:
         r += ser_vector(self.vin)
         r += ser_vector(self.vout)
         if flags & 1:
-            if (len(self.wit.vtxinwit) != len(self.vin)):
+            if len(self.wit.vtxinwit) != len(self.vin):
                 # vtxinwit must have the same length as vin
                 self.wit.vtxinwit = self.wit.vtxinwit[:len(self.vin)]
                 for _ in range(len(self.wit.vtxinwit), len(self.vin)):
@@ -677,7 +678,7 @@ class CTransaction:
         flags = 0
         if not self.wit.is_null():
             flags |= 1
-        if self.hogex or self.mweb_tx != None:
+        if self.hogex or self.mweb_tx is not None:
             flags |= 8
         r = b""
         r += struct.pack("<i", self.nVersion)
@@ -688,7 +689,7 @@ class CTransaction:
         r += ser_vector(self.vin)
         r += ser_vector(self.vout)
         if flags & 1:
-            if (len(self.wit.vtxinwit) != len(self.vin)):
+            if len(self.wit.vtxinwit) != len(self.vin):
                 # vtxinwit must have the same length as vin
                 self.wit.vtxinwit = self.wit.vtxinwit[:len(self.vin)]
                 for _ in range(len(self.wit.vtxinwit), len(self.vin)):
@@ -1012,7 +1013,7 @@ class P2PHeaderAndShortWitnessIDsV2(P2PHeaderAndShortIDs):
     __slots__ = ()
     def serialize(self):
         return super().serialize(version=2)
-		
+
 # P2P version of the above that will use MWEB serialization (for compact
 # block version 3)
 class P2PHeaderAndShortWitnessIDs(P2PHeaderAndShortIDs):
@@ -2122,7 +2123,7 @@ def deser_varint(f):
     return n
 
 def ser_mweb_block(b):
-    if b == None:
+    if b is None:
         return struct.pack("B", 0)
     else:
         return struct.pack("B", 1) + b.serialize()
@@ -2137,7 +2138,7 @@ def deser_mweb_block(f):
         return None
 
 def ser_mweb_tx(t):
-    if t == None:
+    if t is None:
         return struct.pack("B", 0)
     else:
         return struct.pack("B", 1) + t.serialize()

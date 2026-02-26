@@ -27,7 +27,7 @@ from test_framework.util import (
 )
 
 
-UPGRADED_KEYMETA_VERSION = 12
+UPGRADED_KEYMETA_VERSION = 14
 
 def deser_keymeta(f):
     ver, create_time = struct.unpack('<Iq', f.read(12))
@@ -93,7 +93,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
 
     def test_upgradewallet(self, wallet, previous_version, requested_version=None, expected_version=None):
         unchanged = expected_version == previous_version
-        new_version = previous_version if unchanged else expected_version if expected_version else requested_version
+        new_version = expected_version if expected_version else requested_version
         old_wallet_info = wallet.getwalletinfo()
         assert_equal(old_wallet_info["walletversion"], previous_version)
         assert_equal(wallet.upgradewallet(requested_version),
@@ -183,7 +183,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
         copy_v16()
         wallet = node_master.get_wallet_rpc(self.default_wallet_name)
         self.log.info("Test upgradewallet without a version argument")
-        self.test_upgradewallet(wallet, previous_version=159900, expected_version=169900)
+        self.test_upgradewallet(wallet, previous_version=159900, expected_version=210000)
         # wallet should still contain the same balance
         assert_equal(wallet.getbalance(), v16_3_balance)
 
@@ -254,6 +254,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
         # Check that the hdchain updated correctly
         new_kvs = dump_bdb_kv(node_master_wallet)
         hd_chain = new_kvs[b'\x07hdchain']
+        print(hd_chain)
         assert_equal(32, len(hd_chain))
         hd_chain_version, external_counter, seed_id, internal_counter = struct.unpack('<iI20sI', hd_chain)
         assert_equal(2, hd_chain_version)
@@ -304,7 +305,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
                 if old_kp_str == b"": # imported things that don't have keymeta (i.e. imported coinbase privkeys) won't be upgraded
                     assert_equal(new_kvs[k], old_v)
                     continue
-                assert_equal(12, new_ver)
+                assert_equal(14, new_ver)
                 assert_equal(new_create_time, old_create_time)
                 assert_equal(new_kp_str, old_kp_str)
                 assert_equal(new_seed_id, old_seed_id)
@@ -343,18 +344,18 @@ class UpgradeWalletTest(BitcoinTestFramework):
             self.log.info("Checking that descriptor wallets do nothing, successfully")
             self.nodes[0].createwallet(wallet_name="desc_upgrade", descriptors=True)
             desc_wallet = self.nodes[0].get_wallet_rpc("desc_upgrade")
-            self.test_upgradewallet(desc_wallet, previous_version=169900, expected_version=169900)
+            self.test_upgradewallet(desc_wallet, previous_version=210000, expected_version=210000)
 
             self.log.info("Checking that descriptor wallets without privkeys do nothing, successfully")
             self.nodes[0].createwallet(wallet_name="desc_upgrade_nopriv", descriptors=True, disable_private_keys=True)
             desc_wallet = self.nodes[0].get_wallet_rpc("desc_upgrade_nopriv")
-            self.test_upgradewallet(desc_wallet, previous_version=169900, expected_version=169900)
+            self.test_upgradewallet(desc_wallet, previous_version=210000, expected_version=210000)
 
         if self.is_bdb_compiled():
             self.log.info("Upgrading a wallet with private keys disabled")
             self.nodes[0].createwallet(wallet_name="privkeys_disabled_upgrade", disable_private_keys=True, descriptors=False)
             disabled_wallet = self.nodes[0].get_wallet_rpc("privkeys_disabled_upgrade")
-            self.test_upgradewallet(disabled_wallet, previous_version=169900, expected_version=169900)
+            self.test_upgradewallet(disabled_wallet, previous_version=210000, expected_version=210000)
 
 if __name__ == '__main__':
     UpgradeWalletTest().main()

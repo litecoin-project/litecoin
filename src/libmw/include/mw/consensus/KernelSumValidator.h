@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mw/exceptions/ValidationException.h>
+#include <mw/exceptions/CryptoException.h>
 #include <mw/crypto/Pedersen.h>
 #include <mw/models/tx/TxBody.h>
 #include <mw/models/tx/Transaction.h>
@@ -37,7 +38,8 @@ public:
             utxo_commitments,
             Commitments::From(kernels),
             total_offset,
-            total_mweb_supply
+            total_mweb_supply,
+            false
         );
     }
 
@@ -47,7 +49,7 @@ public:
         const BlindingFactor& prev_total_offset)
     {
         BlindingFactor block_offset = total_offset;
-        if (!prev_total_offset.IsZero()) {
+        if (!prev_total_offset.IsNull()) {
             block_offset = Pedersen::AddBlindingFactors({block_offset}, {prev_total_offset});
         }
 
@@ -56,7 +58,8 @@ public:
             body.GetOutputCommits(),
             body.GetKernelCommits(),
             block_offset,
-            body.GetSupplyChange()
+            body.GetSupplyChange(),
+            false
         );
     }
 
@@ -67,35 +70,56 @@ public:
             tx.GetOutputCommits(),
             tx.GetKernelCommits(),
             tx.GetKernelOffset(),
-            tx.GetSupplyChange()
+            tx.GetSupplyChange(),
+            true
         );
     }
 
 private:
+    static Commitment AddCommitments(
+        const std::vector<Commitment>& positive,
+        const std::vector<Commitment>& negative,
+        const bool allow_infinity)
+    {
+        try {
+            return Pedersen::AddCommitments(positive, negative);
+        } catch (const CryptoException& e) {
+            // secp256k1 can't serialize the point at infinity. For tx policy validation,
+            // treat that as the identity element so we don't throw here.
+            if (allow_infinity && e.GetMsg() == "secp256k1_pedersen_commit_sum error") {
+                LOG_DEBUG("Ignoring point-at-infinity commitment sum during tx validation.");
+                return Commitment{};
+            }
+
+            throw;
+        }
+    }
+
     static void ValidateSums(
         const std::vector<Commitment>& input_commits,
         const std::vector<Commitment>& output_commits,
         const std::vector<Commitment>& kernel_commits,
         const BlindingFactor& offset,
-        const int64_t coins_added)
+        const int64_t coins_added,
+        const bool allow_infinity)
     {
         // Calculate UTXO nonce sum
-        Commitment sum_utxo_commitment = Pedersen::AddCommitments(output_commits, input_commits);
+        Commitment sum_utxo_commitment = AddCommitments(output_commits, input_commits, allow_infinity);
         if (coins_added > 0) {
-            sum_utxo_commitment = Pedersen::AddCommitments(
-                { sum_utxo_commitment }, { Commitment::Transparent(coins_added) }
+            sum_utxo_commitment = AddCommitments(
+                { sum_utxo_commitment }, { Commitment::Transparent(coins_added) }, allow_infinity
             );
         } else if (coins_added < 0) {
-            sum_utxo_commitment = Pedersen::AddCommitments(
-                { sum_utxo_commitment, Commitment::Transparent(std::abs(coins_added)) }
+            sum_utxo_commitment = AddCommitments(
+                { sum_utxo_commitment, Commitment::Transparent(std::abs(coins_added)) }, {}, allow_infinity
             );
         }
 
         // Calculate total kernel excess
-        Commitment sum_excess_commitment = Pedersen::AddCommitments(kernel_commits);
-        if (!offset.IsZero()) {
-            sum_excess_commitment = Pedersen::AddCommitments(
-                { sum_excess_commitment, Commitment::Blinded(offset, 0) }
+        Commitment sum_excess_commitment = AddCommitments(kernel_commits, {}, allow_infinity);
+        if (!offset.IsNull()) {
+            sum_excess_commitment = AddCommitments(
+                { sum_excess_commitment, Commitment::Blinded(offset, 0) }, {}, allow_infinity
             );
         }
 

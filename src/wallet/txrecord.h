@@ -89,8 +89,15 @@ public:
     const uint256& GetTxHash() const;
     std::string GetTxString() const;
     int64_t GetTxTime() const;
-    CAmount GetAmount() const noexcept { return credit > 0 ? credit : debit; }
-    // CAmount GetAmount() const noexcept { return credit + debit; }
+    CAmount GetAmount() const noexcept
+    {
+        // Self-sends should report the net (fee) amount.
+        if (type == SendToSelf) {
+            return GetNet();
+        }
+        return credit > 0 ? credit : debit;
+    }
+    CAmount GetDisplayAmount() const noexcept { return credit + debit; }
     CAmount GetNet() const noexcept { return credit + debit + fee; }
 
     UniValue ToUniValue() const;

@@ -93,8 +93,8 @@ bool Bulletproofs::BatchVerify(const std::vector<ProofData>& proofs)
 RangeProof::CPtr Bulletproofs::Generate(
     const uint64_t amount,
     const SecretKey& key,
+    const SecretKey& sharedNonce,
     const SecretKey& privateNonce,
-    const SecretKey& rewindNonce,
     const ProofMessage& proofMessage,
     const std::vector<uint8_t>& extraData)
 {
@@ -123,7 +123,7 @@ RangeProof::CPtr Bulletproofs::Generate(
         1,
         &secp256k1_generator_const_h,
         NUM_BITS_PROVEN,
-        rewindNonce.data(),
+        sharedNonce.data(),
         privateNonce.data(),
         extraData.data(),
         extraData.size(),
@@ -139,40 +139,41 @@ RangeProof::CPtr Bulletproofs::Generate(
     return std::make_shared<RangeProof>(std::move(proofBytes));
 }
 
-std::unique_ptr<RewoundProof> Bulletproofs::Rewind(
+std::pair<std::vector<uint8_t>, std::vector<uint8_t>> Bulletproofs::Rewind(
     const Commitment& commitment,
     const RangeProof& rangeProof,
     const std::vector<uint8_t>& extraData,
-    const SecretKey& nonce)
+    const SecretKey& sharedNonce,
+    const SecretKey& privateNonce)
 {
     secp256k1_pedersen_commitment secpCommitment = ConversionUtil::ToSecp256k1(commitment);
 
-    uint64_t value;
-    SecretKey blindingFactor;
-    std::vector<uint8_t> message(20, 0);
+    std::vector<uint8_t> shared_message(32, 0);
+    std::vector<uint8_t> private_message(28, 0);
 
+    size_t shared_message_len = shared_message.size();
+    size_t private_message_len = private_message.size();
     int result = secp256k1_bulletproof_rangeproof_rewind(
         BP_CONTEXT.Read()->Get(),
-        &value,
-        blindingFactor.data(),
+        shared_message.data(),
+        &shared_message_len,
+        private_message.data(),
+        &private_message_len,
         rangeProof.data(),
         rangeProof.size(),
         0,
         &secpCommitment,
         &secp256k1_generator_const_h,
-        nonce.data(),
+        sharedNonce.data(),
+        privateNonce.data(),
         extraData.data(),
-        extraData.size(),
-        message.data()
+        extraData.size()
     );
 
     if (result == 1) {
-        return std::make_unique<RewoundProof>(
-            value, 
-            std::make_unique<SecretKey>(std::move(blindingFactor)),
-            ProofMessage(BigInt<20>(std::move(message)))
-        );
+        shared_message.resize(shared_message_len);
+        private_message.resize(private_message_len);
     }
 
-    return std::unique_ptr<RewoundProof>(nullptr);
+    return std::make_pair(std::move(shared_message), std::move(private_message));
 }

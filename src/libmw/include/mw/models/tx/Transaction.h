@@ -47,7 +47,7 @@ public:
     static mw::Transaction::CPtr Create(
         BlindingFactor kernel_offset,
         BlindingFactor owner_offset,
-        std::vector<Input> inputs,
+        std::vector<mw::Input> inputs,
         std::vector<mw::Output> outputs,
         std::vector<mw::Kernel> kernels
     );
@@ -72,7 +72,7 @@ public:
     const BlindingFactor& GetKernelOffset() const noexcept { return m_kernelOffset; }
     const BlindingFactor& GetStealthOffset() const noexcept { return m_stealthOffset; }
     const mw::TxBody& GetBody() const noexcept { return m_body; }
-    const std::vector<Input>& GetInputs() const noexcept { return m_body.GetInputs(); }
+    const std::vector<mw::Input>& GetInputs() const noexcept { return m_body.GetInputs(); }
     const std::vector<mw::Output>& GetOutputs() const noexcept { return m_body.GetOutputs(); }
     const std::vector<mw::Kernel>& GetKernels() const noexcept { return m_body.GetKernels(); }
     CAmount GetTotalFee() const noexcept { return m_body.GetTotalFee(); }

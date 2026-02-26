@@ -43,6 +43,7 @@ public:
     //
     static PublicKey From(const SecretKey& key);
     static PublicKey From(const Commitment& commitment);
+    static PublicKey FromHex(const std::string& hex) { return PublicKey(BigInt<33>::FromHex(hex)); }
     static PublicKey Random();
 
     const BigInt<33>& GetBigInt() const { return m_compressed; }

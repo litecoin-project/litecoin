@@ -59,7 +59,7 @@ struct Block {
         }
 
         std::vector<mw::Hash> spent_ids;
-        for (const Input& input : m_block->GetInputs()) {
+        for (const mw::Input& input : m_block->GetInputs()) {
             spent_ids.push_back(input.GetOutputID());
         }
 
@@ -127,7 +127,7 @@ struct Tx {
         }
 
         std::set<mw::Hash> spent_ids;
-        for (const Input& input : m_transaction->GetInputs()) {
+        for (const mw::Input& input : m_transaction->GetInputs()) {
             spent_ids.insert(input.GetOutputID());
         }
 

@@ -1,0 +1,9 @@
+[
+    {
+        "name": "GCC WSL",
+        "compilers": {
+            "C": "/usr/bin/gcc",
+            "CXX": "/usr/bin/g++"
+        }
+    }
+]

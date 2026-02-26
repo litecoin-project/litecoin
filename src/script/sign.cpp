@@ -687,10 +687,11 @@ bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, 
             input_errors[i] = _("Input not found or already spent");
             continue;
         }
-        const CScript& prevPubKey = coin->second.ToLTC().out.scriptPubKey;
-        const CAmount& amount = coin->second.ToLTC().out.nValue;
+        const CTxOut& txout = coin->second.ToLTC().out;
+        const CScript& prevPubKey = txout.scriptPubKey;
+        const CAmount& amount = txout.nValue;
 
-        SignatureData sigdata = DataFromTransaction(mtx, i, coin->second.ToLTC().out);
+        SignatureData sigdata = DataFromTransaction(mtx, i, txout);
         // Only sign SIGHASH_SINGLE if there's a corresponding output:
         if (!fHashSingle || (i < mtx.vout.size())) {
             ProduceSignature(*keystore, MutableTransactionSignatureCreator(mtx, i, amount, &txdata, nHashType), prevPubKey, sigdata);

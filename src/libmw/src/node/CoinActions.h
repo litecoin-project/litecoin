@@ -2,10 +2,10 @@
 
 #include <mw/common/Logger.h>
 #include <mw/models/tx/UTXO.h>
-#include <mw/models/crypto/SecretKey.h>
 #include <unordered_map>
 
-struct CoinAction {
+struct CoinAction
+{
     bool IsSpend() const noexcept { return pUTXO == nullptr; }
 
     mw::UTXO::CPtr pUTXO;
@@ -13,19 +13,16 @@ struct CoinAction {
 
 class CoinsViewUpdates
 {
-    mw::Hash update_id{SecretKey::Random().data()};
 public:
     CoinsViewUpdates() = default;
 
     void AddUTXO(const mw::UTXO::CPtr& pUTXO)
     {
-        //LOG_INFO("UTXO({}): Add UTXO {}", update_id.ToHex().substr(0, 8), pUTXO->GetOutputID().ToHex());
         AddAction(pUTXO->GetOutputID(), CoinAction{pUTXO});
     }
 
     void SpendUTXO(const mw::Hash& output_id)
     {
-        //LOG_INFO("UTXO({}): Spend UTXO {}", update_id.ToHex().substr(0, 8), output_id.ToHex());
         AddAction(output_id, CoinAction{nullptr});
     }
 
@@ -33,7 +30,6 @@ public:
 
     std::vector<CoinAction> GetActions(const mw::Hash& output_id) const noexcept
     {
-        //LOG_INFO("UTXO({}): Get UTXO {}", update_id.ToHex().substr(0, 8), output_id.ToHex());
         auto iter = m_actions.find(output_id);
         if (iter != m_actions.cend()) {
             return iter->second;

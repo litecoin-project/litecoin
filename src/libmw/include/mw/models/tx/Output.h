@@ -18,6 +18,35 @@ class StealthAddress;
 
 MW_NAMESPACE
 
+class OutputStandardFields : public Traits::ISerializable
+{
+public:
+    OutputStandardFields(PublicKey keyExchangePubKey, uint8_t viewTag, uint64_t maskedValue, BigInt<16> maskedNonce) :
+        key_exchange_pubkey(std::move(keyExchangePubKey)), view_tag(viewTag), masked_value(maskedValue), masked_nonce(std::move(maskedNonce)) { }
+    OutputStandardFields() = default;
+    OutputStandardFields(const OutputStandardFields& standard_fields) = default;
+    OutputStandardFields(OutputStandardFields&& standard_fields) noexcept = default;
+
+    //
+    // Operators
+    //
+    OutputStandardFields& operator=(const OutputStandardFields& standard_fields) = default;
+    OutputStandardFields& operator=(OutputStandardFields&& standard_fields) noexcept = default;
+
+    PublicKey key_exchange_pubkey;
+    uint8_t view_tag;
+    uint64_t masked_value;
+    BigInt<16> masked_nonce;
+
+    IMPL_SERIALIZABLE(OutputStandardFields, obj)
+    {
+        READWRITE(obj.key_exchange_pubkey);
+        READWRITE(obj.view_tag);
+        READWRITE(obj.masked_value);
+        READWRITE(obj.masked_nonce);
+    }
+};
+
 ////////////////////////////////////////
 // OUTPUT MESSAGE
 ////////////////////////////////////////
@@ -27,18 +56,13 @@ public:
     //
     // Constructors
     //
-    OutputMessage(
-        uint8_t features_,
-        PublicKey keyExchangePubKey_,
-        uint8_t viewTag_,
-        uint64_t maskedValue_,
-        BigInt<16> maskedNonce_
-    ) : 
-        features(features_),
-        key_exchange_pubkey(std::move(keyExchangePubKey_)),
-        view_tag(viewTag_),
-        masked_value(maskedValue_),
-        masked_nonce(std::move(maskedNonce_))
+    OutputMessage(uint8_t features_, OutputStandardFields standardFields_) : 
+        features(features_), standard_fields(std::move(standardFields_))
+    {
+        m_hash = Hashed(*this);
+    }
+    OutputMessage(uint8_t features, std::optional<OutputStandardFields> standardFields, std::vector<uint8_t> extraData) :
+        features(features), standard_fields(std::move(standardFields)),  extra_data(std::move(extraData))
     {
         m_hash = Hashed(*this);
     }
@@ -59,22 +83,19 @@ public:
     bool operator<(const OutputMessage& output_message) const noexcept { return m_hash < output_message.m_hash; }
     bool operator==(const OutputMessage& output_message) const noexcept { return m_hash == output_message.m_hash; }
 
-    uint8_t features;
-    PublicKey key_exchange_pubkey;
-    uint8_t view_tag;
-    uint64_t masked_value;
-    BigInt<16> masked_nonce;
-    std::vector<uint8_t> extra_data;
+    uint8_t features{0};
+    std::optional<OutputStandardFields> standard_fields{std::nullopt};
+    std::vector<uint8_t> extra_data{};
 
     IMPL_SERIALIZABLE(OutputMessage, obj)
     {
         READWRITE(obj.features);
 
         if (obj.features & STANDARD_FIELDS_FEATURE_BIT) {
-            READWRITE(obj.key_exchange_pubkey);
-            READWRITE(obj.view_tag);
-            READWRITE(obj.masked_value);
-            READWRITE(obj.masked_nonce);
+            OutputStandardFields standard_fields;
+            SER_WRITE(obj, standard_fields = *obj.standard_fields);
+            READWRITE(standard_fields);
+            SER_READ(obj, obj.standard_fields = std::move(standard_fields));
         }
 
         if (obj.features & EXTRA_DATA_FEATURE_BIT) {
@@ -91,6 +112,72 @@ public:
 
 private:
     mw::Hash m_hash{};
+};
+
+
+class CompactOutput : public Traits::ISerializable
+{
+    Commitment m_commitment{};
+    PublicKey m_senderPubKey{};
+    PublicKey m_receiverPubKey{};
+    OutputMessage m_message{};
+    mw::Hash m_proof_hash{};
+    Signature m_signature{};
+
+    mw::Hash m_hash{};
+
+public:
+    //
+    // Constructors
+    //
+    CompactOutput(
+        Commitment commitment,
+        PublicKey senderPubKey,
+        PublicKey receiverPubKey,
+        OutputMessage message,
+        mw::Hash proof_hash,
+        Signature signature
+    ) :
+        m_commitment(std::move(commitment)),
+        m_senderPubKey(std::move(senderPubKey)),
+        m_receiverPubKey(std::move(receiverPubKey)),
+        m_message(std::move(message)),
+        m_proof_hash(std::move(proof_hash)),
+        m_signature(std::move(signature))
+    {
+        m_hash = ComputeHash();
+    }
+
+    CompactOutput(const CompactOutput& output) = default;
+    CompactOutput(CompactOutput&& output) noexcept = default;
+    CompactOutput() = default;
+    
+
+    //
+    // Destructor
+    //
+    virtual ~CompactOutput() = default;
+
+    //
+    // Operators
+    //
+    CompactOutput& operator=(const CompactOutput& output) = default;
+    CompactOutput& operator=(CompactOutput&& output) noexcept = default;
+    bool operator<(const CompactOutput& output) const noexcept { return m_hash < output.m_hash; }
+    bool operator==(const CompactOutput& output) const noexcept { return m_hash == output.m_hash; }
+
+private:
+    mw::Hash ComputeHash() const noexcept
+    {
+        return Hasher()
+            .Append(m_commitment)
+            .Append(m_senderPubKey)
+            .Append(m_receiverPubKey)
+            .Append(m_message.GetHash())
+            .Append(m_proof_hash)
+            .Append(m_signature)
+            .hash();
+    }
 };
 
 ////////////////////////////////////////
@@ -166,13 +253,13 @@ public:
     const std::vector<uint8_t>& GetExtraData() const noexcept { return m_message.extra_data; }
     uint8_t GetFeatures() const noexcept { return m_message.features; }
     bool HasStandardFields() const noexcept { return m_message.features & OutputMessage::STANDARD_FIELDS_FEATURE_BIT; }
-    const PublicKey& GetKeyExchangePubKey() const noexcept { return m_message.key_exchange_pubkey; }
-    uint8_t GetViewTag() const noexcept { return m_message.view_tag; }
-    uint64_t GetMaskedValue() const noexcept { return m_message.masked_value; }
-    const BigInt<16>& GetMaskedNonce() const noexcept { return m_message.masked_nonce; }
+    const PublicKey& GetKeyExchangePubKey() const noexcept { return m_message.standard_fields->key_exchange_pubkey; }
+    uint8_t GetViewTag() const noexcept { return m_message.standard_fields->view_tag; }
+    uint64_t GetMaskedValue() const noexcept { return m_message.standard_fields->masked_value; }
+    const BigInt<16>& GetMaskedNonce() const noexcept { return m_message.standard_fields->masked_nonce; }
 
     const PublicKey& Ko() const noexcept { return m_receiverPubKey; }
-    const PublicKey& Ke() const noexcept { return m_message.key_exchange_pubkey; }
+    const PublicKey& Ke() const noexcept { return m_message.standard_fields->key_exchange_pubkey; }
 
     SignedMessage BuildSignedMsg() const noexcept;
     ProofData BuildProofData() const noexcept;
@@ -200,10 +287,10 @@ public:
         uni.pushKV("features", static_cast<uint64_t>(m_message.features));
 
         if (m_message.features & OutputMessage::STANDARD_FIELDS_FEATURE_BIT) {
-            uni.pushKV("key_exchange_pk", m_message.key_exchange_pubkey.ToHex());
-            uni.pushKV("view_tag", static_cast<uint64_t>(m_message.view_tag));
-            uni.pushKV("masked_value", static_cast<uint64_t>(m_message.masked_value));
-            uni.pushKV("masked_nonce", m_message.masked_nonce.ToHex());
+            uni.pushKV("key_exchange_pk", m_message.standard_fields->key_exchange_pubkey.ToHex());
+            uni.pushKV("view_tag", static_cast<uint64_t>(m_message.standard_fields->view_tag));
+            uni.pushKV("masked_value", static_cast<uint64_t>(m_message.standard_fields->masked_value));
+            uni.pushKV("masked_nonce", m_message.standard_fields->masked_nonce.ToHex());
         }
 
         if (m_message.features & OutputMessage::EXTRA_DATA_FEATURE_BIT) {

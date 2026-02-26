@@ -21,5 +21,5 @@ Commitment Commitment::Blinded(const BlindingFactor& blind, const uint64_t value
 
 Commitment Commitment::Transparent(const uint64_t value)
 {
-    return Pedersen::CommitTransparent(value);
+    return Pedersen::Commit(value, BigInt<32>());
 }

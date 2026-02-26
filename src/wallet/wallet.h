@@ -548,12 +548,6 @@ public:
     bool SubmitTxMemoryPoolAndRelay(CWalletTx& wtx, std::string& err_string, bool relay) const
         EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
-    bool DummySignTx(CMutableTransaction &txNew, const std::set<CTxOut> &txouts, const CCoinControl* coin_control = nullptr) const
-    {
-        std::vector<CTxOut> v_txouts(txouts.size());
-        std::copy(txouts.begin(), txouts.end(), v_txouts.begin());
-        return DummySignTx(txNew, v_txouts, coin_control);
-    }
     bool DummySignTx(CMutableTransaction &txNew, const std::vector<CTxOut> &txouts, const CCoinControl* coin_control = nullptr) const;
 
     bool ImportScripts(const std::set<CScript> scripts, int64_t timestamp) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
@@ -809,12 +803,12 @@ public:
 
     //! Get all the ScriptPubKeyMans for a script
     std::set<ScriptPubKeyMan*> GetScriptPubKeyMans(const GenericAddress& dest_addr) const;
+
     //! Get the ScriptPubKeyMan by id
     ScriptPubKeyMan* GetScriptPubKeyMan(const uint256& id) const;
 
     //! Get the SigningProvider for a script
     std::unique_ptr<SigningProvider> GetSolvingProvider(const GenericAddress& address) const;
-    std::unique_ptr<SigningProvider> GetSolvingProvider(const GenericAddress& address, SignatureData& sigdata) const;
 
     //! Get the wallet descriptors for a script.
     std::vector<WalletDescriptor> GetWalletDescriptors(const GenericAddress& dest_addr) const;

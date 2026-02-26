@@ -97,18 +97,18 @@ extern const std::unordered_set<std::string> LEGACY_TYPES;
 class CHDChain
 {
 public:
-    uint32_t nExternalChainCounter;
-    uint32_t nInternalChainCounter;
-    uint32_t nMWEBIndexCounter;
+    uint32_t nExternalChainCounter; //!< The index of the next external key to generate.
+    uint32_t nInternalChainCounter; //!< The index of the next internal key to generate.
+    uint32_t nMWEBIndexCounter; //!< The index of the next MWEB key to generate.
     CKeyID seed_id; //!< seed hash160
-    std::optional<SecretKey> mweb_scan_key; // Can be used to identify MWEB outputs belonging to the wallet
-    std::optional<PublicKey> mweb_spend_pubkey; // Can be used to generate new MWEB stealth addresses
-    int64_t m_next_external_index{0}; // Next index in the keypool to be used. Memory only.
-    int64_t m_next_internal_index{0}; // Next index in the keypool to be used. Memory only.
-    int64_t m_next_mweb_index{0}; // Next index in the keypool to be used. Memory only.
+    std::optional<SecretKey> mweb_scan_key{std::nullopt}; // Can be used to identify MWEB outputs belonging to the wallet
+    std::optional<PublicKey> mweb_spend_pubkey{std::nullopt}; // Can be used to generate new MWEB stealth addresses
+    int64_t m_next_external_index{0}; // Next index in the keypool to be used. Memory only. Inactive HD chains only.
+    int64_t m_next_internal_index{0}; // Next index in the keypool to be used. Memory only. Inactive HD chains only.
+    int64_t m_next_mweb_index{0}; // Next index in the keypool to be used. Memory only. Inactive HD chains only.
 
     static const int VERSION_HD_BASE            = 1;
-    static const int VERSION_HD_CHAIN_SPLIT     = 2;
+    static const int VERSION_HD_CHAIN_SPLIT     = 2; // Includes internal chain counter
     static const int VERSION_HD_MWEB            = 3; // Includes MWEB counter
     static const int VERSION_HD_MWEB_WATCH      = 4; // Includes MWEB counter & scan key
     static const int VERSION_HD_MWEB_RECEIVE    = 5; // Includes MWEB counter, scan key, & spend pubkey
@@ -157,11 +157,11 @@ public:
 class CKeyMetadata
 {
 public:
-    static const int VERSION_BASIC=1;
-    static const int VERSION_WITH_HDDATA=10;
-    static const int VERSION_WITH_KEY_ORIGIN = 12;
-    static const int VERSION_WITH_MWEB_INDEX = 14; // MW: TODO - Add new version which converts hdKeypath to new format. Also, gracefully handle migration of mweb_index from CKeyMetadata to KeyOriginInfo
-    static const int CURRENT_VERSION = VERSION_WITH_MWEB_INDEX;
+    static constexpr int VERSION_BASIC = 1;
+    static constexpr int VERSION_WITH_HDDATA = 10;
+    static constexpr int VERSION_WITH_KEY_ORIGIN = 12;
+    static constexpr int VERSION_WITH_MWEB_INDEX = 14; // MW: TODO - Add new version which converts hdKeypath to new format. Also, gracefully handle migration of mweb_index from CKeyMetadata to KeyOriginInfo
+    static constexpr int CURRENT_VERSION = VERSION_WITH_MWEB_INDEX;
     int nVersion;
     int64_t nCreateTime; // 0 means unknown
     std::string hdKeypath; //optional HD/bip32 keypath. Still used to determine whether a key is a seed. Also kept for backwards compatibility

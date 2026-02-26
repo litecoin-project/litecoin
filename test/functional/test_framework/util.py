@@ -575,6 +575,13 @@ def modinv(a, n):
         t1 += n
     return t1
 
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle Decimal types."""
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return float(o)
+        return super().default(o)
+
 class TestFrameworkUtil(unittest.TestCase):
     def test_modinv(self):
         test_vectors = [

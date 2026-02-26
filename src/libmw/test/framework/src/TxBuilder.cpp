@@ -33,7 +33,7 @@ TxBuilder& TxBuilder::AddInput(
     m_stealthOffset.Add(input_key);
 
     Commitment commitment = Commitment::Blinded(blind, amount);
-    m_inputs.push_back(Input::Create(output_id, commitment, input_key, privkey));
+    m_inputs.push_back(mw::Input::Create(output_id, commitment, input_key, privkey));
     m_amount += (int64_t)amount;
     return *this;
 }

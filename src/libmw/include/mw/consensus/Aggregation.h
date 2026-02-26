@@ -20,7 +20,7 @@ public:
             return transactions.front();
         }
 
-        std::vector<Input> inputs;
+        std::vector<mw::Input> inputs;
         std::vector<mw::Output> outputs;
         std::vector<mw::Kernel> kernels;
         std::vector<BlindingFactor> kernel_offsets;

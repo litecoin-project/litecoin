@@ -171,7 +171,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblocktemplate->vchCoinbaseCommitment = m_chainstate.m_chainman.GenerateCoinbaseCommitment(*pblock, pindexPrev);
     pblocktemplate->vTxFees[0] = -nFees;
 
-    LogPrintf("CreateNewBlock(): block weight: %u txs: %u fees: %ld sigops: %d MWEB weight: %u\n", GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost, nBlockMWEBWeight);
+    LogPrintf("CreateNewBlock(): block weight: %ld txs: %lu fees: %ld sigops: %lu MWEB weight: %lu\n", GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost, nBlockMWEBWeight);
 
     // Fill in header
     pblock->hashPrevBlock  = pindexPrev->GetBlockHash();

@@ -124,9 +124,17 @@ class InactiveHDChainsTest(BitcoinTestFramework):
 
         # Encrypting will generate a new HD seed and flush the keypool
         test_wallet.encryptwallet("pass")
+        restarted_after_encrypt = False
+        if not self.nodes[1].version_is_at_least(180000):
+            # Older nodes shut down after encryptwallet, so restart to keep sync_all working.
+            self.nodes[1].wait_until_stopped()
+            self.start_node(1)
+            self.connect_nodes(0, 1)
+            restarted_after_encrypt = True
 
         # Copy test wallet to node 0
-        test_wallet.unloadwallet()
+        if not restarted_after_encrypt:
+            test_wallet.unloadwallet()
         test_wallet_dir = os.path.join(self.nodes[1].datadir, "regtest/wallets/keymeta_test")
         new_test_wallet_dir = os.path.join(self.nodes[0].datadir, "regtest/wallets/keymeta_test")
         shutil.copytree(test_wallet_dir, new_test_wallet_dir)

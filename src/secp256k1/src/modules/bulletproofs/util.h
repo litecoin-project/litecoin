@@ -147,4 +147,87 @@ static void secp256k1_bulletproof_update_commit(unsigned char *commit, const sec
     secp256k1_sha256_finalize(&sha256, commit);
 }
 
+static void print_secp256k1_b32(const unsigned char* buf, const char* label) {
+    int i;
+    if (label != NULL) {
+        printf("%s: ", label);
+    }
+    for (i = 0; i < 32; i++) {
+        printf("%02x", buf[i]);
+    }
+    if (label != NULL) {
+        printf("\n");
+    }
+}
+
+static void print_secp256k1_scalar(const secp256k1_scalar *sc, const char* label) {
+    unsigned char buf[32];
+    secp256k1_scalar_get_b32(buf, sc);
+    print_secp256k1_b32(buf, label);
+}
+
+static void print_secp256k1_scalar_array(const secp256k1_scalar *sc, size_t n, const char* label) {
+    size_t i;
+    if (label != NULL) {
+        printf("%s: ", label);
+    }
+    for (i = 0; i < n; i++) {
+        print_secp256k1_scalar(&sc[i], NULL);
+        if (i < n - 1) {
+            printf(",");
+        }
+    }
+    if (label != NULL) {
+        printf("\n");
+    }
+}
+
+static void print_secp256k1_ge(const secp256k1_ge *ge, const char* label) {
+    int i;
+    unsigned char buf[32];
+    if (label != NULL) {
+        printf("%s: ", label);
+    }
+
+    secp256k1_fe_get_b32(buf, &ge->x);
+    printf("(x: ");
+    for (i = 0; i < 32; i++) {
+        printf("%02x", buf[i]);
+    }
+    printf(", y: ");
+    secp256k1_fe_get_b32(buf, &ge->y);
+    for (i = 0; i < 32; i++) {
+        printf("%02x", buf[i]);
+    }
+    printf(")");
+
+    if (label != NULL) {
+        printf("\n");
+    }
+}
+
+static void print_secp256k1_ge_array(const secp256k1_ge *ge, size_t n, const char* label) {
+    size_t i;
+    if (label != NULL) {
+        printf("%s: ", label);
+    }
+    for (i = 0; i < n; i++) {
+        print_secp256k1_ge(&ge[i], NULL);
+        if (i < n - 1) {
+            printf(",");
+        } else {
+            printf("\n");
+        }
+    }
+    if (label != NULL) {
+        printf("\n\n");
+    }
+}
+
+static void print_secp256k1_gej(const secp256k1_gej* gej, const char* label) {
+    secp256k1_ge ge;
+    secp256k1_ge_set_gej(&ge, gej);
+    print_secp256k1_ge(&ge, label);
+}
+
 #endif

@@ -82,6 +82,34 @@ void LeafSet::Cleanup(const uint32_t current_file_index) const
     }
 }
 
+void LeafSet::ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const
+{
+    out.assign(numBytes, 0);
+    if (numBytes == 0) {
+        return;
+    }
+
+    const uint64_t start = byteIdx + 8;
+    const uint64_t map_size = static_cast<uint64_t>(m_mmap.size());
+    if (start < map_size) {
+        const uint64_t available = map_size - start;
+        const uint64_t to_read = available < numBytes ? available : numBytes;
+        std::vector<uint8_t> base = m_mmap.Read(static_cast<size_t>(start), static_cast<size_t>(to_read));
+        for (size_t i = 0; i < base.size(); i++) {
+            out[i] = base[i];
+        }
+    }
+
+    if (!m_modifiedBytes.empty()) {
+        const uint64_t end = start + numBytes;
+        for (const auto& entry : m_modifiedBytes) {
+            if (entry.first >= start && entry.first < end) {
+                out[static_cast<size_t>(entry.first - start)] = entry.second;
+            }
+        }
+    }
+}
+
 uint8_t LeafSet::GetByte(const uint64_t byteIdx) const
 {
     // Offset by 8 bytes, since first 8 bytes in file represent the next leaf index

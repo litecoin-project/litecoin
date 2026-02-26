@@ -4,6 +4,7 @@
 #include <mw/crypto/Pedersen.h>
 #include <mw/models/crypto/BlindingFactor.h>
 #include <mw/models/crypto/SecretKey.h>
+#include <crypto/common.h>
 
 class OutputMask
 {
@@ -12,7 +13,7 @@ public:
     OutputMask(OutputMask&&) noexcept = default;
 
     //
-    // Feeds the shared secret 't' into tagged hash functions to derive:
+    // Feeds the shared secret 'e' into tagged hash functions to derive:
     //  q - the blinding factor
     //  v' - the value mask
     //  n' - the nonce mask
@@ -21,7 +22,8 @@ public:
     {
         OutputMask mask;
         mask.pre_blind = Hashed(EHashTag::BLIND, shared_secret);
-        mask.value_mask = *((uint64_t*)Hashed(EHashTag::VALUE_MASK, shared_secret).data());
+        const mw::Hash value_mask_hash = Hashed(EHashTag::VALUE_MASK, shared_secret);
+        mask.value_mask = ReadLE64(value_mask_hash.data());
         mask.nonce_mask = BigInt<16>(Hashed(EHashTag::NONCE_MASK, shared_secret).data());
         return mask;
     }

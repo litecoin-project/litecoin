@@ -10,6 +10,7 @@
 #include <mw/models/tx/Output.h>
 #include <mw/models/wallet/StealthAddress.h>
 
+#include <crypto/common.h>
 #include <test_framework/Deserializer.h>
 #include <test_framework/TestMWEB.h>
 
@@ -69,6 +70,12 @@ BOOST_AUTO_TEST_CASE(Create)
     // Getters
     BOOST_REQUIRE(output.GetCommitment() == expected_commit);
 
+    // MW: TODO - This is what we used for figuring out the keychain, but now we need actual tests that use it
+    // Include tests with:
+    // 1. Spend private key
+    // 2. Spend pubkey only
+    // 3. No spend key
+
     //
     // Test Restoring Output
     //
@@ -81,7 +88,8 @@ BOOST_AUTO_TEST_CASE(Create)
         BOOST_REQUIRE(receiver_subaddr.B() == output.Ko().Div(Hashed(EHashTag::OUT_KEY, t)));
 
         SecretKey r = Hashed(EHashTag::BLIND, t);
-        uint64_t value = output.GetMaskedValue() ^ *((uint64_t*)Hashed(EHashTag::VALUE_MASK, t).data());
+        const mw::Hash value_mask_hash = Hashed(EHashTag::VALUE_MASK, t);
+        uint64_t value = output.GetMaskedValue() ^ ReadLE64(value_mask_hash.data());
         BigInt<16> n = output.GetMaskedNonce() ^ BigInt<16>(Hashed(EHashTag::NONCE_MASK, t).data());
 
         BOOST_REQUIRE(Commitment::Switch(r, value) == output.GetCommitment());

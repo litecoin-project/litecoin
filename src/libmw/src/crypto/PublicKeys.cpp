@@ -7,7 +7,7 @@
 
 static Locked<Context> PUBKEY_CONTEXT(std::make_shared<Context>());
 
-PublicKey PublicKeys::Calculate(const BigInt<32>& privateKey)
+PublicKey PublicKeys::Calculate(const SecretKey& privateKey)
 {
     const int verifyResult = secp256k1_ec_seckey_verify(PUBKEY_CONTEXT.Read()->Get(), privateKey.data());
     if (verifyResult != 1) {

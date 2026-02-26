@@ -77,7 +77,7 @@ def read_dump(file_name, addrs, script_addrs, hd_master_addr_old):
                             found_p2sh_segwit_addr += 1
                         elif addr.startswith('rltc1'):
                             found_bech32_addr += 1
-                        elif addr.startswith('tmweb'):
+                        elif addr.startswith('rmweb'):
                             found_mweb_addr += 1
                         break
                     elif keytype == "change=1":

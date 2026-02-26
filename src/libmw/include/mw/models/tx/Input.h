@@ -14,6 +14,8 @@
 
 #include <optional>
 
+MW_NAMESPACE
+
 ////////////////////////////////////////
 // INPUT
 ////////////////////////////////////////
@@ -132,10 +134,12 @@ private:
     mw::Hash m_hash;
 };
 
+END_NAMESPACE
+
 // Sorts by output ID (hash)
 struct InputSort
 {
-    bool operator()(const Input& a, const Input& b) const
+    bool operator()(const mw::Input& a, const mw::Input& b) const
     {
         return a.GetOutputID() < b.GetOutputID();
     }

@@ -1,0 +1,16 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "name": "litecoin24",
+  "version": "1.0.0",
+  "dependencies": [
+    "fmt",
+    "catch2",
+    "leveldb",
+    "boost-multi-index",
+    "boost-dynamic-bitset",
+    "boost-signals2",
+    "boost-test",
+    "sqlite3"
+  ],
+  "builtin-baseline": "0fa8459cf3a7caca7adc58f992bc32ff13630684"
+}

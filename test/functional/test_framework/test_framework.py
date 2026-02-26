@@ -989,7 +989,7 @@ class LitecoinTestFramework(BitcoinTestFramework):
         options = {}
         options["add_to_wallet"] = True
         options['change_address'] = generate_addr
-        tx = node.send(outputs=outputs, options=options)
+        _tx = node.send(outputs=outputs, options=options)
 
         # Create some blocks - activate MWEB
         self.generatetoaddress(node, nblocks=1, address=generate_addr, sync_fun=self.no_op)

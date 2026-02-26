@@ -45,7 +45,7 @@ private:
     Blinds m_kernelOffset;
     Blinds m_stealthOffset;
 
-    std::vector<Input> m_inputs;
+    std::vector<mw::Input> m_inputs;
     std::vector<TxOutput> m_outputs;
     std::vector<mw::Kernel> m_kernels;
 };

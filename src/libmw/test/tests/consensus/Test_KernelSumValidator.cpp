@@ -5,6 +5,7 @@
 #include <mw/consensus/KernelSumValidator.h>
 #include <mw/consensus/Aggregation.h>
 #include <mw/crypto/Pedersen.h>
+#include <mw/exceptions/CryptoException.h>
 #include <mw/node/CoinsView.h>
 
 #include <test_framework/TestMWEB.h>
@@ -108,7 +109,7 @@ BOOST_AUTO_TEST_CASE(ValidateForBlock)
 //
 BOOST_AUTO_TEST_CASE(ValidateForBlockWithoutBuilder)
 {
-    std::vector<Input> inputs;
+    std::vector<mw::Input> inputs;
     std::vector<mw::Output> outputs;
     std::vector<mw::Kernel> kernels;
 
@@ -200,6 +201,31 @@ BOOST_AUTO_TEST_CASE(ValidateForTx)
     // Aggregate all 3
     mw::Transaction::CPtr pAggregated = Aggregation::Aggregate({ tx1, tx2, tx3 });
     KernelSumValidator::ValidateForTx(*pAggregated);
+}
+
+BOOST_AUTO_TEST_CASE(ValidateForTx_AllowsPointAtInfinity)
+{
+    mw::Output output = mw::Output::Create(nullptr, SecretKey::Random(), StealthAddress::Random(), 100);
+    mw::Input input = mw::Input::Create(
+        SecretKey::Random().GetBigInt(),
+        output.GetCommitment(),
+        SecretKey::Random(),
+        SecretKey::Random()
+    );
+
+    mw::Transaction::CPtr tx = mw::Transaction::Create(
+        BlindingFactor{},
+        BlindingFactor{},
+        { input },
+        { output },
+        {}
+    );
+
+    BOOST_REQUIRE_NO_THROW(KernelSumValidator::ValidateForTx(*tx));
+    BOOST_REQUIRE_THROW(
+        KernelSumValidator::ValidateForBlock(tx->GetBody(), BlindingFactor{}, BlindingFactor{}),
+        CryptoException
+    );
 }
 
 BOOST_AUTO_TEST_SUITE_END()

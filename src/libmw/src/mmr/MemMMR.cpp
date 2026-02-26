@@ -25,7 +25,7 @@ Leaf MemMMR::GetLeaf(const LeafIndex& leafIdx) const
     return m_leaves[leafIdx.Get()];
 }
 
-mw::Hash MemMMR::GetHash(const Index& idx) const
+mw::Hash MemMMR::GetHash(const Index& idx) const noexcept
 {
     assert(idx.GetPosition() < m_hashes.size());
     return m_hashes[idx.GetPosition()];

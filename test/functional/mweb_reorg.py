@@ -8,10 +8,8 @@ Test re-org scenarios with a mempool that contains transactions
 that create or spend (directly or indirectly) MWEB outputs.
 """
 
-import json
-
 from test_framework.test_framework import LitecoinTestFramework
-from test_framework.util import assert_equal, assert_raises_rpc_error
+from test_framework.util import assert_equal
 
 class MWEBReorgTest(LitecoinTestFramework):
     def set_test_params(self):

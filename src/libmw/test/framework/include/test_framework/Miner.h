@@ -100,12 +100,12 @@ private:
         return pOutputMMR;
     }
 
-    TestLeafSet::Ptr GetLeafSet(const std::vector<Input>& additionalInputs = {}, const std::vector<mw::Output>& additionalOutputs = {})
+    TestLeafSet::Ptr GetLeafSet(const std::vector<mw::Input>& additionalInputs = {}, const std::vector<mw::Output>& additionalOutputs = {})
     {
         std::vector<TestLeafSet::BlockInfo> blockInfos;
         for (const MinedBlock& block : m_blocks) {
             TestLeafSet::BlockInfo blockInfo;
-            for (const Input& input : block.GetBlock()->GetInputs()) {
+            for (const mw::Input& input : block.GetBlock()->GetInputs()) {
                 blockInfo.inputs.push_back(input.GetCommitment());
             }
 
@@ -117,7 +117,7 @@ private:
         }
 
         TestLeafSet::BlockInfo blockInfo;
-        for (const Input& input : additionalInputs) {
+        for (const mw::Input& input : additionalInputs) {
             blockInfo.inputs.push_back(input.GetCommitment());
         }
 

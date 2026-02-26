@@ -10,7 +10,6 @@ class ConversionUtil
 public:
     static PublicKey ToPublicKey(const Commitment& commitment);
     static PublicKey ToPublicKey(const secp256k1_pubkey& pubkey);
-    static Commitment ToCommitment(const secp256k1_pedersen_commitment& commitment);
     static CompactSignature ToCompact(const Signature& signature);
     static CompactSignature ToCompact(const secp256k1_ecdsa_signature& signature);
 

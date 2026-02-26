@@ -16,13 +16,17 @@ public:
     // Constructor
     //
     secret_key_t() = default;
-    secret_key_t(BigInt<NUM_BYTES>&& value) : m_value(std::move(value)) { }
+    secret_key_t(BigInt<NUM_BYTES>&& value) : m_value(std::move(value)) {}
+    secret_key_t(const BigInt<NUM_BYTES>& value) : m_value(value) {}
     secret_key_t(std::vector<uint8_t>&& bytes) : m_value(BigInt<NUM_BYTES>(std::move(bytes))) { }
     secret_key_t(const std::array<uint8_t, NUM_BYTES>& bytes) : m_value(BigInt<NUM_BYTES>(bytes)) {}
     secret_key_t(std::array<uint8_t, NUM_BYTES>&& bytes) : m_value(BigInt<NUM_BYTES>(std::move(bytes))) { }
     secret_key_t(const uint8_t* bytes) : m_value(BigInt<NUM_BYTES>(bytes)) { }
+    secret_key_t(const secret_key_t& other) = default;
+    secret_key_t(secret_key_t&& other) noexcept = default;
 
     static secret_key_t Null() { return secret_key_t<NUM_BYTES>(); }
+    static secret_key_t FromHex(const std::string& hex) { return secret_key_t<NUM_BYTES>(BigInt<NUM_BYTES>::FromHex(hex)); }
 
     static secret_key_t Random()
     {
@@ -45,6 +49,9 @@ public:
     //
     // Operators
     //
+    secret_key_t<NUM_BYTES>& operator=(const secret_key_t<NUM_BYTES>& other) = default;
+    secret_key_t<NUM_BYTES>& operator=(secret_key_t<NUM_BYTES>&& other) noexcept = default;
+    bool operator<(const secret_key_t<NUM_BYTES>& rhs) const noexcept { return m_value < rhs.m_value; }
     bool operator==(const secret_key_t<NUM_BYTES>& rhs) const noexcept { return m_value == rhs.m_value; }
     bool operator!=(const secret_key_t<NUM_BYTES>& rhs) const noexcept { return m_value != rhs.m_value; }
 
@@ -75,4 +82,5 @@ private:
 };
 
 using SecretKey = secret_key_t<32>;
+using BlindingFactor = secret_key_t<32>;
 using SecretKey64 = secret_key_t<64>;

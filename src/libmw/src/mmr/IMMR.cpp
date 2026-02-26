@@ -1,6 +1,5 @@
 #include <mw/mmr/MMR.h>
 #include <mw/mmr/MMRUtil.h>
-#include <mw/util/BitUtil.h>
 
 using namespace mmr;
 

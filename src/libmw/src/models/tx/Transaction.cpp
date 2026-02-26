@@ -7,7 +7,7 @@ MW_NAMESPACE
 Transaction::CPtr Transaction::Create(
     BlindingFactor kernel_offset,
     BlindingFactor stealth_offset,
-    std::vector<Input> inputs,
+    std::vector<mw::Input> inputs,
     std::vector<mw::Output> outputs,
     std::vector<mw::Kernel> kernels)
 {
@@ -28,7 +28,7 @@ Transaction::CPtr Transaction::Create(
 
 bool Transaction::IsStandard() const noexcept
 {
-    for (const Input& input : GetInputs()) {
+    for (const mw::Input& input : GetInputs()) {
         if (!input.IsStandard()) {
             return false;
         }

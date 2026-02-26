@@ -59,12 +59,14 @@
 #include <warnings.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <deque>
 #include <numeric>
 #include <optional>
 #include <string>
+#include <thread>
 
 using kernel::CCoinsStats;
 using kernel::CoinStatsHashType;
@@ -428,10 +430,67 @@ static bool CheckInputsFromMempoolAndCache(const CTransaction& tx, TxValidationS
 
 namespace {
 
+// MWEB coins views don't follow the same caching conventions as the base coins views.
+// There are cases where coins are pulled into a cache and then the backend is replaced on the view
+// with a dummy that prevents further caching of coins. This pattern doesn't work for MWEB, which requires
+// continually having access to the backend. This class wraps an MWEB coins view to be used in such cases,
+// where no new non-MWEB coins are retrieved from a coins view, but MWEB coins are still accessible.
+class CCoinsViewMWEBMemPoolOnly final : public CCoinsView
+{
+public:
+    CCoinsViewMWEBMemPoolOnly(mw::ICoinsView::Ptr mweb_view, const CTxMemPool& mempool)
+        : m_mweb_view(std::move(mweb_view)), m_mempool(mempool) {}
+
+    bool GetCoin(const COutPoint&, Coin&) const override { return false; }
+
+    bool HaveCoin(const GenericOutputID& output_id) const override
+    {
+        if (!output_id.IsMWEB()) return false;
+
+        if (m_mempool.mapNextTx.find(output_id) != m_mempool.mapNextTx.end()) {
+            return false;
+        }
+
+        auto iter = m_mempool.mapTxOutputs_MWEB.find(output_id.ToMWEB());
+        if (iter != m_mempool.mapTxOutputs_MWEB.end()) {
+            return true;
+        }
+
+        return m_mweb_view && m_mweb_view->HasCoin(output_id.ToMWEB());
+    }
+
+    mw::ICoinsView::Ptr GetMWEBView() const override { return m_mweb_view; }
+
+    bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const override
+    {
+        if (m_mempool.mapNextTx.find(output_id) != m_mempool.mapNextTx.end()) {
+            return false;
+        }
+
+        auto iter = m_mempool.mapTxOutputs_MWEB.find(output_id);
+        if (iter != m_mempool.mapTxOutputs_MWEB.end()) {
+            mw::Output output;
+            if (iter->second->mweb_tx.GetOutput(output_id, output)) {
+                coin = std::make_shared<mw::UTXO>(mw::UTXO::ForMempool(std::move(output)));
+                return true;
+            }
+            return false;
+        }
+
+        if (!m_mweb_view) return false;
+        coin = m_mweb_view->GetUTXO(output_id);
+        return coin != nullptr;
+    }
+
+private:
+    mw::ICoinsView::Ptr m_mweb_view;
+    const CTxMemPool& m_mempool;
+};
+
 class MemPoolAccept
 {
 public:
-    explicit MemPoolAccept(CTxMemPool& mempool, Chainstate& active_chainstate) : m_pool(mempool), m_view(&m_dummy), m_viewmempool(&active_chainstate.CoinsTip(), m_pool), m_active_chainstate(active_chainstate),
+    explicit MemPoolAccept(CTxMemPool& mempool, Chainstate& active_chainstate) : m_pool(mempool), m_dummy(active_chainstate.CoinsTip().GetMWEBView(), mempool), m_view(&m_dummy), m_viewmempool(&active_chainstate.CoinsTip(), m_pool), m_active_chainstate(active_chainstate),
         m_limit_ancestors(m_pool.m_limits.ancestor_count),
         m_limit_ancestor_size(m_pool.m_limits.ancestor_size_vbytes),
         m_limit_descendants(m_pool.m_limits.descendant_count),
@@ -663,7 +722,7 @@ private:
 
 private:
     CTxMemPool& m_pool;
-    CCoinsView m_dummy;
+    CCoinsViewMWEBMemPoolOnly m_dummy;
     CCoinsViewCache m_view;
     CCoinsViewMemPool m_viewmempool;
 
@@ -814,7 +873,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // we have all inputs cached now, so switch back to dummy (to protect
     // against bugs where we pull more inputs from disk that miss being added
     // to coins_to_uncache)
-    // MW: TODO - m_view.SetBackend(m_dummy);
+    m_view.SetBackend(m_dummy);
 
     assert(m_active_chainstate.m_blockman.LookupBlockIndex(m_view.GetBestBlock()) == m_active_chainstate.m_chain.Tip());
 
@@ -1561,18 +1620,12 @@ void Chainstate::InitCoinsDB(
     m_coins_views = std::make_unique<CoinsViews>(
         leveldb_name, cache_size_bytes, in_memory, should_wipe);
 
-    CBlock block;
-    CBlockIndex* pindex = m_chainman.m_blockman.LookupBlockIndex(CoinsDB().GetBestBlock());
-    if (pindex != nullptr) {
-        if (!ReadBlockFromDisk(block, pindex, Params().GetConsensus())) {
-            // MW: TODO - Throw? return error("AppInitMain(): ReadBlockFromDisk() failed at %d, hash=%s", pindex->nHeight, pindex->GetBlockHash().ToString());
-        }
-    }
-
     // MWEB: Initialize MWEB node APIs
+    CBlockIndex* pindex = m_chainman.m_blockman.LookupBlockIndex(CoinsDB().GetBestBlock());
+
     mw::CoinsViewDB::Ptr mweb_dbview = mw::CoinsViewDB::Open(
         FilePath{gArgs.GetDataDirNet()},
-        block.mweb_block.GetMWEBHeader(),
+        pindex == nullptr ? nullptr : pindex->mweb_header,
         std::make_shared<MWEB::DBWrapper>(CoinsDB().GetDB())
     );
     CoinsDB().SetMWEBView(mweb_dbview);
@@ -1702,7 +1755,11 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
     AddCoins(inputs, tx, nHeight);
 
     if (!tx.mweb_tx.IsNull()) {
-        inputs.GetMWEBCacheView()->AddTx(tx.mweb_tx.m_transaction);
+        // mweb_tx is only non-null for transactions outside of a block (e.g. mempool), so we don't need to update txundo.
+        for (const mw::Input& input : tx.mweb_tx.m_transaction->GetInputs()) {
+            mw::UTXO::CPtr spent_utxo = inputs.GetMWEBCacheView()->SpendUTXO(input.GetOutputID()); // MWEB: TODO - SpendUTXO should be made noexcept, and return a nullptr when it fails.
+            assert(spent_utxo != nullptr);
+        }
     }
 }
 
@@ -2330,18 +2387,19 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
         LogPrintf("ERROR: %s: CheckQueue failed\n", __func__);
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "block-validation-failed");
     }
-    int64_t nTime4 = GetTimeMicros(); nTimeVerify += nTime4 - nTime2;
-    LogPrint(BCLog::BENCH, "    - Verify %u txins: %.2fms (%.3fms/txin) [%.2fs (%.2fms/blk)]\n", nInputs - 1, MILLI * (nTime4 - nTime2), nInputs <= 1 ? 0 : MILLI * (nTime4 - nTime2) / (nInputs-1), nTimeVerify * MICRO, nTimeVerify * MILLI / nBlocksTotal);
 
     // MWEB: Check activation
     if (!MWEB::Node::ConnectBlock(block, m_chainman.GetParams().GetConsensus(), m_chainman, pindex->pprev, blockundo, *view.GetMWEBCacheView(), state)) {
         return false;
     }
 
+    int64_t nTime4 = GetTimeMicros(); nTimeVerify += nTime4 - nTime2;
+    LogPrint(BCLog::BENCH, "    - Verify %u txins: %.2fms (%.3fms/txin) [%.2fs (%.2fms/blk)]\n", nInputs - 1, MILLI * (nTime4 - nTime2), nInputs <= 1 ? 0 : MILLI * (nTime4 - nTime2) / (nInputs-1), nTimeVerify * MICRO, nTimeVerify * MILLI / nBlocksTotal);
+
     if (fJustCheck)
         return true;
 
-    // MWEB: Update BlockIndex
+    // MWEB: Update BlockIndex // MWEB: TODO - Move to blockstorage
     if (!block.mweb_block.IsNull()) {
         auto pHogEx = block.GetHogEx();
         if ((pindex->nStatus & BLOCK_HAVE_MWEB) == 0) {
@@ -3198,7 +3256,7 @@ bool Chainstate::ActivateArbitraryChain(BlockValidationState& state, CBlockIndex
             return error("ActivateArbitraryChain(): Failed to read block %s", pindexConnect->GetBlockHash().ToString());
         }
 
-        if (!ConnectBlock(block, state, pindexConnect, view, true)) {
+        if (!ConnectBlock(block, state, pindexConnect, view, true)) { // MW: TODO - Do we really want fJustCheck to be true?
             return error("ActivateArbitraryChain(): ConnectBlock %s failed", pindexConnect->GetBlockHash().ToString());
         }
     }
@@ -3575,8 +3633,42 @@ std::vector<unsigned char> ChainstateManager::GenerateCoinbaseCommitment(CBlock&
 
 bool HasValidProofOfWork(const std::vector<CBlockHeader>& headers, const Consensus::Params& consensusParams)
 {
-    return std::all_of(headers.cbegin(), headers.cend(),
-            [&](const auto& header) { return CheckProofOfWork(header.GetPoWHash(), header.nBits, consensusParams);});
+    if (headers.empty()) return true;
+
+    // MW: TODO - Use a thread pool and calculate thread count similar to the way "-par" is handled in init.cpp
+    const unsigned int hc = GetNumCores();
+    const size_t desired_threads = std::max<size_t>(1, hc > 0 ? hc - 1 : 0);
+    const size_t nthreads = std::min<size_t>(desired_threads, headers.size());
+
+    if (nthreads == 1) {
+        return std::all_of(headers.cbegin(), headers.cend(),
+            [&](const auto& header) { return CheckProofOfWork(header.GetPoWHash(), header.nBits, consensusParams); });
+    }
+
+    std::atomic<bool> ok{true};
+    const size_t total = headers.size();
+    const size_t chunk = (total + nthreads - 1) / nthreads;
+
+    auto worker = [&](size_t start) {
+        const size_t end = std::min(start + chunk, total);
+        for (size_t i = start; i < end && ok.load(std::memory_order_relaxed); ++i) {
+            const auto& header = headers[i];
+            if (!CheckProofOfWork(header.GetPoWHash(), header.nBits, consensusParams)) {
+                ok.store(false, std::memory_order_relaxed);
+                break;
+            }
+        }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(nthreads - 1);
+    for (size_t t = 1; t < nthreads; ++t) {
+        threads.emplace_back(worker, t * chunk);
+    }
+    worker(0);
+    for (auto& thread : threads) thread.join();
+
+    return ok.load(std::memory_order_relaxed);
 }
 
 arith_uint256 CalculateHeadersWork(const std::vector<CBlockHeader>& headers)
@@ -4237,7 +4329,6 @@ bool Chainstate::RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& in
         return error("ReplayBlock(): ReadBlockFromDisk failed at %d, hash=%s", pindex->nHeight, pindex->GetBlockHash().ToString());
     }
 
-    // MW: TODO - Support rolling forward MWEB blocks
     for (const CTransactionRef& tx : block.vtx) {
         if (!tx->IsCoinBase()) {
             for (const CTxIn &txin : tx->vin) {
@@ -4247,6 +4338,23 @@ bool Chainstate::RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& in
         // Pass check = true as every addition may be an overwrite.
         AddCoins(inputs, *tx, pindex->nHeight, true);
     }
+
+    if (!block.mweb_block.IsNull()) {
+        // add outputs
+        for (const mw::Output& output : block.mweb_block.m_block->GetOutputs()) {
+            if (inputs.HaveCoin(output.GetOutputID())) {
+                // MWEB: TODO - How should we handle overwrites?
+            } else {
+                inputs.GetMWEBCacheView()->AddUTXO(pindex->nHeight, output);
+            }
+        }
+
+        // mweb_tx is only non-null for transactions outside of a block (e.g. mempool), so we don't need to update txundo.
+        for (const mw::Input& input : block.mweb_block.m_block->GetInputs()) {
+            inputs.GetMWEBCacheView()->SpendUTXO(input.GetOutputID()); // MWEB: TODO - SpendUTXO should be made noexcept, and return a nullptr when it fails.
+        }
+    }
+
     return true;
 }
 

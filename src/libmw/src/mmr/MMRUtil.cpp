@@ -17,7 +17,7 @@ mw::Hash MMRUtil::CalcParentHash(const Index& index, const mw::Hash& left_hash, 
         .hash();
 }
 
-std::vector<mmr::Index> MMRUtil::CalcPeakIndices(const uint64_t num_nodes)
+std::vector<mmr::Index> MMRUtil::CalcPeakIndices(const uint64_t num_nodes) noexcept
 {
     if (num_nodes == 0) {
         return {};

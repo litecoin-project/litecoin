@@ -504,7 +504,7 @@ static int secp256k1_bulletproof_rangeproof_prove_impl(
         secp256k1_sha256_finalize(&sha256, commit);
     }
     for (i = 0; i < n_commits; i++) {
-        secp256k1_bulletproof_update_commit(commit, &commitp[i], value_gen); /* TODO be less stupid about this */
+        secp256k1_bulletproof_update_commit(commit, &commitp[i], value_gen);
     }
     if (extra_commit != NULL) {
         secp256k1_sha256_initialize(&sha256);
@@ -581,7 +581,7 @@ static int secp256k1_bulletproof_rangeproof_prove_impl(
     if (overflow || secp256k1_scalar_is_zero(&y)) {
         return 0;
     }
-    secp256k1_bulletproof_update_commit(commit, &out_pt[0], &out_pt[1]); /* TODO rehashing A and S to get a second challenge is overkill */
+    secp256k1_bulletproof_update_commit(commit, &out_pt[0], &out_pt[1]);
     secp256k1_scalar_set_b32(&z, commit, &overflow);
     if (overflow || secp256k1_scalar_is_zero(&z)) {
         return 0;
@@ -651,7 +651,7 @@ static int secp256k1_bulletproof_rangeproof_prove_impl(
 
     secp256k1_ecmult_const(&tmpj, value_gen, &t2, 256);
     if (tge == NULL) {
-        /* Normal bulletproof: T1=t1*A + tau1*G */
+        /* Normal bulletproof: T2=t2*A + tau2*G */
         secp256k1_ge_set_gej(&out_pt[3], &tmpj);
         secp256k1_ecmult_const(&tmpj, &gens->blinding_gen[0], &tau2, 256);
         secp256k1_gej_add_ge(&tmpj, &tmpj, &out_pt[3]);
@@ -725,7 +725,7 @@ static int secp256k1_bulletproof_rangeproof_prove_impl(
     return 1;
 }
 
-static int secp256k1_bulletproof_rangeproof_rewind_impl(uint64_t *value, secp256k1_scalar *blind, const unsigned char *proof, const size_t plen, uint64_t min_value, const secp256k1_pedersen_commitment *pcommit, const secp256k1_generator *value_gen, const unsigned char *nonce, const unsigned char *extra_commit, size_t extra_commit_len, unsigned char *message) {
+static int secp256k1_bulletproof_rangeproof_rewind_impl(unsigned char* shared_msg, size_t* shared_msg_len, unsigned char* private_msg, size_t* private_msg_len, const unsigned char *proof, const size_t plen, uint64_t min_value, const secp256k1_pedersen_commitment *pcommit, const secp256k1_generator *value_gen, const unsigned char* shared_nonce, const unsigned char* private_nonce, const unsigned char *extra_commit, size_t extra_commit_len) {
     secp256k1_sha256 sha256;
     static const unsigned char zero4[4] = { 0 };
     unsigned char commit[32] = { 0 };
@@ -734,7 +734,7 @@ static int secp256k1_bulletproof_rangeproof_rewind_impl(uint64_t *value, secp256
     secp256k1_scalar alpha, rho, tau1, tau2;
     secp256k1_scalar x, z;
     secp256k1_ge commitp, value_genp;
-    int overflow, i;
+    int overflow;
 
     if (plen < 64 + 128 + 1 || plen > SECP256K1_BULLETPROOF_MAX_PROOF) {
         return 0;
@@ -749,9 +749,6 @@ static int secp256k1_bulletproof_rangeproof_rewind_impl(uint64_t *value, secp256
     if (overflow || secp256k1_scalar_is_zero(&mu)) {
         return 0;
     }
-
-    secp256k1_scalar_chacha20(&alpha, &rho, nonce, 0);
-    secp256k1_scalar_chacha20(&tau1, &tau2, nonce, 1);
 
     if (min_value > 0) {
         unsigned char vbuf[8];
@@ -816,38 +813,48 @@ static int secp256k1_bulletproof_rangeproof_rewind_impl(uint64_t *value, secp256
         return 0;
     }
 
-    /* Compute candidate mu and add to (negated) mu from proof to get value */
-    secp256k1_scalar_mul(&rho, &rho, &x);
-    secp256k1_scalar_add(&mu, &mu, &rho);
-    secp256k1_scalar_add(&mu, &mu, &alpha);
+    if (private_nonce != NULL) {
+        secp256k1_scalar_chacha20(&tau1, &tau2, private_nonce, 1);
 
-    secp256k1_scalar_get_b32(commit, &mu);
-    if (memcmp(commit, zero4, 4) != 0) {
-        return 0;
-    }
-    *value = commit[31] + ((uint64_t) commit[30] << 8) +
-             ((uint64_t) commit[29] << 16) + ((uint64_t) commit[28] << 24) +
-             ((uint64_t) commit[27] << 32) + ((uint64_t) commit[26] << 40) +
-             ((uint64_t) commit[25] << 48) + ((uint64_t) commit[24] << 56);
+        /* // MW: TODO - Unwind the private message instead, not the blinding factor*/
+        /* Derive blinding factor */
+        secp256k1_scalar_mul(&tau1, &tau1, &x);
+        secp256k1_scalar_mul(&tau2, &tau2, &x);
+        secp256k1_scalar_mul(&tau2, &tau2, &x);
 
-    if (message != NULL) {
-        for (i=23; i >= 4; i--) {
-            message[i-4] = commit[i];
+        secp256k1_scalar_add(&taux, &taux, &tau1);
+        secp256k1_scalar_add(&taux, &taux, &tau2);
+
+        secp256k1_scalar_sqr(&z, &z);
+        secp256k1_scalar_inverse_var(&z, &z);
+        secp256k1_scalar_mul(&taux, &taux, &z);
+        secp256k1_scalar_negate(&taux, &taux);
+
+        secp256k1_scalar_get_b32(commit, &taux);
+        if (memcmp(commit, zero4, 4) != 0) {
+            return 0;
+        }
+
+        if (private_msg != NULL) {
+            *private_msg_len = *private_msg_len > 28 ? 28 : *private_msg_len;
+            memcpy(private_msg, &commit[4], *private_msg_len);
         }
     }
 
-    /* Derive blinding factor */
-    secp256k1_scalar_mul(&tau1, &tau1, &x);
-    secp256k1_scalar_mul(&tau2, &tau2, &x);
-    secp256k1_scalar_mul(&tau2, &tau2, &x);
+    if (shared_nonce != NULL) {
+        secp256k1_scalar_chacha20(&alpha, &rho, shared_nonce, 0);
 
-    secp256k1_scalar_add(&taux, &taux, &tau1);
-    secp256k1_scalar_add(&taux, &taux, &tau2);
+        /* Compute candidate mu and add to (negated) mu from proof to get value */
+        secp256k1_scalar_mul(&rho, &rho, &x);
+        secp256k1_scalar_add(&mu, &mu, &rho);
+        secp256k1_scalar_add(&mu, &mu, &alpha);
 
-    secp256k1_scalar_sqr(&z, &z);
-    secp256k1_scalar_inverse_var(&z, &z);
-    secp256k1_scalar_mul(blind, &taux, &z);
-    secp256k1_scalar_negate(blind, blind);
+        secp256k1_scalar_get_b32(commit, &mu);
+        if (shared_msg != NULL) {
+            *shared_msg_len = *shared_msg_len > 32 ? 32 : *shared_msg_len;
+            memcpy(shared_msg, commit, *shared_msg_len);
+        }
+    }
 
     return 1;
 }

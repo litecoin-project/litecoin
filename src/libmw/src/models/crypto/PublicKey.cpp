@@ -4,7 +4,7 @@
 
 PublicKey PublicKey::From(const SecretKey& key)
 {
-    return PublicKeys::Calculate(key.GetBigInt());
+    return PublicKeys::Calculate(key);
 }
 
 PublicKey PublicKey::From(const Commitment& commitment)

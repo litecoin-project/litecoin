@@ -5,13 +5,18 @@
 
 using namespace MWEB;
 
-bool Wallet::UpgradeCoins()
+void Wallet::UpgradeCoins()
 {
-    mw::Keychain::Ptr keychain = GetKeychain();
-    if (!keychain || !keychain->HasSpendSecret()) {
-        return false;
+    std::vector<mw::Keychain::Ptr> keychains = GetAllKeychains();
+    for (const auto& keychain : keychains) {
+        if (keychain->HasSpendSecret()) {
+            UpgradeCoins(keychain);
+        }
     }
+}
 
+void Wallet::UpgradeCoins(const mw::Keychain::Ptr& keychain)
+{
     // Loop through transactions and try upgrading output coins
     for (auto& entry : m_pWallet->mapWallet) {
         wallet::CWalletTx* wtx = &entry.second;
@@ -33,8 +38,6 @@ bool Wallet::UpgradeCoins()
             }
         }
     }
-
-    return true;
 }
 
 std::vector<mw::Coin> Wallet::RewindOutputs(const CTransaction& tx)
@@ -45,6 +48,7 @@ std::vector<mw::Coin> Wallet::RewindOutputs(const CTransaction& tx)
         for (const mw::Output& output : tx.mweb_tx.m_transaction->GetOutputs()) {
             mw::Coin mweb_coin;
             if (RewindOutput(output, mweb_coin)) {
+                LogPrintf("DEBUG: Rewound output: %s\n", mweb_coin.output_id.ToHex());
                 coins.push_back(mweb_coin);
             }
         }
@@ -55,29 +59,45 @@ std::vector<mw::Coin> Wallet::RewindOutputs(const CTransaction& tx)
 
 bool Wallet::RewindOutput(const mw::Output& output, mw::Coin& coin)
 {
-    mw::Keychain::Ptr keychain = GetKeychain();
-
     if (GetCoin(output.GetOutputID(), coin) && coin.IsMine()) {
         // If the coin has the spend key, it's fully rewound.
         // If not, try rewinding further if we have the master spend key (i.e. wallet is unlocked).
-        if (coin.HasSpendKey() || !keychain || !keychain->HasSpendSecret()) {
+        if (coin.HasSpendKey()) {
+            return true;
+        }
+
+        if (coin.master_scan_key_id.has_value()) {
+            // If the coin has a master scan key ID, try to get the keychain from it.
+            // This is used for coins that were created before the wallet was unlocked.
+            mw::Keychain::Ptr keychain = GetKeychain(coin.master_scan_key_id.value());
+            if (!keychain || !keychain->HasSpendSecret()) {
+                return true;
+            }
+        }
+    }
+
+    for (const auto& keychain : GetAllKeychains()) {
+        if (keychain->RewindOutput(output, coin)) {
+            m_coins[coin.output_id] = coin;
+            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBCoin(coin);
             return true;
         }
     }
 
-    if (!keychain || !keychain->RewindOutput(output, coin)) {
-        return false;
-    }
-
-    m_coins[coin.output_id] = coin;
-    wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBCoin(coin);
-    return true;
+    return false;
 }
 
 bool Wallet::IsChange(const StealthAddress& address) const
 {
-    StealthAddress change_addr;
-    return GetStealthAddress(mw::CHANGE_INDEX, change_addr) && change_addr == address;
+    for (const auto& keychain : GetAllKeychains()) {
+        if (keychain && keychain->HasSpendPubKey()) {
+            StealthAddress change_addr = keychain->GetStealthAddress(mw::CHANGE_INDEX);
+            if (change_addr == address) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 bool Wallet::GetStealthAddress(const mw::Coin& coin, StealthAddress& address) const
@@ -87,12 +107,22 @@ bool Wallet::GetStealthAddress(const mw::Coin& coin, StealthAddress& address) co
         return true;
     }
 
+    if (coin.master_scan_key_id.has_value()) {
+        mw::Keychain::Ptr keychain = GetKeychain(coin.master_scan_key_id.value());
+        if (keychain && keychain->HasSpendPubKey()) {
+            address = keychain->GetStealthAddress(coin.address_index);
+            return true;
+        }
+
+        return false;
+    }
+
     return GetStealthAddress(coin.address_index, address);
 }
 
 bool Wallet::GetStealthAddress(const uint32_t index, StealthAddress& address) const
 {
-    mw::Keychain::Ptr keychain = GetKeychain();
+    mw::Keychain::Ptr keychain = GetActiveKeychain();
     if (!keychain || index == mw::UNKNOWN_INDEX || index == mw::CUSTOM_KEY) {
         return false;
     }
@@ -131,8 +161,34 @@ bool Wallet::GetCoin(const mw::Hash& output_id, mw::Coin& coin) const
     return false;
 }
 
-mw::Keychain::Ptr Wallet::GetKeychain() const
+mw::Keychain::Ptr Wallet::GetActiveKeychain() const
 {
     auto spk_man = m_pWallet->GetScriptPubKeyMan(OutputType::MWEB, false);
-    return spk_man ? spk_man->GetMWEBKeychain() : nullptr;
+    if (spk_man && spk_man->GetMWEBKeychain()) {
+        return spk_man->GetMWEBKeychain();
+    }
+    return nullptr;
+}
+
+std::vector<mw::Keychain::Ptr> Wallet::GetAllKeychains() const
+{
+    std::vector<mw::Keychain::Ptr> keychains;
+    auto spk_mans = m_pWallet->GetAllScriptPubKeyMans();
+    for (const auto& spk_man : spk_mans) {
+        auto keychain = spk_man->GetMWEBKeychain();
+        if (keychain) {
+            keychains.push_back(keychain);
+        }
+    }
+    return keychains;
+}
+
+mw::Keychain::Ptr Wallet::GetKeychain(const CKeyID& master_scan_keyid) const
+{
+    for (const auto& keychain : GetAllKeychains()) {
+        if (PublicKey::From(keychain->GetScanSecret()).GetID() == master_scan_keyid) {
+            return keychain;
+        }
+    }
+    return nullptr;
 }

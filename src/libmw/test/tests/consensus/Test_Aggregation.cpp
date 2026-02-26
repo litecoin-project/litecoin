@@ -28,7 +28,7 @@ BOOST_AUTO_TEST_CASE(Aggregate)
     mw::Transaction::CPtr pAggregated = Aggregation::Aggregate({ tx1, tx2 });
     pAggregated->Validate();
 
-    std::vector<Input> inputs = tx1->GetInputs();
+    std::vector<mw::Input> inputs = tx1->GetInputs();
     inputs.insert(inputs.end(), tx2->GetInputs().begin(), tx2->GetInputs().end());
     std::sort(inputs.begin(), inputs.end(), InputSort());
     BOOST_REQUIRE(pAggregated->GetInputs().size() == 3);

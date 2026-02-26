@@ -1,0 +1,22 @@
+{
+    "configurations": [
+        {
+            "name": "WSL",
+            "compileCommands": "${workspaceFolder}/build/compile_commands.json",
+            "intelliSenseMode": "linux-gcc-x64",
+            "configurationProvider": "ms-vscode.cmake-tools",
+            "compilerPath": "/usr/bin/g++",
+            "cStandard": "c11",
+            "cppStandard": "c++17",
+            "browse": {
+                "limitSymbolsToIncludedHeaders": true,
+                "path": [
+                    "${workspaceFolder}",
+                    "/usr/include",
+                    "/usr/local/include"
+                ]
+            }
+        }
+    ],
+    "version": 4
+}

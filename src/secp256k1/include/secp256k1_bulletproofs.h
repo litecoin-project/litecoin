@@ -107,32 +107,36 @@ SECP256K1_WARN_UNUSED_RESULT SECP256K1_API int secp256k1_bulletproof_rangeproof_
  *  Returns: 1: value and blinding factor were extracted and matched the input commit
  *           0: one of the above was not true, extraction failed
  *  Args:       ctx: pointer to a context object (cannot be NULL)
- *  Out:      value: pointer to value that will be extracted
- *            blind: pointer to 32-byte array for blinding factor to be extracted
+ *  Out: shared_msg: pointer to 28-byte array for shared message to be extracted
+ *   shared_msg_len: pointer to length of shared message array. This will be set to 0 if no shared message is extracted.
+ *      private_msg: pointer to 32-byte array for private message to be extracted
+ *  private_msg_len: pointer to length of private message array. This will be set to 0 if no private message is extracted.
  *  In:       proof: byte-serialized rangeproof (cannot be NULL)
  *             plen: length of every individual proof
  *        min_value: minimum value that the proof ranges over
  *           commit: pedersen commitment that the rangeproof is over (cannot be NULL)
  *        value_gen: generator multiplied by value in pedersen commitments (cannot be NULL)
- *            nonce: random 32-byte seed used to derive blinding factors (cannot be NULL)
+ *     shared_nonce: random 32-byte seed used to encrypt the shared message (if NULL, shared message will not be recovered)
+ *    private_nonce: random 32-byte seed used to encrypt the private message (if NULL, private message will not be recovered)
  *     extra_commit: additional data committed to by the rangeproof
  * extra_commit_len: length of additional data
- *          message: optional 20 bytes of message to recover
  */
 SECP256K1_WARN_UNUSED_RESULT SECP256K1_API int secp256k1_bulletproof_rangeproof_rewind(
     const secp256k1_context* ctx,
-    uint64_t* value,
-    unsigned char* blind,
+    unsigned char* shared_msg,
+    size_t* shared_msg_len,
+    unsigned char* private_msg,
+    size_t* private_msg_len,
     const unsigned char* proof,
     size_t plen,
     uint64_t min_value,
     const secp256k1_pedersen_commitment* commit,
     const secp256k1_generator* value_gen,
-    const unsigned char* nonce,
+    const unsigned char* shared_nonce,
+    const unsigned char* private_nonce,
     const unsigned char* extra_commit,
-    size_t extra_commit_len,
-    unsigned char* message
-) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4) SECP256K1_ARG_NONNULL(7) SECP256K1_ARG_NONNULL(8);
+    size_t extra_commit_len
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(6) SECP256K1_ARG_NONNULL(9) SECP256K1_ARG_NONNULL(10);
 
 /** Produces an aggregate Bulletproof rangeproof for a set of Pedersen commitments
  *  Returns: 1: rangeproof was successfully created

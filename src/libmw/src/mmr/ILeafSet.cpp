@@ -26,15 +26,20 @@ bool ILeafSet::Contains(const LeafIndex& idx) const noexcept
     return GetByte(idx.Get() / 8) & BitToByte(idx.Get() % 8);
 }
 
+void ILeafSet::ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const
+{
+    out.resize(numBytes);
+    for (uint64_t i = 0; i < numBytes; i++) {
+        out[i] = GetByte(byteIdx + i);
+    }
+}
+
 mw::Hash ILeafSet::Root() const
 {
     uint64_t numBytes = (m_nextLeafIdx.Get() + 7) / 8;
 
-    std::vector<uint8_t> bytes(numBytes);
-    for (uint64_t byte_idx = 0; byte_idx < numBytes; byte_idx++) {
-        uint8_t byte = GetByte(byte_idx);
-        bytes[byte_idx] = byte;
-    }
+    std::vector<uint8_t> bytes;
+    ReadBytes(0, numBytes, bytes);
 
     return Hashed(bytes);
 }

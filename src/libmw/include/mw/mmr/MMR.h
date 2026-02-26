@@ -116,7 +116,7 @@ public:
 
     mmr::LeafIndex AddLeaf(const mmr::Leaf& leaf) final;
     mmr::Leaf GetLeaf(const mmr::LeafIndex& leafIdx) const final;
-    mw::Hash GetHash(const mmr::Index& idx) const final;
+    mw::Hash GetHash(const mmr::Index& idx) const noexcept final;
 
     mmr::LeafIndex GetNextLeafIdx() const noexcept final;
     uint64_t GetNumLeaves() const noexcept final;

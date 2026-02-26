@@ -152,3 +152,4 @@ dist/
 /ci/scratch/
 
 .vs/
+.env

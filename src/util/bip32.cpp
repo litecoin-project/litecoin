@@ -35,6 +35,7 @@ bool ParseHDKeypath(const std::string& keypath_str, HDKeyPath& hdkeypath)
                 return false;
             }
             has_mweb = true;
+            first = false;
             continue;
         }
         // Finds whether it is hardened
@@ -88,7 +89,7 @@ std::string FormatHDKeypath(const HDKeyPath& hdkeypath)
 
 std::string WriteHDKeypath(const HDKeyPath& hdkeypath)
 {
-    if (hdkeypath.mweb_index.has_value()) {
+    if (hdkeypath.mweb_index.has_value() && hdkeypath.path.empty()) {
         return strprintf("x/%i", *hdkeypath.mweb_index);
     }
 

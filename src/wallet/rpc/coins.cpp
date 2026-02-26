@@ -535,7 +535,7 @@ RPCHelpMan listunspent()
                         {
                             {RPCResult::Type::STR_HEX, "txid", "the transaction id"},
                             {RPCResult::Type::NUM, "vout", /*optional=*/true, "the vout value"},
-                            {RPCResult::Type::STR_HEX, "mweb_out", /*optional=*/true, "the MWEB output commitment"},
+                            {RPCResult::Type::STR_HEX, "mweb_out", /*optional=*/true, "the MWEB output ID"},
                             {RPCResult::Type::STR, "address", /*optional=*/true, "the litecoin address"},
                             {RPCResult::Type::STR, "label", /*optional=*/true, "The associated label, or \"\" for the default label"},
                             {RPCResult::Type::STR, "scriptPubKey", /*optional=*/true, "the script key"},

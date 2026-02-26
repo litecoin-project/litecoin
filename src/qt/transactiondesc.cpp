@@ -32,6 +32,84 @@ using wallet::ISMINE_SPENDABLE;
 using wallet::ISMINE_WATCH_ONLY;
 using wallet::isminetype;
 
+/// Very lightweight HTML builder:
+///  • wraps all your output in <html><font face=…> … </font></html>
+///  • AddField() calls QCoreApplication::translate() so your strings still go through Qt’s .ts/.qm system
+///  • AddMultiLine() puts an extra <br> before+after the value
+///  • You can also set a custom font at any time
+class HTMLBuilder
+{
+public:
+    HTMLBuilder(const QString& font_face = "verdana, arial, helvetica, sans-serif")
+    {
+        m_html.reserve(4000);
+        // default font—override with SetFont() if you like!
+        m_html = "<html><font face='" + font_face + "'>";
+    }
+
+    /// Update to a new font.
+    void SetFont(const QString& faceList)
+    {
+        m_html += "</font><font face='" + faceList + "'>";
+    }
+
+    void AddLine(const QString& line)
+    {
+        m_html += line + "<br>";
+    }
+
+    /// A single line:  <b>Key:</b> Value<br>
+    /// Key is run through Qt translation with context "TransactionDesc"
+    void AddField(const char* key, const QString& value)
+    {
+        QString label = QCoreApplication::translate("TransactionDesc", key);
+        m_html += "<b>" + label + ":</b> " + value + "<br>";
+    }
+
+    /// A single line:  <b>Key:</b> Value<br>
+    /// Key is run through Qt translation with context "TransactionDesc"
+    void AddField(const char* key, const std::string& value)
+    {
+        AddField(key, QString::fromStdString(value));
+    }
+
+    /// Like AddField(), but:
+    ///   * puts a <br> before the value (so you can render multi-line messages nicely)
+    ///   * still appends a <br> after
+    void AddMultiLine(const char* key, const QString& value)
+    {
+        QString label = QCoreApplication::translate("TransactionDesc", key);
+        m_html += "<br><b>" + label + ":</b><br>" + value + "<br>";
+    }
+
+    /// Like AddField(), but builds an unordered list (ul) for the value. 
+    void AddList(const char* key, const QStringList& list)
+    {
+        QString label = QCoreApplication::translate("TransactionDesc", key);
+        m_html += "<br><b>" + label + ":</b><ul>";
+        for (const QString& item : list) {
+            m_html += "<li>" + item + "</li>";
+        }
+        m_html += "</ul><br>";
+    }
+
+    /// Raw HTML if you ever need it
+    void AddRaw(const QString& htmlFragment)
+    {
+        m_html += htmlFragment;
+    }
+
+    /// Final output; closes the tags for you
+    QString Str() const
+    {
+        return m_html + "</font></html>";
+    }
+
+private:
+    QString m_html;
+};
+
+
 QString TransactionDesc::FormatTxStatus(const interfaces::WalletTxStatus& status, bool inMempool)
 {
     int depth = status.depth_in_main_chain;
@@ -111,53 +189,97 @@ QString TransactionDesc::toHTML(interfaces::Node& node, interfaces::Wallet& wall
     int numBlocks;
     interfaces::WalletTx wtx = wallet.getWalletTxDetails(rec->GetTxHash(), status, orderForm, inMempool, numBlocks);
 
-    QString strHTML;
+    //QString strHTML;
 
-    strHTML.reserve(4000);
-    strHTML += "<html><font face='verdana, arial, helvetica, sans-serif'>";
+    //strHTML.reserve(4000);
+    //strHTML += "<html><font face='verdana, arial, helvetica, sans-serif'>";
 
-    int64_t nTime = wtx.time;
-    strHTML += "<b>" + tr("Status") + ":</b> " + FormatTxStatus(status, inMempool) + "<br>";
-    strHTML += "<b>" + tr("Date") + ":</b> " + (nTime ? GUIUtil::dateTimeStr(nTime) : "") + "<br>";
+    //int64_t nTime = wtx.time;
+    //strHTML += "<b>" + tr("Status") + ":</b> " + FormatTxStatus(status, inMempool) + "<br>";
+    //strHTML += "<b>" + tr("Date") + ":</b> " + (nTime ? GUIUtil::dateTimeStr(nTime) : "") + "<br>";
 
-    strHTML += toHTML_Addresses(wallet, wtx, rec);
-    strHTML += toHTML_Amounts(wallet, wtx, status, unit);
+    //strHTML += toHTML_Addresses(wallet, wtx, rec);
+    //strHTML += toHTML_Amounts(wallet, wtx, status, unit);
+
+    ////
+    //// Message
+    ////
+    //if (wtx.value_map.count("message") && !wtx.value_map["message"].empty())
+    //    strHTML += "<br><b>" + tr("Message") + ":</b><br>" + GUIUtil::HtmlEscape(wtx.value_map["message"], true) + "<br>";
+    //if (wtx.value_map.count("comment") && !wtx.value_map["comment"].empty())
+    //    strHTML += "<br><b>" + tr("Comment") + ":</b><br>" + GUIUtil::HtmlEscape(wtx.value_map["comment"], true) + "<br>";
+
+    //strHTML += "<b>" + tr("Transaction ID") + ":</b> " + QString::fromStdString(rec->GetTxHash().ToString()) + "<br>";
+    //strHTML += "<b>" + tr("Transaction total size") + ":</b> " + QString::number(wtx.tx->GetTotalSize()) + " bytes<br>";
+    //strHTML += "<b>" + tr("Transaction virtual size") + ":</b> " + QString::number(GetVirtualTransactionSize(*wtx.tx)) + " bytes<br>";
+    //if (wtx.tx->HasMWEBTx()) {
+    //    strHTML += "<b>" + tr("Transaction MWEB weight") + ":</b> " + QString::number(wtx.tx->mweb_tx.GetMWEBWeight()) + "<br>";
+    //}
+
+    //strHTML += "<b>" + tr("Component index") + ":</b> " + QString::fromStdString(rec->GetComponentIndex()) + "<br>";
+
+    //strHTML += toHTML_OrderForm(orderForm);
+
+    //if (wtx.is_coinbase) // MW: TODO - Include pegout maturity
+    //{
+    //    quint32 numBlocksToMaturity = COINBASE_MATURITY +  1;
+    //    strHTML += "<br>" + tr("Generated coins must mature %1 blocks before they can be spent. When you generated this block, it was broadcast to the network to be added to the block chain. If it fails to get into the chain, its state will change to \"not accepted\" and it won't be spendable. This may occasionally happen if another node generates a block within a few seconds of yours.").arg(QString::number(numBlocksToMaturity)) + "<br>";
+    //}
+
+    ////
+    //// Debug view
+    ////
+    //if (node.getLogCategories() != BCLog::NONE)
+    //{
+    //    strHTML += toHTML_Debug(node, wallet, wtx, rec, unit);
+    //}
+
+    //strHTML += "</font></html>";
+    //return strHTML;
+
+
+    
+
+    HTMLBuilder html;
+    html.AddField("Status", FormatTxStatus(status, inMempool));
+    html.AddField("Date", wtx.time ? GUIUtil::dateTimeStr(wtx.time) : "");
+
+    html.AddRaw(toHTML_Addresses(wallet, wtx, rec)); // MW: TODO - Pass HTMLBuilder& in, instead
+    html.AddRaw(toHTML_Amounts(wallet, wtx, status, unit)); // MW: TODO - Pass HTMLBuilder& in, instead
 
     //
     // Message
     //
     if (wtx.value_map.count("message") && !wtx.value_map["message"].empty())
-        strHTML += "<br><b>" + tr("Message") + ":</b><br>" + GUIUtil::HtmlEscape(wtx.value_map["message"], true) + "<br>";
+        html.AddMultiLine("Message", GUIUtil::HtmlEscape(wtx.value_map["message"], true));
     if (wtx.value_map.count("comment") && !wtx.value_map["comment"].empty())
-        strHTML += "<br><b>" + tr("Comment") + ":</b><br>" + GUIUtil::HtmlEscape(wtx.value_map["comment"], true) + "<br>";
+        html.AddMultiLine("Comment", GUIUtil::HtmlEscape(wtx.value_map["comment"], true));
 
-    strHTML += "<b>" + tr("Transaction ID") + ":</b> " + QString::fromStdString(rec->GetTxHash().ToString()) + "<br>";
-    strHTML += "<b>" + tr("Transaction total size") + ":</b> " + QString::number(wtx.tx->GetTotalSize()) + " bytes<br>";
-    strHTML += "<b>" + tr("Transaction virtual size") + ":</b> " + QString::number(GetVirtualTransactionSize(*wtx.tx)) + " bytes<br>";
+    html.AddField("Transaction ID", rec->GetTxHash().ToString());
+    html.AddField("Transaction total size", QString::number(wtx.tx->GetTotalSize()) + " bytes");
+    html.AddField("Transaction virtual size", QString::number(GetVirtualTransactionSize(*wtx.tx)) + " bytes");
     if (wtx.tx->HasMWEBTx()) {
-        strHTML += "<b>" + tr("Transaction MWEB weight") + ":</b> " + QString::number(wtx.tx->mweb_tx.GetMWEBWeight()) + "<br>";
+        html.AddField("Transaction MWEB weight", QString::number(wtx.tx->mweb_tx.GetMWEBWeight()));
     }
 
-    strHTML += "<b>" + tr("Component index") + ":</b> " + QString::fromStdString(rec->GetComponentIndex()) + "<br>";
+    html.AddField("Component index", rec->GetComponentIndex());
 
-    strHTML += toHTML_OrderForm(orderForm);
+    html.AddRaw(toHTML_OrderForm(orderForm)); // MW: TODO - Pass HTMLBuilder& in, instead
 
-    if (wtx.is_coinbase) // MW: TODO - Include pegout maturity
-    {
-        quint32 numBlocksToMaturity = COINBASE_MATURITY +  1;
-        strHTML += "<br>" + tr("Generated coins must mature %1 blocks before they can be spent. When you generated this block, it was broadcast to the network to be added to the block chain. If it fails to get into the chain, its state will change to \"not accepted\" and it won't be spendable. This may occasionally happen if another node generates a block within a few seconds of yours.").arg(QString::number(numBlocksToMaturity)) + "<br>";
+    if (wtx.is_coinbase) {
+        quint32 numBlocksToMaturity = COINBASE_MATURITY + 1;
+        html.AddLine(tr("Generated coins must mature %1 blocks before they can be spent. When you generated this block, it was broadcast to the network to be added to the block chain. If it fails to get into the chain, its state will change to \"not accepted\" and it won't be spendable. This may occasionally happen if another node generates a block within a few seconds of yours.").arg(QString::number(numBlocksToMaturity)));
     }
+    // MW: TODO - Include pegout maturity
 
     //
     // Debug view
     //
-    if (node.getLogCategories() != BCLog::NONE)
-    {
-        strHTML += toHTML_Debug(node, wallet, wtx, rec, unit);
+    if (node.getLogCategories() != BCLog::NONE) {
+        html.AddRaw(toHTML_Debug(node, wallet, wtx, rec, unit)); // MW: TODO - Pass HTMLBuilder& in, instead
     }
 
-    strHTML += "</font></html>";
-    return strHTML;
+    return html.Str();
 }
 
 QString TransactionDesc::toHTML_Addresses(interfaces::Wallet& wallet, const interfaces::WalletTx& wtx, wallet::WalletTxRecord* rec)

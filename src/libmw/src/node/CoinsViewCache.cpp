@@ -53,12 +53,23 @@ mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock)
         }
     );
 
-    std::vector<mw::UTXO> coinsSpent;
+    std::vector<mw::UTXO::CPtr> coinsSpent;
     std::for_each(
         pBlock->GetInputs().cbegin(), pBlock->GetInputs().cend(),
-        [this, &coinsSpent](const Input& input) {
-            mw::UTXO spentUTXO = SpendUTXO(input.GetOutputID());
-            coinsSpent.push_back(std::move(spentUTXO));
+        [this, &coinsSpent](const mw::Input& input) {
+            mw::UTXO::CPtr spentUTXO = GetUTXO(input.GetOutputID());
+            if (spentUTXO == nullptr || !m_pLeafSet->Contains(spentUTXO->GetLeafIndex())) {
+                ThrowValidation(EConsensusError::UTXO_MISSING);
+            }
+
+            if (input.GetCommitment() != spentUTXO->GetCommitment()
+                || input.GetOutputPubKey() != spentUTXO->GetReceiverPubKey())
+            {
+                ThrowValidation(EConsensusError::UTXO_MISMATCH);
+            }
+
+            spentUTXO = SpendUTXO(input.GetOutputID());
+            coinsSpent.push_back(spentUTXO);
         }
     );
 
@@ -86,7 +97,7 @@ void CoinsViewCache::AddTx(const mw::Transaction::CPtr& pTx)
 
     std::for_each(
         pTx->GetInputs().cbegin(), pTx->GetInputs().cend(),
-        [this](const Input& input) {
+        [this](const mw::Input& input) {
             SpendUTXO(input.GetOutputID());
         }
     );
@@ -97,9 +108,9 @@ void CoinsViewCache::UndoBlock(const mw::BlockUndo::CPtr& pUndo)
     assert(pUndo != nullptr);
 
     std::vector<mmr::LeafIndex> leavesToAdd;
-    for (const UTXO& coinToAdd : pUndo->GetCoinsSpent()) {
-        leavesToAdd.push_back(coinToAdd.GetLeafIndex());
-        m_pUpdates->AddUTXO(std::make_shared<UTXO>(coinToAdd));
+    for (const mw::UTXO::CPtr& coinToAdd : pUndo->GetCoinsSpent()) {
+        leavesToAdd.push_back(coinToAdd->GetLeafIndex());
+        m_pUpdates->AddUTXO(coinToAdd);
     }
 
     for (const mw::Hash& coinToRemove : pUndo->GetCoinsAdded()) {
@@ -119,9 +130,9 @@ void CoinsViewCache::UndoBlock(const mw::BlockUndo::CPtr& pUndo)
     SetBestHeader(pHeader);
 
     // Sanity check to make sure rewind applied successfully
-    if (pHeader->GetOutputRoot() != GetOutputPMMR()->Root()
-        || pHeader->GetNumTXOs() != GetOutputPMMR()->GetNumLeaves()
-        || pHeader->GetLeafsetRoot() != GetLeafSet()->Root())
+    if (pHeader->GetOutputRoot() != m_pOutputPMMR->Root()
+        || pHeader->GetNumTXOs() != m_pOutputPMMR->GetNumLeaves()
+        || pHeader->GetLeafsetRoot() != m_pLeafSet->Root())
     {
         ThrowValidation(EConsensusError::MMR_MISMATCH);
     }
@@ -144,7 +155,7 @@ mw::Block::Ptr CoinsViewCache::BuildNextBlock(const uint64_t height, const std::
 
     std::for_each(
         pTransaction->GetInputs().cbegin(), pTransaction->GetInputs().cend(),
-        [this](const Input& input) { SpendUTXO(input.GetOutputID()); } // MW: TODO - Do we need to check the UTXO's receiver public key? Presumably, that was already done.
+        [this](const mw::Input& input) { SpendUTXO(input.GetOutputID()); } // MW: TODO - Do we need to check the UTXO's receiver public key? Presumably, that was already done.
     );
 
     const uint64_t output_mmr_size = m_pOutputPMMR->GetNumLeaves();
@@ -213,7 +224,7 @@ void CoinsViewCache::AddUTXO(const uint64_t header_height, const mw::Output& out
     m_pUpdates->AddUTXO(pUTXO);
 }
 
-UTXO CoinsViewCache::SpendUTXO(const mw::Hash& output_id)
+mw::UTXO::CPtr CoinsViewCache::SpendUTXO(const mw::Hash& output_id)
 {
     UTXO::CPtr pUTXO = GetUTXO(output_id);
     if (pUTXO == nullptr || !m_pLeafSet->Contains(pUTXO->GetLeafIndex())) {
@@ -223,7 +234,7 @@ UTXO CoinsViewCache::SpendUTXO(const mw::Hash& output_id)
     m_pLeafSet->Remove(pUTXO->GetLeafIndex());
     m_pUpdates->SpendUTXO(output_id);
 
-    return *pUTXO;
+    return pUTXO;
 }
 
 void CoinsViewCache::WriteBatch(const std::unique_ptr<mw::DBBatch>&, const CoinsViewUpdates& updates, const mw::Header::CPtr& pHeader)

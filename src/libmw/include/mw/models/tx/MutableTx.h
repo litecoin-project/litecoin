@@ -17,6 +17,8 @@ struct MutableInput {
     std::optional<CAmount> amount; //! The amount being spent.
     std::optional<SecretKey> spend_key; //! Secret key needed to spend the UTXO.
     std::optional<BlindingFactor> raw_blind; //! Pre-switch blinding factor.
+    std::optional<PublicKey> key_exchange_pubkey; //! Optional key exchange pubkey for deriving shared secrets.
+    std::optional<SecretKey> shared_secret; //! Optional shared secret derived from key exchange pubkeys.
 
     // Input: public info
     std::optional<uint8_t> features;
@@ -36,6 +38,9 @@ struct MutableInput {
         MutableInput input(output.GetOutputID());
         input.commitment = output.GetCommitment();
         input.output_pubkey = output.GetReceiverPubKey();
+        if (output.HasStandardFields()) {
+            input.key_exchange_pubkey = output.GetKeyExchangePubKey();
+        }
         return input;
     }
 
@@ -46,6 +51,9 @@ struct MutableInput {
         input.raw_blind = coin.blind;
         if (input.raw_blind.has_value()) {
             input.commitment = Commitment::Switch(*input.raw_blind, coin.amount);
+        }
+        if (coin.HasSharedSecret()) {
+            input.shared_secret = coin.shared_secret;
         }
         input.spend_key = coin.spend_key;
         if (input.spend_key.has_value()) {
@@ -66,6 +74,8 @@ struct MutableInput {
                amount == other.amount &&
                spend_key == other.spend_key &&
                raw_blind == other.raw_blind &&
+               key_exchange_pubkey == other.key_exchange_pubkey &&
+               shared_secret == other.shared_secret &&
                ephemeral_key == other.ephemeral_key;
     }
 
@@ -80,17 +90,17 @@ struct MutableInput {
     }
 
     // Returns the finalized (signed) mw::Input. Will be nullopt if input is not final.
-    std::optional<Input> Finalized() const noexcept
+    std::optional<mw::Input> Finalized() const noexcept
     {
         if (IsFinal()) {
-            return Input(*features, output_id, *commitment, *input_pubkey, *output_pubkey, extradata, *signature);
+            return mw::Input(*features, output_id, *commitment, *input_pubkey, *output_pubkey, extradata, *signature);
         }
 
         return std::nullopt;
     }
 
     // Updates the public fields of the MutableInput to their finalized values.
-    void Update(const Input& finalized) noexcept
+    void Update(const mw::Input& finalized) noexcept
     {
         features = finalized.GetFeatures();
         output_id = finalized.GetOutputID();
@@ -286,19 +296,19 @@ struct MutableTx : public Traits::ISerializable
         mutable_tx.kernel_offset = tx.GetKernelOffset();
         mutable_tx.stealth_offset = tx.GetStealthOffset();
 
-        for (const Input& input : tx.GetInputs()) {
+        for (const mw::Input& input : tx.GetInputs()) {
             MutableInput mutable_input(input.GetOutputID());
             mutable_input.Update(input);
             mutable_tx.inputs.push_back(std::move(mutable_input));
         }
 
-        for (const Output& output : tx.GetOutputs()) {
+        for (const mw::Output& output : tx.GetOutputs()) {
             MutableOutput mutable_output{};
             mutable_output.Update(output);
             mutable_tx.outputs.push_back(std::move(mutable_output));
         }
 
-        for (const Kernel& kernel : tx.GetKernels()) {
+        for (const mw::Kernel& kernel : tx.GetKernels()) {
             MutableKernel mutable_kernel{};
             mutable_kernel.Update(kernel);
             mutable_tx.kernels.push_back(std::move(mutable_kernel));
@@ -377,7 +387,7 @@ struct MutableTx : public Traits::ISerializable
 
     bool IsNull() const noexcept
     {
-        return kernel_offset.IsZero() && stealth_offset.IsZero() && inputs.empty() && outputs.empty() && kernels.empty();
+        return kernel_offset.IsNull() && stealth_offset.IsNull() && inputs.empty() && outputs.empty() && kernels.empty();
     }
 
     void SetNull() noexcept
@@ -426,17 +436,17 @@ struct MutableTx : public Traits::ISerializable
             return std::nullopt;
         }
 
-        std::vector<Input> final_inputs;
+        std::vector<mw::Input> final_inputs;
         for (const mw::MutableInput& input : inputs) {
             final_inputs.push_back(*input.Finalized());
         }
 
-        std::vector<Output> final_outputs;
+        std::vector<mw::Output> final_outputs;
         for (const mw::MutableOutput& output : outputs) {
             final_outputs.push_back(*output.Finalized());
         }
 
-        std::vector<Kernel> final_kernels;
+        std::vector<mw::Kernel> final_kernels;
         for (const mw::MutableKernel& kernel : kernels) {
             final_kernels.push_back(*kernel.Finalized());
         }

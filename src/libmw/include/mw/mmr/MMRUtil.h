@@ -10,7 +10,7 @@ class MMRUtil
 {
 public:
     static mw::Hash CalcParentHash(const mmr::Index& index, const mw::Hash& left_hash, const mw::Hash& right_hash);
-    static std::vector<mmr::Index> CalcPeakIndices(const uint64_t num_nodes);
+    static std::vector<mmr::Index> CalcPeakIndices(const uint64_t num_nodes) noexcept;
     static std::optional<mw::Hash> CalcBaggedPeak(const IMMR& mmr, const mmr::Index& peak_idx);
 
     static BitSet BuildCompactBitSet(const uint64_t num_leaves, const BitSet& unspent_leaf_indices);

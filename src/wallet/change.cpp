@@ -14,9 +14,6 @@ ChangeBuilder ChangeBuilder::New(const CWallet& wallet, const CCoinControl& coin
     if (change_position.has_value() && change_position.value() >= 0) {
         change_builder.change_position = ChangePosition{(size_t)change_position.value()};
     }
-    
-    const OutputType change_type = wallet.TransactionChangeType(coin_control.m_change_type ? *coin_control.m_change_type : wallet.m_default_change_type, recipients.All());
-    change_builder.reserve_dest = std::make_shared<ReserveDestination>(&wallet, change_type);
 
     // coin control: send change to custom address
     if (!std::get_if<CNoDestination>(&coin_control.destChange)) {
@@ -31,6 +28,9 @@ ChangeBuilder ChangeBuilder::New(const CWallet& wallet, const CCoinControl& coin
         // Reserve a new key pair from key pool. If it fails, provide a dummy
         // destination in case we don't need change.
         CTxDestination dest;
+    
+        const OutputType change_type = wallet.TransactionChangeType(coin_control.m_change_type ? *coin_control.m_change_type : wallet.m_default_change_type, recipients.All());
+        change_builder.reserve_dest = std::make_shared<ReserveDestination>(&wallet, change_type);
         auto op_dest = change_builder.reserve_dest->GetReservedDestination(true);
         if (!op_dest) {
             change_builder.error = _("Transaction needs a change address, but we can't generate it.") + Untranslated(" ") + util::ErrorString(op_dest);
@@ -67,7 +67,7 @@ ChangeParams ChangeBuilder::BuildLTCParams(const CWallet& wallet, const CoinSele
     
     // Size of the input to spend a change output in virtual bytes.
     // If the wallet doesn't know how to sign change output, assume p2sh-p2wpkh as lower-bound to allow BnB to do it's thing
-    size_t change_spend_size = (maximum_signed_input_size == -1) ? DUMMY_NESTED_P2WPKH_INPUT_SIZE : (size_t)maximum_signed_input_size;
+    const size_t change_spend_size = (maximum_signed_input_size == -1) ? DUMMY_NESTED_P2WPKH_INPUT_SIZE : (size_t)maximum_signed_input_size;
     
     ChangeParams change_params;
 
@@ -107,12 +107,13 @@ std::optional<ChangeParams> ChangeBuilder::BuildParams(const CWallet& wallet, co
 bool ChangeBuilder::ChangeBelongsOnMWEB(const TxType& tx_type, const CTxDestination& dest_change)
 {
     switch (tx_type) {
+        case TxType::LTC_TO_LTC:
+        return false;
     case TxType::MWEB_TO_MWEB:
+        return true;
     case TxType::PEGOUT:
     case TxType::PEGIN_PEGOUT:
-        return true;
-    case TxType::LTC_TO_LTC:
-        return false;
+        // return true;
     case TxType::PEGIN:
         return std::holds_alternative<CNoDestination>(dest_change) || std::holds_alternative<StealthAddress>(dest_change);
     }

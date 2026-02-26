@@ -7,6 +7,7 @@ SecretKeys SecretKeys::From(const SecretKey& secret_key)
 {
     const int verify_result = secp256k1_ec_seckey_verify(SECKEY_CONTEXT.Read()->Get(), secret_key.data());
     if (verify_result != 1) {
+        // MW: TODO - Should we just take modulo curve order?
         ThrowCrypto("secp256k1_ec_seckey_verify failed");
     }
 

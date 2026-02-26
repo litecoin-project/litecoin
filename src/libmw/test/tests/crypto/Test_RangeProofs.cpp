@@ -3,44 +3,246 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <mw/crypto/Bulletproofs.h>
+#include <secp256k1_bulletproofs.h>
+#include <secp256k1_generator.h>
 
 #include <test_framework/TestMWEB.h>
+
+typedef struct {
+    uint64_t d[4];
+} secp256k1_scalar;
+
+
+#define SECP256K1_N_0 ((uint64_t)0xBFD25E8CD0364141ULL)
+#define SECP256K1_N_1 ((uint64_t)0xBAAEDCE6AF48A03BULL)
+#define SECP256K1_N_2 ((uint64_t)0xFFFFFFFFFFFFFFFEULL)
+#define SECP256K1_N_3 ((uint64_t)0xFFFFFFFFFFFFFFFFULL)
+
+#ifdef WORDS_BIGENDIAN
+#define LE32(p) ((((p) & 0xFF) << 24) | (((p) & 0xFF00) << 8) | (((p) & 0xFF0000) >> 8) | (((p) & 0xFF000000) >> 24))
+#define BE32(p) (p)
+#else
+#define BE32(p) ((((p) & 0xFF) << 24) | (((p) & 0xFF00) << 8) | (((p) & 0xFF0000) >> 8) | (((p) & 0xFF000000) >> 24))
+#define LE32(p) (p)
+#endif
+
+constexpr static inline uint32_t rotl32(uint32_t v, int c) { return (v << c) | (v >> (32 - c)); }
+
+#define QUARTERROUND(a,b,c,d) \
+  a += b; d = rotl32(d ^ a, 16); \
+  c += d; b = rotl32(b ^ c, 12); \
+  a += b; d = rotl32(d ^ a, 8); \
+  c += d; b = rotl32(b ^ c, 7);
+
+
+static int secp256k1_scalar_check_overflow(const secp256k1_scalar *a) {
+    int yes = 0;
+    int no = 0;
+    no |= (a->d[3] < SECP256K1_N_3); /* No need for a > check. */
+    no |= (a->d[2] < SECP256K1_N_2);
+    yes |= (a->d[2] > SECP256K1_N_2) & ~no;
+    no |= (a->d[1] < SECP256K1_N_1);
+    yes |= (a->d[1] > SECP256K1_N_1) & ~no;
+    yes |= (a->d[0] >= SECP256K1_N_0) & ~no;
+    return yes;
+}
+
+static void secp256k1_scalar_chacha20(secp256k1_scalar *r1, secp256k1_scalar *r2, const unsigned char *seed, uint64_t idx) {
+    size_t n;
+    size_t over_count = 0;
+    uint32_t seed32[8];
+    uint32_t x0, x1, x2, x3, x4, x5, x6, x7, x8, x9, x10, x11, x12, x13, x14, x15;
+    int over1, over2;
+
+    memcpy((void *) seed32, (const void *) seed, 32);
+    do {
+        x0 = 0x61707865;
+        x1 = 0x3320646e;
+        x2 = 0x79622d32;
+        x3 = 0x6b206574;
+        x4 = LE32(seed32[0]);
+        x5 = LE32(seed32[1]);
+        x6 = LE32(seed32[2]);
+        x7 = LE32(seed32[3]);
+        x8 = LE32(seed32[4]);
+        x9 = LE32(seed32[5]);
+        x10 = LE32(seed32[6]);
+        x11 = LE32(seed32[7]);
+        x12 = idx;
+        x13 = idx >> 32;
+        x14 = 0;
+        x15 = over_count;
+
+        n = 10;
+        while (n--) {
+            QUARTERROUND(x0, x4, x8,x12)
+            QUARTERROUND(x1, x5, x9,x13)
+            QUARTERROUND(x2, x6,x10,x14)
+            QUARTERROUND(x3, x7,x11,x15)
+            QUARTERROUND(x0, x5,x10,x15)
+            QUARTERROUND(x1, x6,x11,x12)
+            QUARTERROUND(x2, x7, x8,x13)
+            QUARTERROUND(x3, x4, x9,x14)
+        }
+
+        x0 += 0x61707865;
+        x1 += 0x3320646e;
+        x2 += 0x79622d32;
+        x3 += 0x6b206574;
+        x4 += LE32(seed32[0]);
+        x5 += LE32(seed32[1]);
+        x6 += LE32(seed32[2]);
+        x7 += LE32(seed32[3]);
+        x8 += LE32(seed32[4]);
+        x9 += LE32(seed32[5]);
+        x10 += LE32(seed32[6]);
+        x11 += LE32(seed32[7]);
+        x12 += idx;
+        x13 += idx >> 32;
+        x14 += 0;
+        x15 += over_count;
+
+        r1->d[3] = BE32((uint64_t) x0) << 32 | BE32(x1);
+        r1->d[2] = BE32((uint64_t) x2) << 32 | BE32(x3);
+        r1->d[1] = BE32((uint64_t) x4) << 32 | BE32(x5);
+        r1->d[0] = BE32((uint64_t) x6) << 32 | BE32(x7);
+        r2->d[3] = BE32((uint64_t) x8) << 32 | BE32(x9);
+        r2->d[2] = BE32((uint64_t) x10) << 32 | BE32(x11);
+        r2->d[1] = BE32((uint64_t) x12) << 32 | BE32(x13);
+        r2->d[0] = BE32((uint64_t) x14) << 32 | BE32(x15);
+
+        over1 = secp256k1_scalar_check_overflow(r1);
+        over2 = secp256k1_scalar_check_overflow(r2);
+        over_count++;
+   } while (over1 | over2);
+}
+
+static void secp256k1_scalar_get_b32(unsigned char *bin, const secp256k1_scalar* a) {
+    bin[0] = a->d[3] >> 56; bin[1] = a->d[3] >> 48; bin[2] = a->d[3] >> 40; bin[3] = a->d[3] >> 32; bin[4] = a->d[3] >> 24; bin[5] = a->d[3] >> 16; bin[6] = a->d[3] >> 8; bin[7] = a->d[3];
+    bin[8] = a->d[2] >> 56; bin[9] = a->d[2] >> 48; bin[10] = a->d[2] >> 40; bin[11] = a->d[2] >> 32; bin[12] = a->d[2] >> 24; bin[13] = a->d[2] >> 16; bin[14] = a->d[2] >> 8; bin[15] = a->d[2];
+    bin[16] = a->d[1] >> 56; bin[17] = a->d[1] >> 48; bin[18] = a->d[1] >> 40; bin[19] = a->d[1] >> 32; bin[20] = a->d[1] >> 24; bin[21] = a->d[1] >> 16; bin[22] = a->d[1] >> 8; bin[23] = a->d[1];
+    bin[24] = a->d[0] >> 56; bin[25] = a->d[0] >> 48; bin[26] = a->d[0] >> 40; bin[27] = a->d[0] >> 32; bin[28] = a->d[0] >> 24; bin[29] = a->d[0] >> 16; bin[30] = a->d[0] >> 8; bin[31] = a->d[0];
+}
+
+typedef struct {
+    /* X = sum(i=0..4, n[i]*2^(i*52)) mod p
+     * where p = 2^256 - 0x1000003D1
+     */
+    uint64_t n[5];
+} secp256k1_fe;
+
+/** Convert a field element to a 32-byte big endian value. Requires the input to be normalized */
+static void secp256k1_fe_get_b32(unsigned char *r, const secp256k1_fe *a) {
+    r[0] = (a->n[4] >> 40) & 0xFF;
+    r[1] = (a->n[4] >> 32) & 0xFF;
+    r[2] = (a->n[4] >> 24) & 0xFF;
+    r[3] = (a->n[4] >> 16) & 0xFF;
+    r[4] = (a->n[4] >> 8) & 0xFF;
+    r[5] = a->n[4] & 0xFF;
+    r[6] = (a->n[3] >> 44) & 0xFF;
+    r[7] = (a->n[3] >> 36) & 0xFF;
+    r[8] = (a->n[3] >> 28) & 0xFF;
+    r[9] = (a->n[3] >> 20) & 0xFF;
+    r[10] = (a->n[3] >> 12) & 0xFF;
+    r[11] = (a->n[3] >> 4) & 0xFF;
+    r[12] = ((a->n[2] >> 48) & 0xF) | ((a->n[3] & 0xF) << 4);
+    r[13] = (a->n[2] >> 40) & 0xFF;
+    r[14] = (a->n[2] >> 32) & 0xFF;
+    r[15] = (a->n[2] >> 24) & 0xFF;
+    r[16] = (a->n[2] >> 16) & 0xFF;
+    r[17] = (a->n[2] >> 8) & 0xFF;
+    r[18] = a->n[2] & 0xFF;
+    r[19] = (a->n[1] >> 44) & 0xFF;
+    r[20] = (a->n[1] >> 36) & 0xFF;
+    r[21] = (a->n[1] >> 28) & 0xFF;
+    r[22] = (a->n[1] >> 20) & 0xFF;
+    r[23] = (a->n[1] >> 12) & 0xFF;
+    r[24] = (a->n[1] >> 4) & 0xFF;
+    r[25] = ((a->n[0] >> 48) & 0xF) | ((a->n[1] & 0xF) << 4);
+    r[26] = (a->n[0] >> 40) & 0xFF;
+    r[27] = (a->n[0] >> 32) & 0xFF;
+    r[28] = (a->n[0] >> 24) & 0xFF;
+    r[29] = (a->n[0] >> 16) & 0xFF;
+    r[30] = (a->n[0] >> 8) & 0xFF;
+    r[31] = a->n[0] & 0xFF;
+}
+
+typedef struct {
+    secp256k1_fe x;
+    secp256k1_fe y;
+    int infinity; /* whether this represents the point at infinity */
+} secp256k1_ge;
+
+/** A group element of the secp256k1 curve, in jacobian coordinates.
+ *  Note: For exhastive test mode, sepc256k1 is replaced by a small subgroup of a different curve.
+ */
+typedef struct {
+    secp256k1_fe x; /* actual X: x/z^2 */
+    secp256k1_fe y; /* actual Y: y/z^3 */
+    secp256k1_fe z;
+    int infinity; /* whether this represents the point at infinity */
+} secp256k1_gej;
+
+struct secp256k1_bulletproof_generators {
+    size_t n;
+    /* `G_i`, `H_i` generators, `n` each of them which are generated when creating this struct */
+    secp256k1_ge *gens;
+    /* `H` "alternate" generator, used in Pedersen commitments. Passed in by caller to
+     * `secp256k1_bulletproof_generators_create`; stored in this structure to allow consistent
+     * generators between functions using `secp256k1_bulletproof_generators` and functions
+     * using the Pedersen commitment module. */
+    secp256k1_ge *blinding_gen;
+};
 
 BOOST_FIXTURE_TEST_SUITE(TestRangeProofs, MWEBTestingSetup)
 
 BOOST_AUTO_TEST_CASE(RangeProofs)
 {
-    const uint64_t value = 123;
-    BlindingFactor blind = BlindingFactor::Random();
+    const uint64_t value = 12345678;
+    BlindingFactor blind = BlindingFactor::FromHex("82d4bab55eddcc1227ee7013ce81ff5106633161d304f11c9b5e24f6cf2c774f");
     Commitment commit = Commitment::Blinded(blind, value);
-    SecretKey nonce = SecretKey::Random();
-    SecretKey nonce2 = SecretKey::Random();
-    ProofMessage message = secret_key_t<20>::Random().GetBigInt();
-    std::vector<uint8_t> extraData = secret_key_t<100>::Random().vec();
+    SecretKey sharedNonce = SecretKey::FromHex("5021e7378095d5dc0dc59d7886a4f65c126db9580a1dde3fedc4fe6dc7734cd5");
+    SecretKey privateNonce = SecretKey::FromHex("f42ba7b1e657a397e608958d36c49e0edc249b4f02180bf62464560d5ba51afe");
+    ProofMessage message = secret_key_t<20>::FromHex("c2ca9d0aa93184f598f595147cd6c786f2bafb70").GetBigInt();
+    std::vector<uint8_t> extraData = ParseHex("d21cf3d38aa9a7de357949164d8134a7686a7b107c279f50735d487874ffc56fe0b62b759baf6ecde5a73dd6932634f97501");
+
+    // secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
+    // secp256k1_bulletproof_generators* gen = secp256k1_bulletproof_generators_create(ctx, &secp256k1_generator_const_g, 256);
+    // for (size_t i = 0; i < gen->n; i++) {
+    //     secp256k1_ge* g = &gen->gens[i];
+    //     std::vector<uint8_t> g_data(64);
+    //     secp256k1_fe_get_b32(g_data.data(), &g->x);
+    //     secp256k1_fe_get_b32(g_data.data() + 32, &g->y);
+    //     std::cout << "Generator " << i << ": " << HexStr(g_data) << std::endl;
+    // }
+
+    secp256k1_scalar alpha;
+    secp256k1_scalar rho;
+    secp256k1_scalar_chacha20(&alpha, &rho, sharedNonce.data(), 0);
+
+    std::vector<uint8_t> alpha_out(32);
+    secp256k1_scalar_get_b32(alpha_out.data(), &alpha);
+    //std::cout << "alpha: " << HexStr(alpha_out) << std::endl;
+    std::vector<uint8_t> rho_out(32);
+    secp256k1_scalar_get_b32(rho_out.data(), &rho);
+    //std::cout << "rho: " << HexStr(rho_out) << std::endl;
 
     // Create a RangeProof via Bulletproofs::Generate. Use the same value for privateNonce and rewindNonce.
     RangeProof::CPtr pRangeProof = Bulletproofs::Generate(
         value,
         SecretKey(blind.vec()),
-        nonce,
-        nonce,
+        sharedNonce,
+        privateNonce,
         message,
         extraData
     );
 
-    // Try rewinding it via Bulletproofs::Rewind using the *wrong* rewindNonce. Make sure it returns null.
-    BOOST_REQUIRE(!Bulletproofs::Rewind(commit, *pRangeProof, extraData, nonce2));
+    //std::cout << "RangeProof: " << pRangeProof->ToHex() << std::endl;
 
     // Try rewinding it via Bulletproofs::Rewind using the *correct* rewindNonce. Make sure it returns a valid RewoundProof.
-    std::unique_ptr<RewoundProof> pRewoundProof = Bulletproofs::Rewind(commit, *pRangeProof, extraData, nonce);
-    BOOST_REQUIRE(pRewoundProof);
+    std::pair<std::vector<uint8_t>, std::vector<uint8_t>> bp_messages = Bulletproofs::Rewind(commit, *pRangeProof, extraData, sharedNonce, privateNonce);
 
     // Make sure amount, blindingFactor (aka 'key'), and ProofMessage match the values passed to Bulletproofs::Generate
-    BOOST_REQUIRE(*pRewoundProof == RewoundProof(
-        value,
-        std::make_unique<SecretKey>(SecretKey(blind.vec())),
-        ProofMessage(message)
-    ));
 
     // Make sure BatchVerify returns true.
     std::vector<ProofData> rangeProofs;

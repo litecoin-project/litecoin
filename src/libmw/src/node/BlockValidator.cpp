@@ -28,12 +28,12 @@ void BlockValidator::ValidatePegInCoins(
     const std::vector<PegInCoin>& pegInCoins)
 {
     std::unordered_map<mw::Hash, CAmount> pegInAmounts;
-    std::for_each(
-        pegInCoins.cbegin(), pegInCoins.cend(),
-        [&pegInAmounts](const PegInCoin& coin) {
-            pegInAmounts.insert({coin.GetKernelID(), coin.GetAmount()});
+    for (const PegInCoin& coin : pegInCoins) {
+        auto inserted = pegInAmounts.insert({coin.GetKernelID(), coin.GetAmount()});
+        if (!inserted.second) {
+            ThrowValidation(EConsensusError::DUPLICATES);
         }
-    );
+    }
 
     auto pegin_coins = pBlock->GetPegIns();
     if (pegin_coins.size() != pegInAmounts.size()) {

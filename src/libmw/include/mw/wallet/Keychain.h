@@ -46,7 +46,9 @@ public:
     StealthAddress GetStealthAddress(const uint32_t index) const;
 
     // Requires that keychain be unlocked and not watch-only.
-    SecretKey GetSpendKey(const uint32_t index) const;
+    SecretKey GetSubaddressSpendKey(const uint32_t index) const;
+
+    std::optional<uint32_t> LookupAddressIndex(const StealthAddress& address) const;
 
     const SecretKey& GetScanSecret() const noexcept { return m_scanSecret; }
 

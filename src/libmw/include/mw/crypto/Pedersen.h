@@ -7,11 +7,6 @@ class Pedersen
 {
 public:
     //
-    // Creates a pedersen commitment from a value with a zero blinding factor.
-    //
-    static Commitment CommitTransparent(const uint64_t value);
-
-    //
     // Creates a pedersen commitment from a value with the supplied blinding factor.
     //
     static Commitment Commit(

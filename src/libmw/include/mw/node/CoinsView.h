@@ -22,7 +22,7 @@ MW_NAMESPACE
 // This is similar to CCoinsView in the main codebase, and in fact, each CCoinsView
 // should also hold an instance of a mw::ICoinsView for use with MWEB-related logic.
 //
-class ICoinsView : public std::enable_shared_from_this<ICoinsView>
+class ICoinsView
 {
 public:
     using Ptr = std::shared_ptr<ICoinsView>;
@@ -37,10 +37,13 @@ public:
 
     const std::shared_ptr<mw::DBWrapper>& GetDatabase() const noexcept { return m_pDatabase; }
 
+    // Virtual functions
     virtual bool IsCache() const noexcept = 0;
 
-    // Virtual functions
     virtual mw::UTXO::CPtr GetUTXO(const mw::Hash& output_id) const = 0;
+    virtual void AddUTXO(const uint64_t header_height, const mw::Output& output) = 0;
+    virtual mw::UTXO::CPtr SpendUTXO(const mw::Hash& output_id) = 0;
+
     virtual void WriteBatch(
         const mw::DBBatch::UPtr& pBatch,
         const CoinsViewUpdates& updates,
@@ -86,6 +89,8 @@ public:
     bool IsCache() const noexcept final { return true; }
 
     mw::UTXO::CPtr GetUTXO(const mw::Hash& output_id) const noexcept final;
+    void AddUTXO(const uint64_t header_height, const mw::Output& output) final;
+    mw::UTXO::CPtr SpendUTXO(const mw::Hash& output_id) final;
 
     /// <summary>
     /// Validates and connects the block to the end of the chain.
@@ -127,9 +132,6 @@ public:
     IMMR::Ptr GetOutputPMMR() const noexcept final { return m_pOutputPMMR; }
 
 private:
-    void AddUTXO(const uint64_t header_height, const mw::Output& output);
-    mw::UTXO SpendUTXO(const mw::Hash& output_id);
-
     ICoinsView::Ptr m_pBase;
 
     LeafSetCache::Ptr m_pLeafSet;
@@ -152,6 +154,9 @@ public:
     bool IsCache() const noexcept final { return false; }
 
     mw::UTXO::CPtr GetUTXO(const mw::Hash& output_id) const final;
+    void AddUTXO(const uint64_t header_height, const mw::Output& output) final;
+    mw::UTXO::CPtr SpendUTXO(const mw::Hash& output_id) final;
+
     void WriteBatch(
         const mw::DBBatch::UPtr& pBatch,
         const CoinsViewUpdates& updates,
@@ -176,7 +181,7 @@ private:
 
     void AddUTXO(CoinDB& coinDB, const mw::Output& output);
     void AddUTXO(CoinDB& coinDB, const mw::UTXO::CPtr& pUTXO);
-    void SpendUTXO(CoinDB& coinDB, const mw::Hash& output_id);
+    mw::UTXO::CPtr SpendUTXO(CoinDB& coinDB, const mw::Hash& output_id);
     mw::UTXO::CPtr GetUTXO(const CoinDB& coinDB, const mw::Hash& output_id) const;
 
     LeafSet::Ptr m_pLeafSet;

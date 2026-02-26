@@ -3,6 +3,9 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <mw/node/BlockValidator.h>
+#include <mw/consensus/Weight.h>
+#include <mw/crypto/Schnorr.h>
+#include <mw/models/tx/MutableTx.h>
 
 #include <test_framework/Miner.h>
 #include <test_framework/TestMWEB.h>
@@ -11,24 +14,6 @@
 using namespace mw;
 
 BOOST_FIXTURE_TEST_SUITE(TestBlockValidator, MWEBTestingSetup)
-
-// MW: TODO - Write tests for invalid blocks:
-// - Pegin mismatch
-// - Pegout mismatch
-// - Num kernels mismatch
-// - Kernel root mismatch
-// - Invalid stealth excess sum
-// * Block weight
-// * Unsorted inputs
-// - Unsorted outputs
-// - Unsorted kernels
-// * Duplicate spent IDs
-// * Duplicate output IDs
-// * Duplicate kernel IDs
-// * Invalid input signature
-// * Invalid output signature
-// * Invalid kernel signature
-// * Invalid rangeproof
 
 BOOST_AUTO_TEST_CASE(BlockValidator_Test_ValidBlock)
 {
@@ -229,6 +214,51 @@ BOOST_AUTO_TEST_CASE(BlockValidator_Test_OutputSorting)
     BOOST_CHECK(!is_valid);
 }
 
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_InputSorting)
+{
+    test::Miner miner(m_path_root);
+
+    test::Tx funding_tx = test::TxBuilder()
+        .AddPeginKernel(10'000'000)
+        .AddOutput(4'000'000, SecretKey::Random(), StealthAddress::Random())
+        .AddOutput(6'000'000, SecretKey::Random(), StealthAddress::Random())
+        .Build();
+    miner.MineBlock(1, {funding_tx});
+
+    test::Tx tx = test::TxBuilder()
+        .AddInput(funding_tx.GetOutputs()[0])
+        .AddInput(funding_tx.GetOutputs()[1])
+        .AddOutput(10'000'000, SecretKey::Random(), StealthAddress::Random())
+        .AddPlainKernel(0)
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(2, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    // Swap inputs so they're no longer in order
+    std::vector<mw::Input> inputs = pBlock->GetInputs();
+    mw::Input tmp = inputs[0];
+    inputs[0] = inputs[1];
+    inputs[1] = tmp;
+
+    BOOST_REQUIRE(inputs[0].GetOutputID() > inputs[1].GetOutputID());
+    mw::Block::CPtr pUnsortedBlock = mw::MutBlock(pBlock)
+        .SetInputs(std::move(inputs))
+        .Build();
+
+    is_valid = BlockValidator::ValidateBlock(
+        pUnsortedBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
 BOOST_AUTO_TEST_CASE(BlockValidator_Test_KernelSorting)
 {
     test::Miner miner(m_path_root);
@@ -260,6 +290,312 @@ BOOST_AUTO_TEST_CASE(BlockValidator_Test_KernelSorting)
 
     is_valid = BlockValidator::ValidateBlock(
         pUnsortedBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_BlockWeight)
+{
+    test::Miner miner(m_path_root);
+
+    test::Tx tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000)
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(1, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    std::vector<mw::Output> outputs = pBlock->GetOutputs();
+    while (!Weight::ExceedsMaximum(mw::TxBody(pBlock->GetInputs(), outputs, pBlock->GetKernels()))) {
+        outputs.push_back(outputs.front());
+    }
+
+    mw::Block::CPtr pHeavyBlock = mw::MutBlock(pBlock)
+        .SetOutputs(std::move(outputs))
+        .Build();
+
+    is_valid = BlockValidator::ValidateBlock(
+        pHeavyBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_DuplicateSpentIDs)
+{
+    test::Miner miner(m_path_root);
+
+    test::Tx funding_tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000)
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .Build();
+    miner.MineBlock(1, {funding_tx});
+
+    test::Tx tx = test::TxBuilder()
+        .AddInput(funding_tx.GetOutputs()[0])
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .AddPlainKernel(0)
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(2, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    std::vector<mw::Input> inputs = pBlock->GetInputs();
+    inputs.push_back(inputs.front());
+
+    mw::Block::CPtr pDuplicateBlock = mw::MutBlock(pBlock)
+        .SetInputs(std::move(inputs))
+        .Build();
+
+    is_valid = BlockValidator::ValidateBlock(
+        pDuplicateBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_DuplicateOutputIDs)
+{
+    test::Miner miner(m_path_root);
+
+    test::Tx tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000)
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(1, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    std::vector<mw::Output> outputs = pBlock->GetOutputs();
+    outputs.push_back(outputs.front());
+
+    mw::Block::CPtr pDuplicateBlock = mw::MutBlock(pBlock)
+        .SetOutputs(std::move(outputs))
+        .Build();
+
+    is_valid = BlockValidator::ValidateBlock(
+        pDuplicateBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_DuplicateKernelIDs)
+{
+    test::Miner miner(m_path_root);
+
+    test::Tx tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000)
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(1, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    std::vector<mw::Kernel> kernels = pBlock->GetKernels();
+    kernels.push_back(kernels.front());
+
+    mw::Block::CPtr pDuplicateBlock = std::make_shared<mw::Block>(
+        mw::MutHeader(pBlock->GetHeader())
+            .SetNumKernels(kernels.size())
+            .Build(),
+        mw::TxBody(pBlock->GetInputs(), pBlock->GetOutputs(), kernels)
+    );
+
+    is_valid = BlockValidator::ValidateBlock(
+        pDuplicateBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_InvalidInputSignature)
+{
+    test::Miner miner(m_path_root);
+
+    test::Tx funding_tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000)
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .Build();
+    miner.MineBlock(1, {funding_tx});
+
+    test::Tx tx = test::TxBuilder()
+        .AddInput(funding_tx.GetOutputs()[0])
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .AddPlainKernel(0)
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(2, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    mw::MutableTx mutable_tx = mw::MutableTx::From(*tx.GetTransaction());
+    mutable_tx.inputs.front().signature = Signature(SecretKey64::Random().GetBigInt());
+    mw::Transaction::CPtr pInvalidTx = mutable_tx.Finalized().value();
+
+    mw::Block::CPtr pInvalidSigBlock = mw::MutBlock(pBlock)
+        .SetInputs(pInvalidTx->GetInputs())
+        .SetOutputs(pInvalidTx->GetOutputs())
+        .SetKernels(pInvalidTx->GetKernels())
+        .Build();
+
+    is_valid = BlockValidator::ValidateBlock(
+        pInvalidSigBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_InvalidOutputSignature)
+{
+    test::Miner miner(m_path_root);
+
+    test::Tx tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000)
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(1, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    mw::MutableTx mutable_tx = mw::MutableTx::From(*tx.GetTransaction());
+    mutable_tx.outputs.front().signature = Signature(SecretKey64::Random().GetBigInt());
+    mw::Transaction::CPtr pInvalidTx = mutable_tx.Finalized().value();
+
+    mw::Block::CPtr pInvalidSigBlock = mw::MutBlock(pBlock)
+        .SetInputs(pInvalidTx->GetInputs())
+        .SetOutputs(pInvalidTx->GetOutputs())
+        .SetKernels(pInvalidTx->GetKernels())
+        .Build();
+
+    is_valid = BlockValidator::ValidateBlock(
+        pInvalidSigBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_InvalidKernelSignature)
+{
+    test::Miner miner(m_path_root);
+
+    test::Tx funding_tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000)
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .Build();
+    miner.MineBlock(1, {funding_tx});
+
+    test::Tx tx = test::TxBuilder()
+        .AddInput(funding_tx.GetOutputs()[0])
+        .AddOutput(5'000'000, SecretKey::Random(), StealthAddress::Random())
+        .AddPlainKernel(0)
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(2, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    mw::MutableTx mutable_tx = mw::MutableTx::From(*tx.GetTransaction());
+    mutable_tx.kernels.front().signature = Signature(SecretKey64::Random().GetBigInt());
+    mw::Transaction::CPtr pInvalidTx = mutable_tx.Finalized().value();
+
+    mw::Block::CPtr pInvalidSigBlock = mw::MutBlock(pBlock)
+        .SetInputs(pInvalidTx->GetInputs())
+        .SetOutputs(pInvalidTx->GetOutputs())
+        .SetKernels(pInvalidTx->GetKernels())
+        .Build();
+
+    is_valid = BlockValidator::ValidateBlock(
+        pInvalidSigBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(!is_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockValidator_Test_InvalidRangeProof)
+{
+    test::Miner miner(m_path_root);
+
+    SecretKey sender_key = SecretKey::Random();
+    test::Tx tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000)
+        .AddOutput(5'000'000, sender_key, StealthAddress::Random())
+        .Build();
+    mw::Block::CPtr pBlock = miner.MineBlock(1, {tx}).GetBlock();
+
+    bool is_valid = BlockValidator::ValidateBlock(
+        pBlock,
+        tx.GetPegIns(),
+        tx.GetPegOuts()
+    );
+    BOOST_CHECK(is_valid);
+
+    mw::MutableTx mutable_tx = mw::MutableTx::From(*tx.GetTransaction());
+    std::vector<uint8_t> proof_bytes(RangeProof::SIZE, 0);
+    mutable_tx.outputs.front().proof = std::make_shared<RangeProof>(std::move(proof_bytes));
+
+    mw::Output resigned_output(
+        *mutable_tx.outputs.front().commitment,
+        *mutable_tx.outputs.front().sender_pubkey,
+        *mutable_tx.outputs.front().receiver_pubkey,
+        *mutable_tx.outputs.front().message,
+        *mutable_tx.outputs.front().proof,
+        Signature()
+    );
+    mutable_tx.outputs.front().signature = Schnorr::Sign(sender_key.data(), resigned_output.BuildSignedMsg().GetMsgHash());
+
+    mw::Transaction::CPtr pInvalidTx = mutable_tx.Finalized().value();
+    mw::Block::CPtr pInvalidProofBlock = mw::MutBlock(pBlock)
+        .SetInputs(pInvalidTx->GetInputs())
+        .SetOutputs(pInvalidTx->GetOutputs())
+        .SetKernels(pInvalidTx->GetKernels())
+        .Build();
+
+    is_valid = BlockValidator::ValidateBlock(
+        pInvalidProofBlock,
         tx.GetPegIns(),
         tx.GetPegOuts()
     );

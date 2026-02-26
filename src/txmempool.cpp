@@ -815,10 +815,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
             // We are iterating through the mempool entries sorted in order by ancestor count.
             // All parents must have been checked before their children and their coins added to
             // the mempoolDuplicate coins cache.
-            // MW: TODO - assert(mempoolDuplicate.HaveCoin(input.GetID()));
-            if (!mempoolDuplicate.HaveCoin(input.GetID())) {
-                LogPrintf("FAIL - No coin found for input %s\n", input.GetID().ToString());
-            }
+            assert(mempoolDuplicate.HaveCoin(input.GetID()));
             // Check whether its inputs are marked in mapNextTx.
             auto it3 = mapNextTx.find(input.GetID());
             assert(it3 != mapNextTx.end());
@@ -885,7 +882,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         assert(!tx.IsHogEx());
         assert(Consensus::CheckTxInputs(tx, dummy_state, mempoolDuplicate, spendheight, txfee));
 
-        UpdateCoins(tx, mempoolDuplicate, std::numeric_limits<int>::max());
+        UpdateCoins(tx, mempoolDuplicate, MEMPOOL_HEIGHT);
     }
     for (auto it = mapNextTx.cbegin(); it != mapNextTx.cend(); it++) {
         uint256 hash = it->second->GetHash();
@@ -1113,7 +1110,7 @@ bool CCoinsViewMemPool::GetCoin(const COutPoint &outpoint, Coin &coin) const {
     CTransactionRef ptx = mempool.get(outpoint.hash);
     if (ptx) {
         if (outpoint.n < ptx->vout.size()) {
-            coin = Coin(ptx->vout[outpoint.n], MEMPOOL_HEIGHT, false, ptx->mweb_tx.HasPegOut()); // MW: TODO - Figure out the correct fPegout value
+            coin = Coin(ptx->vout[outpoint.n], MEMPOOL_HEIGHT, false, false);
             return true;
         } else {
             return false;
@@ -1129,7 +1126,7 @@ void CCoinsViewMemPool::PackageAddTransaction(const CTransactionRef& tx)
             mw::Output mweb_output = output.ToMWEBOutput();
             // MW: TODO - m_temp_added.emplace(output.ToMWEB(), mweb_output);
         } else {
-            m_temp_added.emplace(output.ToOutPoint(), Coin(output.GetTxOut(), MEMPOOL_HEIGHT, false, tx->mweb_tx.HasPegOut())); // MW: TODO - Figure out the correct fPegout value
+            m_temp_added.emplace(output.ToOutPoint(), Coin(output.GetTxOut(), MEMPOOL_HEIGHT, false, false));
         }
     }
 }
@@ -1144,7 +1141,7 @@ bool CCoinsViewMemPool::HaveCoin(const GenericOutputID& output_id) const
         auto iter = mempool.mapTxOutputs_MWEB.find(output_id.ToMWEB());
         if (iter != mempool.mapTxOutputs_MWEB.end()) {
             assert(mempool.mapTx.count(iter->second->GetHash()) > 0);
-            return true;
+            return true; // MW: TODO - What if another tx in the mempool spends this output?
         }
 
         return GetMWEBView()->HasCoin(output_id.ToMWEB());

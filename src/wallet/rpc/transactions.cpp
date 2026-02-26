@@ -462,7 +462,6 @@ static const std::vector<RPCResult> TransactionDescriptionString()
            }},
            {RPCResult::Type::STR_HEX, "replaced_by_txid", /*optional=*/true, "The txid if this tx was replaced."},
            {RPCResult::Type::STR_HEX, "replaces_txid", /*optional=*/true, "The txid if the tx replaces one."},
-           {RPCResult::Type::STR, "comment", /*optional=*/true, ""},
            {RPCResult::Type::STR, "to", /*optional=*/true, "If a comment to is associated with the transaction."},
            {RPCResult::Type::NUM_TIME, "time", "The transaction time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::NUM_TIME, "timereceived", "The time received expressed in " + UNIX_EPOCH_TIME + "."},
@@ -503,7 +502,9 @@ RPCHelpMan listtransactions()
                             {RPCResult::Type::STR_AMOUNT, "amount", "The amount in " + CURRENCY_UNIT + ". This is negative for the 'send' category, and is positive\n"
                                 "for all other categories"},
                             {RPCResult::Type::STR, "label", /*optional=*/true, "A comment for the address/transaction, if any"},
-                            {RPCResult::Type::NUM, "vout", "the vout value"},
+                            {RPCResult::Type::NUM, "vout", /*optional=*/true, "the vout value"},
+                            {RPCResult::Type::STR_HEX, "mweb_out", /*optional=*/true, "the MWEB output ID"},
+                            {RPCResult::Type::STR, "pegout", /*optional=*/true, "the MWEB pegout kernel and position (format: \"kernel_id:position\""},
                             {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The amount of the fee in " + CURRENCY_UNIT + ". This is negative and only available for the\n"
                                  "'send' category of transactions."},
                         },
@@ -658,7 +659,6 @@ RPCHelpMan listwallettransactions()
         std::sort(tx_records.begin(), tx_records.end(), [](const WalletTxRecord& a, const WalletTxRecord& b) {
             return a.status.sortKey > b.status.sortKey;
         });
-
         
         for (WalletTxRecord& tx_record : tx_records) {
             UniValue entry = tx_record.ToUniValue();

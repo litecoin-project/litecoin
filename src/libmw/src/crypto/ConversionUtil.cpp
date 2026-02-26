@@ -84,21 +84,6 @@ secp256k1_pedersen_commitment ConversionUtil::ToSecp256k1(const Commitment& comm
     return parsedCommitment;
 }
 
-Commitment ConversionUtil::ToCommitment(const secp256k1_pedersen_commitment& commitment)
-{
-    Commitment out;
-    const int serializedResult = secp256k1_pedersen_commitment_serialize(
-        SECP256K1_CONTEXT.Read()->Get(),
-        out.data(),
-        &commitment
-    );
-    if (serializedResult != 1) {
-        ThrowCrypto("Failed to serialize commitment.");
-    }
-
-    return out;
-}
-
 std::vector<secp256k1_pedersen_commitment> ConversionUtil::ToSecp256k1(const std::vector<Commitment>& commitments)
 {
     std::vector<secp256k1_pedersen_commitment> out;

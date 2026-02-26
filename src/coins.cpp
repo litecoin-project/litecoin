@@ -137,7 +137,7 @@ void AddCoins(CCoinsViewCache& cache, const CTransaction &tx, int nHeight, bool 
         bool overwrite = check_for_overwrite ? cache.HaveCoin(output.GetID()) : fCoinbase;
 
         if (output.IsMWEB()) {
-            // MW: TODO - Do we need to support AddCoin?
+            cache.GetMWEBCacheView()->AddUTXO(nHeight, output.ToMWEBOutput());
         } else {
             cache.AddCoin(output.ToOutPoint(), Coin(output.GetTxOut(), nHeight, fCoinbase, fPegout), overwrite);
         }

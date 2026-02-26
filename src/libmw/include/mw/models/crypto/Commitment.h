@@ -5,13 +5,10 @@
 // file LICENSE or http://www.opensource.org/licenses/mit-license.php.
 
 #include <mw/common/Traits.h>
-#include <mw/models/crypto/BigInteger.h>
+#include <mw/models/crypto/SecretKey.h>
 #include <crypto/siphash.h>
 
 #include <cassert>
-
-// Forward Declarations
-class BlindingFactor;
 
 class Commitment :
     public Traits::IPrintable,

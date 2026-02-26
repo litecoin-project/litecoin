@@ -338,10 +338,9 @@ public:
     }
 
     // MW: TODO - Also return pegout script id?
-    std::vector<GenericOutputID> GetOutputIDs(const bool include_partial_mweb) const
+    std::vector<GenericOutputID> GetOutputIDs(const bool include_partial_mweb = true) const
     {
         std::vector<GenericOutputID> output_ids;
-
         for (const GenericOutput& output : tx->GetOutputs()) {
             output_ids.push_back(output.GetID());
         }
@@ -362,20 +361,6 @@ public:
         }
 
         return outputs;
-    }
-
-    std::vector<GenericOutputID> GetOutputIDs() const
-    {
-        std::vector<GenericOutputID> output_ids;
-        for (const GenericOutput& output : tx->GetOutputs()) {
-            output_ids.push_back(output.GetID());
-        }
-
-        if (mweb_wtx_info && mweb_wtx_info->received_coin) {
-            output_ids.push_back(mweb_wtx_info->received_coin->output_id);
-        }
-
-        return output_ids;
     }
 
     GenericOutput GetOutput(const GenericOutputID& output_id) const noexcept

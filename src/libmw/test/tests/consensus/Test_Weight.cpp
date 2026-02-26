@@ -73,7 +73,7 @@ BOOST_AUTO_TEST_CASE(ExceedsMaximum)
 
     // 10,000 outputs + 10,000 plain kernels = 200,000 Weight
     {
-        std::vector<Input> inputs(mw::MAX_NUM_INPUTS);
+        std::vector<mw::Input> inputs(mw::MAX_NUM_INPUTS);
         std::vector<mw::Output> outputs = CreateStandardOutputs(10'000);
         std::vector<mw::Kernel> kernels = CreateKernels(10'000, 0);
 
@@ -85,7 +85,7 @@ BOOST_AUTO_TEST_CASE(ExceedsMaximum)
 
     // 50,000 inputs max, so 50,001 should exceed maximum
     {
-        std::vector<Input> inputs(mw::MAX_NUM_INPUTS + 1);
+        std::vector<mw::Input> inputs(mw::MAX_NUM_INPUTS + 1);
         std::vector<mw::Output> outputs = CreateStandardOutputs(10'000);
         std::vector<mw::Kernel> kernels = CreateKernels(10'000, 0);
         BOOST_CHECK(inputs.size() == 50'001);
@@ -98,7 +98,7 @@ BOOST_AUTO_TEST_CASE(ExceedsMaximum)
 
     // 10,000 outputs + 10,000 plain kernels and 1 stealth kernel = 200,003 Weight
     {
-        std::vector<Input> inputs(mw::MAX_NUM_INPUTS);
+        std::vector<mw::Input> inputs(mw::MAX_NUM_INPUTS);
         std::vector<mw::Output> outputs = CreateStandardOutputs(10'000);
         std::vector<mw::Kernel> kernels = CreateKernels(10'000, 1);
         BOOST_CHECK(inputs.size() == 50'000);

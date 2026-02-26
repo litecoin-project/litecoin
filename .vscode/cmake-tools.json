@@ -1,0 +1,6 @@
+{
+    "buildDirectory": "${workspaceFolder}/build/${buildType}",
+    "configureSettings": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "YES"
+    }
+}

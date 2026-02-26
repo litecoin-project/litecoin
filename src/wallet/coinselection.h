@@ -6,7 +6,6 @@
 #define BITCOIN_WALLET_COINSELECTION_H
 
 #include <consensus/amount.h>
-#include <mw/models/wallet/Coin.h>
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <random.h>
@@ -61,7 +60,6 @@ static constexpr CAmount CHANGE_LOWER{50000};
 static constexpr CAmount CHANGE_UPPER{1000000};
 
 // Add some waste for every MWEB input so that we minimize the number of MWEB inputs consumed.
-// MW: TODO - check if this is the right value
 static constexpr CAmount MWEB_INPUT_WASTE{1};
 
 enum class TxSizeType {

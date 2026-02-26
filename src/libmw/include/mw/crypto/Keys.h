@@ -1,7 +1,6 @@
 #pragma once
 
 #include <mw/crypto/PublicKeys.h>
-#include <mw/models/crypto/BlindingFactor.h>
 #include <mw/models/crypto/Commitment.h>
 #include <mw/models/crypto/PublicKey.h>
 #include <mw/models/crypto/SecretKey.h>

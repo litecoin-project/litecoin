@@ -329,20 +329,27 @@ class AvoidReuseTest(BitcoinTestFramework):
 
         # Node under test should be empty
         assert_equal(self.nodes[1].getbalance(avoid_reuse=False), 0)
+        self.log.info("balance checked")
 
         new_addr = self.nodes[1].getnewaddress()
         ret_addr = self.nodes[0].getnewaddress()
+        self.log.info("addresses generated")
 
         # Send 101 outputs of 1 BTC to the same, reused address in the wallet
         for _ in range(101):
             self.nodes[0].sendtoaddress(new_addr, 1)
-
+            
+        self.log.info("sent to addresses")
         self.generate(self.nodes[0], 1)
+        self.log.info("generated")
 
         # Sending a transaction that is smaller than each one of the
         # available outputs
         txid = self.nodes[1].sendtoaddress(address=ret_addr, amount=0.5)
+        self.log.info("sent to addresses")
         inputs = self.nodes[1].getrawtransaction(txid, 1)["vin"]
+        
+        self.log.info("rawtransaction received")
 
         # The transaction should use 100 inputs exactly
         assert_equal(len(inputs), 100)

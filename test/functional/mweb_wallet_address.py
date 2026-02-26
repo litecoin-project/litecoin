@@ -23,12 +23,8 @@ import os
 import shutil
 
 from test_framework.test_framework import BitcoinTestFramework
-from test_framework.descriptors import descsum_create
+from test_framework.util import assert_raises_rpc_error
 
-from test_framework.util import (
-    assert_equal,
-    assert_raises_rpc_error,
-)
 
 class MWEBWalletAddressTest(BitcoinTestFramework):
     def set_test_params(self):
@@ -56,7 +52,7 @@ class MWEBWalletAddressTest(BitcoinTestFramework):
 
         self.start_nodes()
         self.import_deterministic_coinbase_privkeys()
-        
+
     def run_test(self):
         self.test_prehd_wallet()
         # TODO: self.test_blank_wallet()
@@ -67,12 +63,11 @@ class MWEBWalletAddressTest(BitcoinTestFramework):
 
         node_master = self.nodes[0]
         node_master_wallet_dir = os.path.join(node_master.datadir, "regtest/wallets", self.default_wallet_name)
-        node_master_wallet = os.path.join(node_master_wallet_dir, self.default_wallet_name, self.wallet_data_filename)
 
         v15_1_node  = self.nodes[1]
         v15_1_wallet = os.path.join(v15_1_node.datadir, "regtest/wallet.dat")
         self.stop_node(1)
-        
+
         # Copy the 0.15.1 non hd wallet to the last Litecoin Core version and open it:
         node_master.get_wallet_rpc(self.default_wallet_name).unloadwallet()
         shutil.rmtree(node_master_wallet_dir)
@@ -82,7 +77,7 @@ class MWEBWalletAddressTest(BitcoinTestFramework):
             node_master_wallet_dir
         )
         node_master.loadwallet(self.default_wallet_name)
-        
+
         # MW: TODO - Need a more appropriate error message
         assert_raises_rpc_error(-12, "Error: Keypool ran out, please call keypoolrefill first", node_master.getnewaddress, address_type='mweb')
 

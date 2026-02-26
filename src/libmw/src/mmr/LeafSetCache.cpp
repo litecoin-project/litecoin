@@ -21,6 +21,21 @@ void LeafSetCache::Flush(const uint32_t file_index)
     m_modifiedBytes.clear();
 }
 
+void LeafSetCache::ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const
+{
+    m_pBacked->ReadBytes(byteIdx, numBytes, out);
+    if (numBytes == 0 || m_modifiedBytes.empty()) {
+        return;
+    }
+
+    const uint64_t end = byteIdx + numBytes;
+    for (const auto& entry : m_modifiedBytes) {
+        if (entry.first >= byteIdx && entry.first < end) {
+            out[static_cast<size_t>(entry.first - byteIdx)] = entry.second;
+        }
+    }
+}
+
 uint8_t LeafSetCache::GetByte(const uint64_t byteIdx) const
 {
     auto iter = m_modifiedBytes.find(byteIdx);

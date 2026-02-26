@@ -19,16 +19,6 @@ class GenericCoin;
 class COutPoint;
 class SigningProvider;
 
-/**
- * Sign a transaction with the given keystore and previous transactions
- *
- * @param  mtx           The transaction to-be-signed
- * @param  keystore      Temporary keystore containing signing keys
- * @param  coins         Map of unspent outputs
- * @param  hashType      The signature hash type
- * @param result         JSON object where signed transaction results accumulate
- */
-void SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<GenericOutputID, GenericCoin>& coins, const UniValue& hashType, UniValue& result);
 void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<GenericOutputID, GenericCoin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result);
 
 /**

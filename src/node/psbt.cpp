@@ -62,6 +62,8 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
             in_amt += utxo.nValue;
             input_analysis.has_utxo = true;
         } else {
+            // MW: TODO - Determine has_utxo, is_final, and in_amt/fee for MWEB inputs
+            
             if (input.non_witness_utxo && input.prev_out >= input.non_witness_utxo->vout.size()) {
                 result.SetInvalid(strprintf("PSBT is not valid. Input %u specifies invalid prevout", i));
                 return result;
@@ -125,24 +127,31 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
             }
         );
 
-        // Include pegout amounts
-        for (const PSBTKernel& kernel : psbtx.kernels) {
-            for (const PegOutCoin& pegout : kernel.pegouts) {
-                if (!MoneyRange(out_amt) || !MoneyRange(pegout.GetAmount()) || !MoneyRange(out_amt + pegout.GetAmount())) {
-                    out_amt = CAmount(-1);
-                } else {
-                    out_amt += pegout.GetAmount();
-                }
-            }
-        }
-
         if (!MoneyRange(out_amt)) {
             result.SetInvalid("PSBT is not valid. Output amount invalid");
             return result;
         }
 
+        // Include pegout amounts
+        CAmount pegout_amt = std::accumulate(psbtx.kernels.begin(), psbtx.kernels.end(), CAmount(0),
+            [](CAmount a, const PSBTKernel& b) {
+                for (const PegOutCoin& pegout : b.pegouts) {
+                    if (!MoneyRange(a) || !MoneyRange(pegout.GetAmount()) || !MoneyRange(a + pegout.GetAmount())) {
+                        return CAmount(-1);
+                    }
+                    a += pegout.GetAmount();
+                }
+                return a;
+            }
+        );
+
+        if (!MoneyRange(pegout_amt) || !MoneyRange(out_amt + pegout_amt)) {
+            result.SetInvalid("PSBT is not valid. Pegout amount invalid");
+            return result;
+        }
+
         // Get the fee
-        CAmount fee = in_amt - out_amt;
+        CAmount fee = in_amt - (out_amt + pegout_amt);
         result.fee = fee;
 
         // Estimate the size

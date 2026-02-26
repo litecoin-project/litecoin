@@ -20,11 +20,11 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
     ////////////////////////////////////////
     // Build inputs
     ////////////////////////////////////////
-    std::vector<Input> inputs;
+    std::vector<mw::Input> inputs;
 
     SecretKey input1_key = SecretKey::Random();
     SecretKey input1_output_key = SecretKey::Random();
-    Input input1(
+    mw::Input input1(
         1,                                  // features
         SecretKey::Random().GetBigInt(),    // output_id
         Commitment::Random(),               // commitment
@@ -37,7 +37,7 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
 
     SecretKey input2_key = SecretKey::Random();
     SecretKey input2_output_key = SecretKey::Random();
-    Input input2(
+    mw::Input input2(
         1,                                  // features
         SecretKey::Random().GetBigInt(),    // output_id
         Commitment::Random(),               // commitment

@@ -17,6 +17,7 @@ public:
 
     virtual uint8_t GetByte(const uint64_t byteIdx) const = 0;
     virtual void SetByte(const uint64_t byteIdx, const uint8_t value) = 0;
+    virtual void ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const;
 
     void Add(const mmr::LeafIndex& idx);
     void Remove(const mmr::LeafIndex& idx);
@@ -52,6 +53,7 @@ public:
 
     uint8_t GetByte(const uint64_t byteIdx) const final;
     void SetByte(const uint64_t byteIdx, const uint8_t value) final;
+    void ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const final;
 
     void ApplyUpdates(
         const uint32_t file_index,
@@ -81,6 +83,7 @@ public:
 
     uint8_t GetByte(const uint64_t byteIdx) const final;
     void SetByte(const uint64_t byteIdx, const uint8_t value) final;
+    void ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const final;
 
     void ApplyUpdates(
         const uint32_t file_index,

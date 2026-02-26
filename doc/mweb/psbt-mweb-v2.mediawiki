@@ -1,0 +1,213 @@
+<pre>
+  LIP: TBD
+  Layer: Applications
+  Title: PSBT v2 Mimblewimble Extension-Block (MWEB) Support
+  Author: David Burkett <davidburkett38@gmail.com>
+  Comments-Summary: No comments yet.
+  Comments-URI: TBD
+  Status: Draft
+  Type: Standards Track
+  Created: 2025-07-25
+  License: BSD-2-Clause
+</pre>
+
+== Introduction ==
+
+=== Abstract ===  
+This proposal extends the Partially Signed Bitcoin Transaction format
+(PSBT v2 as defined by BIP-0370) for **Litecoin’s Mimblewimble
+Extension-Block (MWEB)** functionality.
+It specifies new global, input, output, and *kernel-map* fields that let
+wallets collaborate on confidential-amount, signature-aggregated MWEB
+transactions while preserving the role-based flow of BIP-0174/BIP-0370.
+
+=== Copyright ===  
+This document is licensed under the 2-clause BSD license.
+
+=== Motivation ===  
+Litecoin activated MWEB in May 2022 (LTC block 2 249 856), enabling
+confidential transfers inside an extension block anchored to each
+main-chain block.  
+Collaborative transactions—coinjoins, payjoins, multisig, hardware-wallet
+workflows—benefit greatly from PSBT.  Without standard key-types
+covering MWEB’s **outputs, kernels, offsets, stealth commitments, range
+proofs,** etc., wallet interoperability is impossible.  
+The goal is **minimal but sufficient** PSBT extensions so that existing
+BIP-0370 parsers need only add table entries, not a brand-new format.
+
+== Specification ==
+
+PSBT v2 rules remain unchanged **except** for the additional key-types
+tabulated below.  
+Field inclusion/exclusion follows BIP-0370 conventions:
+
+* “Versions Requiring Inclusion” — must appear in PSBT v2+MWEB.  
+* “Versions Requiring Exclusion” — must **not** appear in PSBT v0.  
+* “Versions Allowing Inclusion” — optional.
+
+Where “None” appears under <keydata>, the key consists of the single
+<keytype> byte.
+
+---
+
+=== New Global-Scope Key-types ===
+
+{| class="wikitable"
+! Name !! <keytype> !! <keydata> !! <valuedata> (Description) !! Inc. !! Exc. !! Allow
+|-
+| MWEB Transaction Offset || <tt>PSBT_GLOBAL_MWEB_TX_OFFSET = 0x90</tt> || None || 32-byte kernel-offset blinding factor || 2 || 0 || 2
+|-
+| MWEB Stealth Offset || <tt>PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET = 0x91</tt> || None || 32-byte stealth-offset blinding factor || 2 || 0 || 2
+|-
+| MWEB Kernel Count || <tt>PSBT_GLOBAL_MWEB_KERNEL_COUNT = 0x92</tt> || None || <compact-size> number of kernel maps present || 2 || 0 || 2
+|}
+
+---
+
+=== New Per-Input Key-types ===
+
+{| class="wikitable"
+! Name !! <keytype> !! <keydata> !! <valuedata> (Description) !! Inc. !! Exc. !! Allow
+|-
+| MWEB Spent Output ID || <tt>PSBT_IN_MWEB_SPENT_OUTPUT_ID = 0x90</tt> || None || 32-byte parent output ID || 2 || 0 || 2
+|-
+| Spent Output Commitment || <tt>PSBT_IN_MWEB_COMMIT = 0x91</tt> || None || 33-byte Pedersen commitment of the spent output || 2 || 0 || 2
+|-
+| Spent Output PubKey || <tt>PSBT_IN_MWEB_OUTPUT_PUBKEY = 0x92</tt> || None || 33-byte (x,y) pubkey of the spent output || 2 || 0 || 2
+|-
+| Input PubKey || <tt>PSBT_IN_MWEB_INPUT_PUBKEY = 0x93</tt> || None || 33-byte excess commitment pubkey (pre-signature) || 2 || 0 || 2
+|-
+| Input Features || <tt>PSBT_IN_MWEB_FEATURES = 0x94</tt> || None || 1-byte bit-field (see MWEB spec) || 2 || 0 || 2
+|-
+| Input Signature || <tt>PSBT_IN_MWEB_INPUT_SIG = 0x95</tt> || None || 64-byte Schnorr signature (+ sighash) over the input excess ||  || 0 || 2
+|-
+| MWEB Address Index || <tt>PSBT_IN_MWEB_ADDRESS_INDEX = 0x96</tt> || None || <u64> index of the stealth subaddress the input was sent to ||  || 0 || 2
+|-
+| Explicit Amount || <tt>PSBT_IN_MWEB_AMOUNT = 0x97</tt> || None || 64-bit little-endian amount <code><nowiki>|v|</nowiki></code> (used only when disclosure is required) ||  || 0 || 2
+|-
+| Shared Secret || <tt>PSBT_IN_MWEB_SHARED_SECRET = 0x98</tt> || None || 32-byte Diffie–Hellman shared secret (for Sender → Receiver proofs) ||  || 0 || 2
+|-
+| Key-Exchange PubKey || <tt>PSBT_IN_MWEB_KEY_EXCHANGE_PK = 0x99</tt> || None || 33-byte pubkey used in shared-secret calculation ||  || 0 || 2
+|-
+| Master Scan-Key Origin || <tt>PSBT_IN_MWEB_MASTER_SCAN_KEY_ORIGIN = 0x9A</tt> || None || <tt>(fingerprint<nowiki>||</nowiki>path)</tt> per BIP-32 (scan) ||  || 0 || 2
+|-
+| Master Spend-Key Origin || <tt>PSBT_IN_MWEB_MASTER_SPEND_KEY_ORIGIN = 0x9B</tt> || None || <tt>(fingerprint<nowiki>||</nowiki>path)</tt> per BIP-32 (spend) ||  || 0 || 2
+|-
+| Input Extra Data || <tt>PSBT_IN_MWEB_EXTRA_DATA = 0x9C</tt> || None || Arbitrary data, e.g. sender message ||  || 0 || 2
+|}
+
+---
+
+=== New Per-Output Key-types ===
+
+{| class="wikitable"
+! Name !! <keytype> !! <keydata> !! <valuedata> (Description) !! Inc. !! Exc. !! Allow
+|-
+| Stealth Address || <tt>PSBT_OUT_MWEB_STEALTH_ADDRESS = 0x90</tt> || None || 79-byte encoded stealth address || 2 || 0 || 2
+|-
+| Output Commitment || <tt>PSBT_OUT_MWEB_COMMIT = 0x91</tt> || None || 33-byte Pedersen commitment || 2 || 0 || 2
+|-
+| Output Features || <tt>PSBT_OUT_MWEB_FEATURES = 0x92</tt> || None || 1-byte features bit-field ||  || 0 || 2
+|-
+| Sender PubKey || <tt>PSBT_OUT_MWEB_SENDER_PUBKEY = 0x93</tt> || None || 33-byte sender revelation key ||  || 0 || 2
+|-
+| Output PubKey || <tt>PSBT_OUT_MWEB_OUTPUT_PUBKEY = 0x94</tt> || None || 33-byte pubkey of the output ||  || 0 || 2
+|-
+| Standard Fields Blob || <tt>PSBT_OUT_MWEB_STANDARD_FIELDS = 0x95</tt> || None || TODO ||  || 0 || 2
+|-
+| Range Proof || <tt>PSBT_OUT_MWEB_RANGEPROOF = 0x96</tt> || None ||  675-byte Bulletproof ||  || 0 || 2
+|-
+| Output Signature || <tt>PSBT_OUT_MWEB_SIG = 0x97</tt> || None || 64-byte Schnorr sig for sender-proofs ||  || 0 || 2
+|-
+| Output Extra Data || <tt>PSBT_OUT_MWEB_EXTRA_DATA = 0x98</tt> || None || Arbitrary opaque bytes ||  || 0 || 2
+|}
+
+---
+
+=== Kernel Maps ===
+
+A **kernel map** is encoded exactly like an input/output map but starts
+with the separator byte <code>0x00</code> **immediately following the
+last output map**.  There MUST be exactly
+<tt>PSBT_GLOBAL_MWEB_KERNEL_COUNT</tt> kernel maps.
+
+{| class="wikitable"
+! Name 
+! <tt><keytype></tt>
+! <tt><keydata></tt>
+! <tt><valuedata></tt>
+! Inc. 
+! Exc. 
+! Allow
+|-
+| Excess Commitment || <tt>PSBT_KERN_EXCESS_COMMIT = 0x00</tt> || None || 33-byte commitment || 2 || 0 || 2
+|-
+| Stealth Excess Commit || <tt>PSBT_KERN_STEALTH_COMMIT = 0x01</tt> || None || 33-byte blinded excess (stealth) ||  || 0 || 2
+|-
+| Fee (litoshi) || <tt>PSBT_KERN_FEE = 0x02</tt> || None || 64-bit little-endian miner fee inside EB ||  || 0 || 2
+|-
+| Pegin Amount || <tt>PSBT_KERN_PEGIN_AMOUNT = 0x03</tt> || None || 64-bit little-endian amount coming from main-chain ||  || 0 || 2
+|-
+| Peg-out TxOut || <tt>PSBT_KERN_PEGOUT = 0x04</tt> || <varint index></varint> || serialized <tt>CTxOut</tt> ||  || 0 || 2
+|-
+| Lock Height || <tt>PSBT_KERN_LOCK_HEIGHT = 0x05</tt> || None || 32-bit little-endian block-height lock ||  || 0 || 2
+|-
+| Feature Bits || <tt>PSBT_KERN_FEATURES = 0x06</tt> || None || 1-byte bit-field (see MWEB spec) ||  || 0 || 2
+|-
+| Extra Data || <tt>PSBT_KERN_EXTRA_DATA = 0x07</tt> || None || opaque bytes committed inside kernel ||  || 0 || 2
+|-
+| Kernel Signature || <tt>PSBT_KERN_SIG = 0x08</tt> || None || 64-byte Schnorr sig proving excess ownership ||  || 0 || 2
+|}
+
+Kernel maps without <tt>Kernel Signature</tt> are **not finalized**.
+
+---
+
+=== Determining the MWEB Offset ===
+
+The **aggregate blinding factor** is computed as  
+<code>offset = tx_offset ⊕ Σ(input.amount_blinds) ⊕ …</code>  
+where <tt>PSBT_GLOBAL_MWEB_TX_OFFSET</tt> supplies
+<code>tx_offset</code>.  Wallets must update the global offset whenever
+they add or remove commitments.
+
+---
+
+== Roles ==
+
+Existing PSBT v2 roles (Creator, Constructor, Updater, Signer, Finalizer,
+Extractor) are extended as follows:
+
+* **Creator** sets the three new global fields (offsets & kernel-count) to zero or a placeholder.
+* **Constructor** MUST increment <tt>MWEB_KERNEL_COUNT</tt> and update the global offsets when it appends kernel maps.
+* **Signer** places Schnorr signatures into
+<tt>PSBT_IN_MWEB_SIGNATURE</tt> (inputs) and
+<tt>PSBT_KERNEL_SIGNATURE</tt> (kernels) and clears the appropriate
+<tt>PSBT_GLOBAL_TX_MODIFIABLE</tt> bits—same logic as BIP-0370.
+* **Finalizer** moves fully-signed kernel/input/output data into a canonical order, ensuring each required field for a kernel feature bit is present.
+* **Extractor** serializes the transaction:
+  * builds the main-chain transaction (which commits the extension block hash) from legacy PSBT data;
+  * serializes the EB payload using the kernel + output information in their PSBT maps.
+
+== Backwards Compatibility ==
+
+* Parsers unaware of the new <keytype> values will ignore them, treating the PSBT as a “normal” v2 that happens to have unknown keys. Such tools **must not attempt to extract** a transaction.
+* All new key-types are forbidden in PSBT v0.
+
+== Reference Implementation ==
+
+A reference implementation (Go) is provided in
+<code>github.com/litecoin-project/lips/pull/###</code>, mirroring the
+logic already merged into <code>ltcsuite/ltcd</code>’s PSBT package and
+the Python example in <code>pylitecoin</code>.
+
+== Rationale ==
+
+* **Byte-values** follow the on-chain MWEB serialization as closely as possible (e.g. kernel feature bits) to minimize parsing code.  
+* Separating **kernel maps** from regular output maps keeps PSBT’s tree-structure intuitive: kernels are conceptually “outputs of the block”, not of any individual input.
+* Offsets belong in the *global* scope because they are transaction-wide balancing terms.
+
+== Future Work ==
+
+* Test vectors (binary + base64) mirroring the exhaustive list in BIP-0370 will be added once wallet implementers agree the draft.
+* Optional support for **MWEB asset tags** (if activated) can be encoded via proprietary keys (<keytype> 0xFC).

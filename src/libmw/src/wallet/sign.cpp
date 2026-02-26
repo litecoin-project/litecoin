@@ -49,8 +49,12 @@ static util::Result<SignInputResult> SignInput(MutableInput& input) noexcept
         return util::Error{Untranslated("Input is already signed")};
     }
 
-    if (!input.raw_blind) {
-        return util::Error{Untranslated("Input blinding factor missing")};
+    if (!input.raw_blind && input.shared_secret) {
+        if (input.shared_secret) {
+            input.raw_blind = Hashed(EHashTag::BLIND, *input.shared_secret);
+        } else {
+            return util::Error{Untranslated("Input blinding factor and shared secret missing")};
+        }
     }
 
     if (!input.spend_key) {
@@ -63,14 +67,20 @@ static util::Result<SignInputResult> SignInput(MutableInput& input) noexcept
 
     input.output_pubkey = PublicKey::From(*input.spend_key);
 
-    LOG_INFO("DEBUG: Signing input (amount: {})", input.amount.value());
-    if (!input.ephemeral_key) {
-        input.ephemeral_key = SecretKey::Random();
-    }
-    input.input_pubkey = PublicKey::From(*input.ephemeral_key);
-
     if (!input.features) {
-        input.features = (uint8_t)Input::FeatureBit::STEALTH_KEY_FEATURE_BIT;
+        input.features = (uint8_t)mw::Input::FeatureBit::STEALTH_KEY_FEATURE_BIT;
+    }
+
+    if ((*input.features & mw::Input::FeatureBit::STEALTH_KEY_FEATURE_BIT) > 0) {
+        if (!input.ephemeral_key) {
+            input.ephemeral_key = SecretKey::Random();
+        }
+        input.input_pubkey = PublicKey::From(*input.ephemeral_key);
+    } else {
+        input.ephemeral_key = std::nullopt;
+        input.input_pubkey = std::nullopt;
+        // MW: FUTURE - Support signing inputs without the stealth key feature.
+        return util::Error{Untranslated("Input does not have the stealth key feature")};
     }
 
     BlindingFactor input_blind = Pedersen::BlindSwitch(*input.raw_blind, *input.amount);
@@ -97,7 +107,7 @@ struct SignOutputResult {
     mw::Coin coin{};
 };
 
-static util::Result<SignOutputResult> SignOutput(MutableOutput& output) noexcept
+static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw::Hash& kernel_id) noexcept
 {
     if (output.signature.has_value()) {
         return util::Error{Untranslated("Output is already signed")};
@@ -107,14 +117,15 @@ static util::Result<SignOutputResult> SignOutput(MutableOutput& output) noexcept
         return util::Error{Untranslated("Output amount or address missing")};
     }
 
-    LOG_INFO("DEBUG: Signing output");
     BlindingFactor raw_blind;
     SecretKey ephemeral_key = SecretKey::Random();
+    // MW: TODO - Pass kernel_id when signing output messages to encrypt them in the output proof
     mw::Output finalized = mw::Output::Create(
         &raw_blind,
         ephemeral_key,
         *output.address,
-        *output.amount);
+        *output.amount
+    );
 
     output.Update(finalized);
 
@@ -133,52 +144,17 @@ static util::Result<SignOutputResult> SignOutput(MutableOutput& output) noexcept
 util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
 {
     SignTxResult result{};
-    if (tx.mweb_tx.IsNull()) {
+    if (tx.mweb_tx.IsNull() || tx.mweb_tx.IsFinal()) {
         return result;
     }
 
     Blinds kernel_offset{};
     Blinds stealth_offset{};
-
-    // Sign outputs
-    for (MutableOutput& output : tx.mweb_tx.outputs) {
-        if (output.IsFinal()) {
-            continue;
-        }
-
-        util::Result<SignOutputResult> sign_output_result = SignOutput(output);
-        if (!sign_output_result) {
-            return sign_output_result.error();
-        }
-
-        const SignOutputResult& signed_output = sign_output_result.value();
-        kernel_offset.Add(signed_output.output_blind);
-        stealth_offset.Add(signed_output.ephemeral_key);
-        result.coins_by_output_id[*output.CalcOutputID()] = signed_output.coin;
-    }
-
-    // Sign inputs
-    for (MutableInput& input : tx.mweb_tx.inputs) {
-        if (input.IsFinal()) {
-            continue;
-        }
-
-        util::Result<SignInputResult> input_sign_result = SignInput(input);
-        if (!input_sign_result) {
-            return input_sign_result.error();
-        }
-
-        const SignInputResult& signed_input = input_sign_result.value();
-        kernel_offset.Sub(signed_input.input_blind);
-        stealth_offset.Add(signed_input.ephemeral_key);
-        stealth_offset.Sub(signed_input.spend_key);
-    }
+    std::vector<PegInCoin> pegins;
 
     if (tx.mweb_tx.kernels.empty()) {
         tx.mweb_tx.kernels.push_back(mw::MutableKernel{});
     }
-
-    std::vector<PegInCoin> pegins;
 
     // Sign kernels
     for (MutableKernel& kernel : tx.mweb_tx.kernels) {
@@ -210,7 +186,7 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
         stealth_offset.Sub(stealth_blind);
     }
 
-    // Update pegin scripts
+    // Update pegin scripts // MW: TODO - Pegging in with multiple pegins of the same amount will cause issues
     for (const PegInCoin& pegin : pegins) {
         for (CTxOut& out : tx.vout) {
             if (out.nValue == pegin.GetAmount() && out.scriptPubKey.IsMWEBPegin()) {
@@ -218,10 +194,50 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
             }
         }
     }
+    
+    std::optional<mw::Hash> first_kernel_id = tx.mweb_tx.kernels.front().GetKernelID();
+    if (!first_kernel_id.has_value()) {
+        return util::Error{Untranslated("Kernel ID could not be calculated")};
+    }
+
+    // Sign outputs
+    for (MutableOutput& output : tx.mweb_tx.outputs) {
+        if (output.IsFinal()) {
+            continue;
+        }
+
+        util::Result<SignOutputResult> sign_output_result = SignOutput(output, first_kernel_id.value());
+        if (!sign_output_result) {
+            return sign_output_result.error();
+        }
+
+        const SignOutputResult& signed_output = sign_output_result.value();
+        kernel_offset.Add(signed_output.output_blind);
+        stealth_offset.Add(signed_output.ephemeral_key);
+        result.coins_by_output_id[*output.CalcOutputID()] = signed_output.coin;
+    }
+
+    // Sign inputs
+    for (MutableInput& input : tx.mweb_tx.inputs) {
+        if (input.IsFinal()) {
+            continue;
+        }
+
+        util::Result<SignInputResult> input_sign_result = SignInput(input);
+        if (!input_sign_result) {
+            return input_sign_result.error();
+        }
+
+        const SignInputResult& signed_input = input_sign_result.value();
+        kernel_offset.Sub(signed_input.input_blind);
+        stealth_offset.Add(signed_input.ephemeral_key);
+        stealth_offset.Sub(signed_input.spend_key);
+    }
 
     tx.mweb_tx.kernel_offset = kernel_offset.Total();
     tx.mweb_tx.stealth_offset = stealth_offset.Total();
 
+    // MW: TODO - Should we be sorting here, or should MutableTx.Finalized() take care of it?
     CTransaction finalized_tx(tx);
     try {
         if (finalized_tx.mweb_tx.IsNull()) {

@@ -25,7 +25,7 @@ public:
             [](const mw::Output& output) { return output.GetSenderPubKey(); }
         );
 
-        for (const Input& input : body.GetInputs()) {
+        for (const mw::Input& input : body.GetInputs()) {
             if (!!input.GetInputPubKey()) {
                 lhs_keys.push_back(*input.GetInputPubKey());
             }
@@ -43,12 +43,12 @@ public:
 
         std::transform(
             body.GetInputs().cbegin(), body.GetInputs().cend(), std::back_inserter(rhs_keys),
-            [](const Input& input) { return input.GetOutputPubKey(); }
+            [](const mw::Input& input) { return input.GetOutputPubKey(); }
         );
 
 
-        if (!stealth_offset.IsZero()) {
-            rhs_keys.push_back(PublicKeys::Calculate(stealth_offset.GetBigInt()));
+        if (!stealth_offset.IsNull()) {
+            rhs_keys.push_back(PublicKey::From(stealth_offset));
         }
 
         PublicKey rhs_total;

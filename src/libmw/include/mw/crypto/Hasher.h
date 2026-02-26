@@ -42,11 +42,6 @@ public:
         blake3_hasher_update(&m_hasher, src.data(), src.size());
     }
 
-    //void write(const char* pch, size_t size)
-    //{
-    //    blake3_hasher_update(&m_hasher, pch, size);
-    //}
-
     mw::Hash hash()
     {
         mw::Hash hashed;

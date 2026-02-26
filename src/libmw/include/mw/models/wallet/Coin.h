@@ -38,7 +38,7 @@ static constexpr uint32_t UNKNOWN_INDEX{std::numeric_limits<uint32_t>::max()};
 struct Coin : public Traits::ISerializable {
     static constexpr uint8_t LATEST_VERSION = 2;
 
-    // Index of the subaddress this coin was received at.
+    // Index of the subaddress this coin was received at. // MW: TODO - We also need the seed id or master key identifier of some sort.
     uint32_t address_index{UNKNOWN_INDEX};
 
     // The private key needed in order to spend the coin.
@@ -58,11 +58,9 @@ struct Coin : public Traits::ISerializable {
     mw::Hash output_id; // MW: TODO - We should really just store the whole Output (without the rangeproof)
 
     // The ephemeral private key used by the sender to create the output.
-    // This will only be populated when the coin has flag HAS_SENDER_INFO.
     std::optional<SecretKey> sender_key;
 
     // The StealthAddress the coin was sent to.
-    // This will only be populated when the coin has flag HAS_SENDER_INFO.
     std::optional<StealthAddress> address;
 
     // The shared secret used to generate the output key.
@@ -71,10 +69,13 @@ struct Coin : public Traits::ISerializable {
     // the output key once the wallet becomes unlocked.
     std::optional<SecretKey> shared_secret;
 
+    // The id the master scan key used to generate the stealth address.
+    std::optional<CKeyID> master_scan_key_id;
+
     bool operator==(const Coin& rhs) const
     {
-        return std::tie(address_index, spend_key, blind, amount, output_id, sender_key, address, shared_secret) ==
-            std::tie(rhs.address_index, rhs.spend_key, rhs.blind, rhs.amount, rhs.output_id, rhs.sender_key, rhs.address, rhs.shared_secret);
+        return std::tie(address_index, spend_key, blind, amount, output_id, sender_key, address, shared_secret, master_scan_key_id) ==
+            std::tie(rhs.address_index, rhs.spend_key, rhs.blind, rhs.amount, rhs.output_id, rhs.sender_key, rhs.address, rhs.shared_secret, rhs.master_scan_key_id);
     }
 
     bool IsChange() const noexcept { return address_index == CHANGE_INDEX; }
@@ -118,6 +119,10 @@ struct Coin : public Traits::ISerializable {
     //  - bool has_shared_secret
     //    * byte[32] shared_secret - skip if has_shared_secret is false
     //
+    // If version >= 3, format extended to include:
+    //  - bool has_master_key_id
+    //    * byte[20] master_scan_key_id - skip if has_master_key_id is false
+    //
     IMPL_SERIALIZABLE(Coin, obj)
     {
         // Always serialize using the latest version
@@ -140,6 +145,10 @@ struct Coin : public Traits::ISerializable {
 
         if (version >= 2) {
             READWRITE(obj.shared_secret);
+        }
+
+        if (version >= 3) {
+            READWRITE(obj.master_scan_key_id);
         }
     }
 };

@@ -7,11 +7,6 @@
 
 static Locked<Context> PEDERSEN_CONTEXT(std::make_shared<Context>());
 
-Commitment Pedersen::CommitTransparent(const uint64_t value)
-{
-    return Commit(value, BigInt<32>());
-}
-
 Commitment Pedersen::Commit(const uint64_t value, const BlindingFactor& blindingFactor)
 {
     secp256k1_pedersen_commitment commitment;
@@ -26,8 +21,16 @@ Commitment Pedersen::Commit(const uint64_t value, const BlindingFactor& blinding
     if (result != 1) {
         ThrowCrypto("Failed to create commitment.");
     }
+    
+    Commitment out;
+    const int serializedResult = secp256k1_pedersen_commitment_serialize(
+        PEDERSEN_CONTEXT.Read()->Get(),
+        out.data(),
+        &commitment
+    );
+    assert(serializedResult == 1);
 
-    return ConversionUtil::ToCommitment(commitment);
+    return out;
 }
 
 Commitment Pedersen::AddCommitments(
@@ -58,12 +61,12 @@ BlindingFactor Pedersen::AddBlindingFactors(
     std::vector<BlindingFactor> sanitizedPositive;
     std::copy_if(
         positive.cbegin(), positive.cend(), std::back_inserter(sanitizedPositive),
-        [](const auto& positiveBlind) { return !positiveBlind.IsZero(); });
+        [](const auto& positiveBlind) { return !positiveBlind.IsNull(); });
 
     std::vector<BlindingFactor> sanitizedNegative;
     std::copy_if(
         negative.cbegin(), negative.cend(), std::back_inserter(sanitizedNegative),
-        [](const auto& negativeBlind) { return !negativeBlind.IsZero(); });
+        [](const auto& negativeBlind) { return !negativeBlind.IsNull(); });
 
     if (sanitizedPositive.empty() && sanitizedNegative.empty()) {
         return BlindingFactor{};
@@ -93,7 +96,14 @@ Commitment Pedersen::PedersenCommitSum(const std::vector<Commitment>& positive, 
         ThrowCrypto("secp256k1_pedersen_commit_sum error");
     }
 
-    return ConversionUtil::ToCommitment(commitment);
+    Commitment out;
+    const int serializedResult = secp256k1_pedersen_commitment_serialize(
+        PEDERSEN_CONTEXT.Read()->Get(),
+        out.data(),
+        &commitment);
+    assert(serializedResult == 1);
+
+    return out;
 }
 
 BlindingFactor Pedersen::PedersenBlindSum(const std::vector<BlindingFactor>& positive, const std::vector<BlindingFactor>& negative)

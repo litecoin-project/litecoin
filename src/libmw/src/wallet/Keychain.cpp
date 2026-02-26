@@ -69,13 +69,13 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
 
 std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::Coin& coin) const
 {
-    if (!m_spk_man) {
-        return std::nullopt;
-    }
-
     // If we already calculated the spend key, there's no need to calculate it again.
     if (coin.HasSpendKey()) {
         return coin.spend_key;
+    }
+    
+    if (!m_spk_man) {
+        return std::nullopt;
     }
 
     // Watch-only or locked wallets will not have the spend secret.
@@ -131,6 +131,15 @@ SecretKey Keychain::GetSubaddressSpendKey(const uint32_t index) const
         .hash();
 
     return SecretKeys::From(*m_spendSecret).Add(mi).Total();
+}
+
+std::optional<uint32_t> Keychain::LookupAddressIndex(const StealthAddress& address) const
+{
+    auto pMetadata = m_spk_man->GetMetadata(address);
+    if (!pMetadata) {
+        return std::nullopt;
+    }
+    return pMetadata->key_origin.hdkeypath.mweb_index.value_or(CUSTOM_KEY);
 }
 
 END_NAMESPACE

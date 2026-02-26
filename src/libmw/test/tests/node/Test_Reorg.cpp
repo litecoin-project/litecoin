@@ -4,9 +4,12 @@
 
 #include <mw/node/CoinsView.h>
 #include <mw/node/BlockValidator.h>
+#include <mw/crypto/SecretKeys.h>
+#include <mw/crypto/Hasher.h>
 
 #include <test_framework/Miner.h>
 #include <test_framework/TestMWEB.h>
+#include <test_framework/TxBuilder.h>
 
 BOOST_FIXTURE_TEST_SUITE(TestReorg, MWEBTestingSetup)
 
@@ -30,27 +33,62 @@ BOOST_AUTO_TEST_CASE(ReorgChain)
     pCachedView->ApplyBlock(block1.GetBlock());
 
     const auto& block1_tx1_output1 = block1_tx1.GetOutputs()[0];
-    BOOST_REQUIRE(pDBView->GetUTXO(block1_tx1_output1.GetOutputID()) == nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_CHECK(pDBView->GetUTXO(block1_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
 
     ///////////////////////
     // Mine Block 2
     ///////////////////////
-    test::Tx block2_tx1 = test::Tx::CreatePegIn(500);
-    auto block2 = miner.MineBlock(161, { block2_tx1 });
+    SecretKey receiver_scan_key = SecretKey::Random();
+    SecretKey receiver_spend_key = SecretKey::Random();
+    StealthAddress receiver_addr(PublicKey::From(receiver_scan_key), PublicKey::From(receiver_spend_key));
+    SecretKey sender_key = SecretKey::Random();
+
+    test::Tx block2_tx1 = test::TxBuilder()
+        .AddPeginKernel(500)
+        .AddOutput(500, sender_key, receiver_addr)
+        .Build();
+    const auto& block2_tx1_output1 = block2_tx1.GetOutputs()[0];
+
+    BigInt<16> n(Hashed(EHashTag::NONCE, sender_key).data());
+    SecretKey s = Hasher(EHashTag::SEND_KEY)
+        .Append(receiver_addr.A())
+        .Append(receiver_addr.B())
+        .Append(block2_tx1_output1.GetAmount())
+        .Append(n)
+        .hash();
+    SecretKey shared_secret = Hashed(EHashTag::DERIVE, receiver_addr.A().Mul(s));
+    SecretKey output_spend_key = SecretKeys::From(receiver_spend_key)
+        .Mul(Hashed(EHashTag::OUT_KEY, shared_secret))
+        .Total();
+
+    test::Tx block2_tx2 = test::TxBuilder()
+        .AddInput(
+            block2_tx1_output1.GetAmount(),
+            output_spend_key,
+            block2_tx1_output1.GetBlind(),
+            block2_tx1_output1.GetOutputID()
+        )
+        .AddOutput(block2_tx1_output1.GetAmount(), SecretKey::Random(), StealthAddress::Random())
+        .AddPlainKernel(0)
+        .Build();
+    auto block2 = miner.MineBlock(161, { block2_tx1, block2_tx2 });
     BOOST_REQUIRE(BlockValidator::ValidateBlock(block2.GetBlock(), { block2_tx1.GetPegInCoin() }, {}));
     mw::BlockUndo::CPtr undoBlock2 = pCachedView->ApplyBlock(block2.GetBlock());
 
-    const auto& block2_tx1_output1 = block2_tx1.GetOutputs()[0];
-    BOOST_REQUIRE(pDBView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block2_tx1_output1.GetOutputID()) != nullptr);
+    const auto& block2_tx2_output1 = block2_tx2.GetOutputs()[0];
+    BOOST_CHECK(pDBView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pDBView->GetUTXO(block2_tx2_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block2_tx2_output1.GetOutputID()) != nullptr);
 
     ///////////////////////
     // Disconnect Block 2
     ///////////////////////
     pCachedView->UndoBlock(undoBlock2);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block2_tx2_output1.GetOutputID()) == nullptr);
     miner.Rewind(1);
 
     ///////////////////////
@@ -62,8 +100,8 @@ BOOST_AUTO_TEST_CASE(ReorgChain)
     pCachedView->ApplyBlock(block3.GetBlock());
 
     const auto& block3_tx1_output1 = block3_tx1.GetOutputs()[0];
-    BOOST_REQUIRE(pDBView->GetUTXO(block3_tx1_output1.GetOutputID()) == nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block3_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_CHECK(pDBView->GetUTXO(block3_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block3_tx1_output1.GetOutputID()) != nullptr);
 
     ///////////////////////
     // Flush View
@@ -72,12 +110,12 @@ BOOST_AUTO_TEST_CASE(ReorgChain)
     pCachedView->Flush(pBatch);
     pBatch->Commit();
 
-    BOOST_REQUIRE(pDBView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
-    BOOST_REQUIRE(pDBView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
-    BOOST_REQUIRE(pDBView->GetUTXO(block3_tx1_output1.GetOutputID()) != nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block3_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_CHECK(pDBView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_CHECK(pDBView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_CHECK(pDBView->GetUTXO(block3_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_CHECK(pCachedView->GetUTXO(block3_tx1_output1.GetOutputID()) != nullptr);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
