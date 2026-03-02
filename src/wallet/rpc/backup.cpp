@@ -502,7 +502,7 @@ RPCHelpMan importwallet()
     std::shared_ptr<CWallet> const pwallet = GetWalletForJSONRPCRequest(request);
     if (!pwallet) return UniValue::VNULL;
 
-    auto& spk_man = EnsureLegacyScriptPubKeyMan(*pwallet, true);
+    EnsureLegacyScriptPubKeyMan(*pwallet, true);
 
     if (pwallet->chain().havePruned()) {
         // Exit early and print an error.
@@ -565,10 +565,6 @@ RPCHelpMan importwallet()
                         strLabel = DecodeDumpString(vstr[nStr].substr(6));
                         fLabel = true;
                     }
-                    // // MW: TODO - Temporary code
-                    // if (vstr[nStr] == "hdseed=1") {
-                    //     hdSeeds.push_back(key);
-                    // }
                 }
                 keys.push_back(std::make_tuple(key, nTime, fLabel, strLabel));
             } else if(IsHex(vstr[0])) {
@@ -626,12 +622,6 @@ RPCHelpMan importwallet()
             }
 
             progress++;
-        }
-        // MW: TODO - Temporary code
-        if (!hdSeeds.empty()) {
-            LogPrintf("DEBUG: Importing HD seed %s\n", hdSeeds[0].GetPubKey().GetID().GetHex());
-            //spk_man.SetHDSeed(hdSeeds[0].GetPubKey());
-            //spk_man.NewKeyPool();
         }
         pwallet->chain().showProgress("", 100, false); // hide progress dialog in GUI
     }
