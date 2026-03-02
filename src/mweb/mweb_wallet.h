@@ -13,6 +13,7 @@
 #include <variant>
 #include <map>
 #include <set>
+#include <vector>
 
 namespace wallet {
 class CWallet;
@@ -24,6 +25,7 @@ class Wallet
 {
     wallet::CWallet* m_pWallet;
     std::map<mw::Hash, mw::Coin> m_coins;
+    std::map<mw::Hash, mw::Coin> m_staged_coins;
 
 public:
     Wallet(wallet::CWallet* pWallet)
@@ -48,6 +50,8 @@ public:
 
     void LoadToWallet(const mw::Coin& coin);
     void SaveToWallet(const std::vector<mw::Coin>& coins);
+    void StageCoins(const std::map<mw::Hash, mw::Coin>& coins_by_output_id);
+    void SaveStagedCoinsToWallet(const std::set<mw::Hash>& output_ids);
     
     mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_keyid) const;
 

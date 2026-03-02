@@ -554,13 +554,9 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
         }
     }
 
+    // Stage all signed coins so output amounts are available once the tx is committed.
     if (!sign_tx_result->coins_by_output_id.empty()) {
-        std::vector<mw::Coin> mweb_coins;
-        std::transform(
-            sign_tx_result->coins_by_output_id.cbegin(), sign_tx_result->coins_by_output_id.cend(), std::back_inserter(mweb_coins),
-            [](const std::pair<mw::Hash, mw::Coin>& entry) { return entry.second; });
-        // MW: TODO - Save the sender key somewhere temporary, and retrieve it if RewindCoins is called
-        m_wallet.GetMWWallet()->SaveToWallet(mweb_coins); // MW: TODO - This should only be done in CommitTransaction, since this could be called with add_to_wallet=false
+        m_wallet.GetMWWallet()->StageCoins(sign_tx_result->coins_by_output_id);
     }
 
     LogPrintf("DEBUG: END\n");

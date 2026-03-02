@@ -706,9 +706,10 @@ void UpdatePSBTOutput(const SigningProvider& provider, PartiallySignedTransactio
     psbt_out.FromSignatureData(sigdata);
 }
 
-void PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys)
+util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys)
 {
     LogPrintf("DEBUG: BEGIN\n");
+    std::map<mw::Hash, mw::Coin> coins_by_output_id;
 
     // Finalize MWEB outputs and kernels
     CMutableTransaction mtx = psbtx.GetUnsignedTx();
@@ -730,8 +731,10 @@ void PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<
     util::Result<mw::SignTxResult> mweb_result = mw::SignTx(mtx);
     if (!mweb_result) {
         LogPrintf("DEBUG: mw::SignTx failed with error %s\n", mweb_result.error().message.original);
-        return;
+        return util::Error{util::ErrorString(mweb_result)};
     }
+
+    coins_by_output_id = mweb_result->coins_by_output_id;
 
     size_t idx = 0;
     for (PSBTInput& psbt_input : psbtx.inputs) {
@@ -800,6 +803,7 @@ void PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<
     psbtx.mweb_stealth_offset = mtx.mweb_tx.stealth_offset.IsNull() ? std::nullopt : std::make_optional(mtx.mweb_tx.stealth_offset);
 
     LogPrintf("DEBUG: END\n");
+    return coins_by_output_id;
 }
 
 PrecomputedTransactionData PrecomputePSBTData(const PartiallySignedTransaction& psbt)

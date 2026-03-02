@@ -15,8 +15,10 @@
 #include <span.h>
 #include <streams.h>
 #include <util/result.h>
+#include <mw/models/wallet/Coin.h>
 
 #include <bitset>
+#include <map>
 #include <optional>
 #include <unordered_map>
 
@@ -2341,7 +2343,7 @@ size_t CountPSBTUnsignedInputs(const PartiallySignedTransaction& psbt);
  */
 void UpdatePSBTOutput(const SigningProvider& provider, PartiallySignedTransaction& psbt, int index);
 
-void PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys);
+util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys);
 
 /**
  * Finalizes a PSBT if possible, combining partial signatures.

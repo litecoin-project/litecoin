@@ -149,6 +149,28 @@ void Wallet::SaveToWallet(const std::vector<mw::Coin>& coins)
     }
 }
 
+void Wallet::StageCoins(const std::map<mw::Hash, mw::Coin>& coins_by_output_id)
+{
+    for (const auto& [output_id, coin] : coins_by_output_id) {
+        m_staged_coins[output_id] = coin;
+    }
+}
+
+void Wallet::SaveStagedCoinsToWallet(const std::set<mw::Hash>& output_ids)
+{
+    wallet::WalletBatch batch(m_pWallet->GetDatabase());
+    for (const mw::Hash& output_id : output_ids) {
+        auto iter = m_staged_coins.find(output_id);
+        if (iter == m_staged_coins.end()) {
+            continue;
+        }
+
+        m_coins[output_id] = iter->second;
+        batch.WriteMWEBCoin(iter->second);
+        m_staged_coins.erase(iter);
+    }
+}
+
 bool Wallet::GetCoin(const mw::Hash& output_id, mw::Coin& coin) const
 {
     auto iter = m_coins.find(output_id);

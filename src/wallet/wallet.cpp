@@ -2510,7 +2510,15 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
     }
 
     if (sign) {
-        PSBTSignMWEBTx(psbtx, mweb_spend_keys);
+        util::Result<std::map<mw::Hash, mw::Coin>> coins_by_output_id = PSBTSignMWEBTx(psbtx, mweb_spend_keys);
+        if (!coins_by_output_id) {
+            WalletLogPrintf("FillPSBT: PSBTSignMWEBTx failed, %s\n", util::ErrorString(coins_by_output_id).original);
+            return TransactionError::INVALID_PSBT;
+        }
+
+        if (!coins_by_output_id->empty()) {
+            mweb_wallet->StageCoins(*coins_by_output_id);
+        }
     }
 
     const PrecomputedTransactionData txdata = PrecomputePSBTData(psbtx);
@@ -2624,6 +2632,7 @@ void CWallet::CommitTransaction(CTransactionRef tx, mapValue_t mapValue, std::ve
     LOCK(cs_wallet);
     WalletLogPrintf("CommitTransaction:\n%s", tx->ToString()); /* Continued */
 
+    mweb_wallet->SaveStagedCoinsToWallet(tx->mweb_tx.GetOutputIDs());
     mweb_wallet->RewindOutputs(*tx);
 
     // Add tx to wallet, because if it has change it's also ours,
