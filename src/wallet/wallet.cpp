@@ -677,8 +677,10 @@ bool CWallet::IsSpent(const GenericOutputID& idx) const
         const uint256& wtxid = it->second;
         const auto mit = mapWallet.find(wtxid);
         if (mit != mapWallet.end()) {
-            int depth = GetTxDepthInMainChain(mit->second); // MW: TODO - Does this work with partial MWEB txs
-            if (depth > 0  || (depth == 0 && !mit->second.isAbandoned()))
+            const CWalletTx& spend_tx = mit->second;
+            // Partial MWEB spends are tracked using synthetic wallet txids, so
+            // rely on wallet tx state instead of chain depth arithmetic.
+            if (!spend_tx.isConflicted() && !spend_tx.isAbandoned())
                 return true; // Spent
         }
     }

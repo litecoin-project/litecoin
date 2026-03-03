@@ -873,6 +873,53 @@ BOOST_FIXTURE_TEST_CASE(ZapSelectTx, TestChain100Setup)
     TestUnloadWallet(std::move(wallet));
 }
 
+BOOST_FIXTURE_TEST_CASE(IsSpentPartialMWEB, TestChain100Setup)
+{
+    WalletContext context;
+    context.args = &m_args;
+    context.chain = m_node.chain.get();
+    auto wallet = TestLoadWallet(context);
+
+    int tip_height;
+    uint256 tip_hash;
+    {
+        LOCK(Assert(m_node.chainman)->GetMutex());
+        tip_height = m_node.chainman->ActiveChain().Height();
+        tip_hash = m_node.chainman->ActiveChain().Tip()->GetBlockHash();
+    }
+    {
+        LOCK(wallet->cs_wallet);
+        wallet->SetLastBlockProcessed(tip_height, tip_hash);
+    }
+
+    const mw::Hash spent_id = mw::Hash::FromHex("73ee0d7d430d7fdd94fe9ee7f89e7fe9ed6a20f7865d6fdedeb1dd03dd977a0f");
+    const uint256 partial_hash = MWEB::WalletTxInfo(spent_id).GetHash();
+    BOOST_REQUIRE(wallet->AddToWallet(
+        MakeTransactionRef(),
+        std::make_optional<MWEB::WalletTxInfo>(spent_id),
+        TxStateConfirmed{tip_hash, tip_height, 0}
+    ));
+
+    {
+        LOCK(wallet->cs_wallet);
+        BOOST_CHECK(wallet->IsSpent(spent_id));
+
+        CWalletTx* wtx = wallet->GetWalletTx(partial_hash);
+        BOOST_REQUIRE(wtx);
+
+        wtx->m_state = TxStateConflicted{tip_hash, tip_height};
+        BOOST_CHECK(!wallet->IsSpent(spent_id));
+
+        wtx->m_state = TxStateInactive{};
+        BOOST_CHECK(wallet->IsSpent(spent_id));
+
+        wtx->m_state = TxStateInactive{/*abandoned=*/true};
+        BOOST_CHECK(!wallet->IsSpent(spent_id));
+    }
+
+    TestUnloadWallet(std::move(wallet));
+}
+
 /** RAII class that provides access to a FailDatabase. Which fails if needed. */
 class FailBatch : public DatabaseBatch
 {
