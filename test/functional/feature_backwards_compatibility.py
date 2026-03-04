@@ -68,6 +68,15 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
             return os.path.join(node.datadir, "regtest")
         return os.path.join(node.datadir, "regtest/wallets")
 
+    def copy_wallet_dir(self, src, dst):
+        # Skip transient BDB environment files. They are version-specific and can
+        # make an otherwise compatible wallet fail to load on older binaries.
+        shutil.copytree(
+            src,
+            dst,
+            ignore=shutil.ignore_patterns(".walletlock", "__db.*", "db.log", "database"),
+        )
+
     def run_test(self):
         node_miner = self.nodes[0]
         node_master = self.nodes[1]
@@ -146,7 +155,7 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
         for node in legacy_nodes:
             # Copy wallets to previous version
             for wallet in os.listdir(node_master_wallets_dir):
-                shutil.copytree(
+                self.copy_wallet_dir(
                     os.path.join(node_master_wallets_dir, wallet),
                     os.path.join(self.nodes_wallet_dir(node), wallet)
                 )
@@ -269,7 +278,7 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
 
             # Copy the 0.17 wallet to the last Litecoin Core version and open it:
             node_v17.unloadwallet("u1_v17")
-            shutil.copytree(
+            self.copy_wallet_dir(
                 os.path.join(node_v17_wallets_dir, "u1_v17"),
                 os.path.join(node_master_wallets_dir, "u1_v17")
             )
@@ -282,7 +291,7 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
             # Now copy that same wallet back to 0.17 to make sure no automatic upgrade breaks it
             node_master.unloadwallet("u1_v17")
             shutil.rmtree(os.path.join(node_v17_wallets_dir, "u1_v17"))
-            shutil.copytree(
+            self.copy_wallet_dir(
                 os.path.join(node_master_wallets_dir, "u1_v17"),
                 os.path.join(node_v17_wallets_dir, "u1_v17")
             )

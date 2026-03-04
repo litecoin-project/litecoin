@@ -5,10 +5,7 @@ from io import BytesIO
 
 from test_framework.messages import COIN, CTransaction
 from test_framework.test_framework import LitecoinTestFramework
-from test_framework.util import (
-    assert_array_result,
-    assert_equal,
-)
+from test_framework.util import assert_array_result
 
 def tx_from_hex(hexstring):
     tx = CTransaction()
@@ -56,16 +53,18 @@ class ListWalletTransactionsTest(LitecoinTestFramework):
 
         # send-to-self:
         txid = node0.sendtoaddress(node0.getnewaddress(), 0.2)
+        send_to_self_fee = node0.gettransaction(txid)["fee"]
         assert_array_result(node0.listwallettransactions(),
                             {"txid": txid, "type": "SendToSelf"},
-                            {"amount": Decimal("0.2")})
+                            {"amount": send_to_self_fee})
 
         # pegin to self
         node0_mweb_addr = node0.getnewaddress(address_type='mweb') 
         txid = node0.sendtoaddress(node0_mweb_addr, 0.4)
+        pegin_to_self_fee = node0.gettransaction(txid)["fee"]
         assert_array_result(node0.listwallettransactions(),
                             {"txid": txid, "type": "SendToSelf"},
-                            {"amount": Decimal("0.4")})
+                            {"amount": pegin_to_self_fee})
         
         # mine a block, confirmations should change:
         blockhash = self.generate(node0, 1, sync_fun = self.sync_all)[0]
@@ -73,7 +72,7 @@ class ListWalletTransactionsTest(LitecoinTestFramework):
 
         assert_array_result(node0.listwallettransactions(),
                             {"txid": txid, "type": "SendToSelf"},
-                            {"amount": Decimal("0.4"), "confirmations": 1, "blockhash": blockhash, "blockheight": blockheight})
+                            {"amount": pegin_to_self_fee, "confirmations": 1, "blockhash": blockhash, "blockheight": blockheight})
 
         # pegin from 0 to 1
         node1_mweb_addr = node1.getnewaddress(address_type='mweb')
@@ -139,7 +138,7 @@ class ListWalletTransactionsTest(LitecoinTestFramework):
                             {"address": node2_addr},
                             {"txid": hogex_txid, "type": "RecvWithAddress", "amount": Decimal("1.0"), "confirmations": 1, "blockheight": blockheight})
 
-        # TODO: Reorg and ensure hogex is marked as not accepted
+        # MW: TODO - Reorg and ensure hogex is marked as not accepted
 
 if __name__ == '__main__':
     ListWalletTransactionsTest().main()
