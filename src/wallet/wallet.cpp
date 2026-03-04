@@ -1143,10 +1143,19 @@ bool CWallet::LoadToWallet(const CWalletTx& wtx_in)
     }
 
     CWalletTx& wtx = ins.first->second;
-    // MW: TODO - Are these really all the fields we need to copy?
+
+    // mapWallet.emplace(...) initialized tx/state/mweb_wtx_info. Copy the rest of
+    // the fields that are serialized for wallet transaction metadata.
+    // Do not copy runtime-only members (ordering iterator, caches), which are
+    // reconstructed below or lazily recomputed.
+    wtx.mapValue = wtx_in.mapValue;
+    wtx.vOrderForm = wtx_in.vOrderForm;
+    wtx.fTimeReceivedIsTxTime = wtx_in.fTimeReceivedIsTxTime;
     wtx.nTimeReceived = wtx_in.nTimeReceived;
     wtx.nTimeSmart = wtx_in.nTimeSmart;
+    wtx.fFromMe = wtx_in.fFromMe;
     wtx.nOrderPos = wtx_in.nOrderPos;
+    wtx.pegout_indices = wtx_in.pegout_indices;
 
     // If wallet doesn't have a chain (e.g when using litecoin-wallet tool),
     // don't bother to update txn.
