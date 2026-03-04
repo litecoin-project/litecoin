@@ -586,7 +586,12 @@ bool LegacyScriptPubKeyMan::Upgrade(int prev_version, int new_version, bilingual
         mweb_upgrade = true;
         
         // Load MWEB keychain will automatically update the HD chain version.
-        LoadMWEBKeychain(); // MW: TODO - handle error
+        try {
+            LoadMWEBKeychain();
+        } catch (const std::exception& e) {
+            error = Untranslated(strprintf("Unable to load MWEB keychain: %s", e.what()));
+            return false;
+        }
     }
 
     if (hd_upgrade) {
@@ -3135,7 +3140,6 @@ bool DescriptorScriptPubKeyMan::CanUpdateToWalletDescriptor(const WalletDescript
 
 void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
 {
-    // MW: TODO - Assert FEATURE_MWEB, instead
     if (!m_storage.CanSupportFeature(FEATURE_MWEB)) {
         return;
     }

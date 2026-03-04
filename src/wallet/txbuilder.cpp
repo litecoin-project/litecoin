@@ -490,8 +490,11 @@ std::optional<util::Error> TxBuilder::SubtractFeeFromOutputs(const CAmount fee_t
 
     // Subtract fee from MWEB outputs
     for (mw::MutableOutput& output : m_tx.mweb_tx.outputs) {
+        if (!output.amount.has_value()) {
+            return util::Error{_("Transaction has an invalid MWEB output amount")};
+        }
+
         if (output.subtract_fee_from_amount.value_or(false)) {
-            assert(output.amount.has_value()); // MW: TODO - Need to verify in VerifyRecipients that output has amount
             *output.amount -= fee_to_distribute / outputs_to_subtract_fee_from;
 
             if (fFirst) {

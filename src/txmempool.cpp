@@ -1141,7 +1141,7 @@ bool CCoinsViewMemPool::HaveCoin(const GenericOutputID& output_id) const
         auto iter = mempool.mapTxOutputs_MWEB.find(output_id.ToMWEB());
         if (iter != mempool.mapTxOutputs_MWEB.end()) {
             assert(mempool.mapTx.count(iter->second->GetHash()) > 0);
-            return true; // MW: TODO - What if another tx in the mempool spends this output?
+            return true;
         }
 
         return GetMWEBView()->HasCoin(output_id.ToMWEB());
