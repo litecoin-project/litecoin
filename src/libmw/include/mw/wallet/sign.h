@@ -20,6 +20,10 @@ struct SignTxResult
 /// Finalizes the MWEB tx in the CMutableTransaction provided by generating all excesses, pubkeys, signatures, etc.
 /// </summary>
 /// <param name="tx">A CMutableTransaction containing an MWEB tx with all inputs, kernels, and outputs. Components can be stubs (unsigned) or already finalized/signed.</param>
+/// <remarks>
+/// This may rewrite peg-in scriptPubKeys in tx.vout with finalized kernel IDs.
+/// Any PrecomputedTransactionData built from tx before this call must be discarded and rebuilt.
+/// </remarks>
 /// <returns></returns>
 // MW: TODO - Probably needs wallet ptr or some kind of signing provider to generate secrets.
 extern util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept;

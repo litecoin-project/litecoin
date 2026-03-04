@@ -2343,6 +2343,11 @@ size_t CountPSBTUnsignedInputs(const PartiallySignedTransaction& psbt);
  */
 void UpdatePSBTOutput(const SigningProvider& provider, PartiallySignedTransaction& psbt, int index);
 
+/**
+ * Finalizes MWEB components on the PSBT and propagates them back into PSBT fields.
+ * This may rewrite peg-in output scripts in psbtx.outputs, so any
+ * PrecomputedTransactionData built before this call must be rebuilt afterward.
+ */
 util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys);
 
 /**

@@ -728,6 +728,8 @@ util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransac
         }
     }
 
+    // mw::SignTx may rewrite peg-in scriptPubKeys in mtx.vout.
+    // Any precomputed sighash data from before this point must be discarded.
     util::Result<mw::SignTxResult> mweb_result = mw::SignTx(mtx);
     if (!mweb_result) {
         LogPrintf("DEBUG: mw::SignTx failed with error %s\n", mweb_result.error().message.original);

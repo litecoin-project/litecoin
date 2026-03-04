@@ -105,6 +105,8 @@ util::Result<CreatedTransactionResult> TxBuilder::Build(const std::optional<int3
             return add_mweb_tx_error.value();
         }
 
+        // SignMWEBTx may rewrite peg-in scriptPubKeys with finalized kernel IDs.
+        // Any PrecomputedTransactionData for m_tx must be built after this point.
         LogPrintf("DEBUG: Signing tx\n");
         if (!m_wallet.SignTransaction(m_tx)) {
             return util::Error{_("Signing transaction failed")};

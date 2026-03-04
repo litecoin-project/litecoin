@@ -2544,6 +2544,8 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
         }
     }
 
+    // PSBTSignMWEBTx may rewrite peg-in scripts with finalized kernel IDs.
+    // Build PrecomputedTransactionData only after this point.
     const PrecomputedTransactionData txdata = PrecomputePSBTData(psbtx);
 
     // Fill in information from ScriptPubKeyMans

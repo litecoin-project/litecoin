@@ -186,7 +186,10 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
         stealth_offset.Sub(stealth_blind);
     }
 
-    // Update pegin scripts // MW: TODO - Pegging in with multiple pegins of the same amount will cause issues
+    // Update peg-in scripts with finalized kernel IDs.
+    // NOTE: This mutates tx.vout scriptPubKeys and invalidates any previously built
+    // PrecomputedTransactionData for this tx.
+    // MW: TODO - Pegging in with multiple pegins of the same amount will cause issues
     for (const PegInCoin& pegin : pegins) {
         for (CTxOut& out : tx.vout) {
             if (out.nValue == pegin.GetAmount() && out.scriptPubKey.IsMWEBPegin()) {

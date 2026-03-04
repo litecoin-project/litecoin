@@ -1520,6 +1520,9 @@ bool SignatureHashSchnorr(uint256& hash_out, ScriptExecutionData& execdata, cons
         ss << cache.m_sequences_single_hash;
     }
     if (output_type == SIGHASH_ALL) {
+#ifndef NDEBUG
+        assert(cache.m_outputs_single_hash == GetOutputsSHA256(tx_to));
+#endif
         ss << cache.m_outputs_single_hash;
     }
 
@@ -1584,9 +1587,12 @@ uint256 SignatureHash(const CScript& scriptCode, const T& txTo, unsigned int nIn
 
 
         if ((nHashType & 0x1f) != SIGHASH_SINGLE && (nHashType & 0x1f) != SIGHASH_NONE) {
-            hashOutputs = SHA256Uint256(GetOutputsSHA256(txTo));
-            // MW: TODO - Changing pegin output scripts after signing MWEB transactions needs to invalidate PrecomputeTxData. For now, we just bypass the cache.
-            // hashOutputs = cacheready ? cache->hashOutputs : SHA256Uint256(GetOutputsSHA256(txTo));
+#ifndef NDEBUG
+            if (cacheready) {
+                assert(cache->m_outputs_single_hash == GetOutputsSHA256(txTo));
+            }
+#endif
+            hashOutputs = cacheready ? cache->hashOutputs : SHA256Uint256(GetOutputsSHA256(txTo));
         } else if ((nHashType & 0x1f) == SIGHASH_SINGLE && nIn < txTo.vout.size()) {
             HashWriter ss{};
             ss << txTo.vout[nIn];
