@@ -552,6 +552,19 @@ int secp256k1_ec_seckey_verify(const secp256k1_context* ctx, const unsigned char
     return ret;
 }
 
+int secp256k1_ec_seckey_reduce(const secp256k1_context* ctx, unsigned char *seckey) {
+    secp256k1_scalar sec;
+    int ret;
+    VERIFY_CHECK(ctx != NULL);
+    ARG_CHECK(seckey != NULL);
+
+    secp256k1_scalar_set_b32(&sec, seckey, NULL);
+    ret = !secp256k1_scalar_is_zero(&sec);
+    secp256k1_scalar_get_b32(seckey, &sec);
+    secp256k1_scalar_clear(&sec);
+    return ret;
+}
+
 static int secp256k1_ec_pubkey_create_helper(const secp256k1_ecmult_gen_context *ecmult_gen_ctx, secp256k1_scalar *seckey_scalar, secp256k1_ge *p, const unsigned char *seckey) {
     secp256k1_gej pj;
     int ret;

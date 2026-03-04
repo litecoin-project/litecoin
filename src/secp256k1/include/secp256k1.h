@@ -622,6 +622,18 @@ SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_ec_seckey_verify(
     const unsigned char *seckey
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2);
 
+/** Reduce a secret key modulo the secp256k1 curve order.
+ *
+ *  Returns: 1: reduced key is valid according to secp256k1_ec_seckey_verify
+ *           0: reduced key is invalid (only when the reduced key is 0)
+ *  Args:    ctx:    pointer to a context object.
+ *  In/Out: seckey:  pointer to a 32-byte secret key.
+ */
+SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_ec_seckey_reduce(
+    const secp256k1_context* ctx,
+    unsigned char *seckey
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2);
+
 /** Compute the public key for a secret key.
  *
  *  Returns: 1: secret was valid, public key stores.

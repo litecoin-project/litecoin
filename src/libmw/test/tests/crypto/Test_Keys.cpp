@@ -4,8 +4,14 @@
 
 #include <mw/crypto/Blinds.h>
 #include <mw/crypto/Keys.h>
+#include <mw/crypto/SecretKeys.h>
+#include <mw/exceptions/CryptoException.h>
 
 #include <test_framework/TestMWEB.h>
+
+static constexpr char CURVE_ORDER_HEX[] = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364141";
+static constexpr char CURVE_ORDER_PLUS_ONE_HEX[] = "FFFFFFFFFFFFFFFFFFFFFFFFFFFFFFFEBAAEDCE6AF48A03BBFD25E8CD0364142";
+static constexpr char ONE_HEX[] = "0000000000000000000000000000000000000000000000000000000000000001";
 
 BOOST_FIXTURE_TEST_SUITE(TestKeys, MWEBTestingSetup)
 
@@ -22,6 +28,15 @@ BOOST_AUTO_TEST_CASE(KeysTest)
     BlindingFactor blind2 = BlindingFactor::FromHex("a89ac891d3cf82e9e08a8dac89b2c9c6ed54f0d7ba3c790d239aad76c42076f1");
     BlindingFactor blind_sum = Blinds().Add(blind1).Add(blind2).Total();
     BOOST_REQUIRE(blind_sum.ToHex() == "98196ff74518ec051e8222a27542744e4ccaf893eeb3ced685ba9e8ecf652ee3");
+}
+
+BOOST_AUTO_TEST_CASE(SecretKeysFromNormalizesRange)
+{
+    SecretKey reduced = SecretKeys::From(SecretKey::FromHex(CURVE_ORDER_PLUS_ONE_HEX)).Total();
+    BOOST_REQUIRE(reduced == SecretKey::FromHex(ONE_HEX));
+
+    BOOST_CHECK_THROW(SecretKeys::From(SecretKey::FromHex(CURVE_ORDER_HEX)), CryptoException);
+    BOOST_CHECK_THROW(SecretKeys::From(SecretKey::Null()), CryptoException);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

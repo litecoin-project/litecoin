@@ -5,13 +5,13 @@ static Locked<Context> SECKEY_CONTEXT(std::make_shared<Context>());
 
 SecretKeys SecretKeys::From(const SecretKey& secret_key)
 {
-    const int verify_result = secp256k1_ec_seckey_verify(SECKEY_CONTEXT.Read()->Get(), secret_key.data());
-    if (verify_result != 1) {
-        // MW: TODO - Should we just take modulo curve order?
-        ThrowCrypto("secp256k1_ec_seckey_verify failed");
+    SecretKey normalized = secret_key;
+    const int normalize_result = secp256k1_ec_seckey_reduce(SECKEY_CONTEXT.Read()->Get(), normalized.data());
+    if (normalize_result != 1) {
+        ThrowCrypto("secp256k1_ec_seckey_reduce failed");
     }
 
-    return SecretKeys(secret_key);
+    return SecretKeys(normalized);
 }
 
 SecretKeys& SecretKeys::Add(const SecretKey& secret_key)

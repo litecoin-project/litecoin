@@ -5573,6 +5573,9 @@ void run_eckey_edge_case_test(void) {
     int32_t ecount;
     /* Group order is too large, reject. */
     CHECK(secp256k1_ec_seckey_verify(ctx, orderc) == 0);
+    memcpy(ctmp, orderc, 32);
+    CHECK(secp256k1_ec_seckey_reduce(ctx, ctmp) == 0);
+    CHECK(secp256k1_memcmp_var(zeros, ctmp, 32) == 0);
     VG_UNDEF(&pubkey, sizeof(pubkey));
     CHECK(secp256k1_ec_pubkey_create(ctx, &pubkey, orderc) == 0);
     VG_CHECK(&pubkey, sizeof(pubkey));
@@ -5588,6 +5591,8 @@ void run_eckey_edge_case_test(void) {
     /* Zero is too small, reject. */
     memset(ctmp, 0, 32);
     CHECK(secp256k1_ec_seckey_verify(ctx, ctmp) == 0);
+    CHECK(secp256k1_ec_seckey_reduce(ctx, ctmp) == 0);
+    CHECK(secp256k1_memcmp_var(zeros, ctmp, 32) == 0);
     memset(&pubkey, 1, sizeof(pubkey));
     VG_UNDEF(&pubkey, sizeof(pubkey));
     CHECK(secp256k1_ec_pubkey_create(ctx, &pubkey, ctmp) == 0);
@@ -5606,6 +5611,10 @@ void run_eckey_edge_case_test(void) {
     memcpy(ctmp, orderc, 32);
     ctmp[31] = 0x42;
     CHECK(secp256k1_ec_seckey_verify(ctx, ctmp) == 0);
+    memcpy(ctmp2, ctmp, 32);
+    CHECK(secp256k1_ec_seckey_reduce(ctx, ctmp2) == 1);
+    CHECK(secp256k1_memcmp_var(ctmp2, zeros, 31) == 0 && ctmp2[31] == 0x01);
+    CHECK(secp256k1_ec_seckey_verify(ctx, ctmp2) == 1);
     memset(&pubkey, 1, sizeof(pubkey));
     VG_UNDEF(&pubkey, sizeof(pubkey));
     CHECK(secp256k1_ec_pubkey_create(ctx, &pubkey, ctmp) == 0);
