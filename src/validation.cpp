@@ -3222,11 +3222,18 @@ bool Chainstate::ActivateArbitraryChain(BlockValidationState& state, CBlockIndex
 {
     AssertLockHeld(cs_main);
 
+    if (pindex == nullptr) {
+        return error("ActivateArbitraryChain(): null block index");
+    }
+
     const CBlockIndex* pindexFork = m_chain.FindFork(pindex);
     const CBlockIndex* pindexTip = m_chain.Tip();
+    if (pindexFork == nullptr || pindexTip == nullptr) {
+        return error("ActivateArbitraryChain(): Unable to locate fork block or active tip");
+    }
 
     // Disconnect blocks from view until we reach the fork block
-    while (pindexTip->GetBlockHash() != pindexFork->GetBlockHash()) {
+    while (pindexTip != pindexFork) {
         CBlock block;
         if (!ReadBlockFromDisk(block, pindexTip, m_chainman.GetConsensus())) {
             return error("ActivateArbitraryChain(): Failed to read block %s", pindexTip->GetBlockHash().ToString());
@@ -3244,9 +3251,12 @@ bool Chainstate::ActivateArbitraryChain(BlockValidationState& state, CBlockIndex
     vpindexToConnect.reserve(pindex->nHeight - pindexTip->nHeight);
 
     CBlockIndex* pindexIter = pindex;
-    while (pindexIter && pindexIter->nHeight != pindexTip->nHeight) {
+    while (pindexIter && pindexIter != pindexTip) {
         vpindexToConnect.push_back(pindexIter);
         pindexIter = pindexIter->pprev;
+    }
+    if (pindexIter != pindexTip) {
+        return error("ActivateArbitraryChain(): Target block does not connect to active chain");
     }
 
     // Connect the new blocks
@@ -3256,9 +3266,14 @@ bool Chainstate::ActivateArbitraryChain(BlockValidationState& state, CBlockIndex
             return error("ActivateArbitraryChain(): Failed to read block %s", pindexConnect->GetBlockHash().ToString());
         }
 
-        if (!ConnectBlock(block, state, pindexConnect, view, true)) { // MW: TODO - Do we really want fJustCheck to be true?
+        // Use fJustCheck=true so we update only the provided cache, without writing undo data or mutating block index validity.
+        if (!ConnectBlock(block, state, pindexConnect, view, true)) {
             return error("ActivateArbitraryChain(): ConnectBlock %s failed", pindexConnect->GetBlockHash().ToString());
         }
+
+        // ConnectBlock(fJustCheck=true) applies UTXO/MWEB changes but does not advance the cache's best block.
+        // Keep the cache internally consistent for multi-block reconnections.
+        view.SetBestBlock(pindexConnect->GetBlockHash());
     }
 
     return true;

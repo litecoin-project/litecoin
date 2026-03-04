@@ -666,6 +666,7 @@ public:
      * 
      * Unlike ActivateBestChain, this only updates the provided coins view, not the active chain state.
      * No calls to any validationinterface callbacks will be made.
+     * Callers should treat `view` as undefined on failure.
      */
     bool ActivateArbitraryChain(BlockValidationState& state, CBlockIndex* pindex, CCoinsViewCache& view) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
