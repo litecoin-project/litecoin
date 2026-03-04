@@ -1029,7 +1029,13 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
         MarkDestinationsDirty(tx_destinations);
     }
 
-    // MW: TODO - Look at mapKernelsMWEB and mapOutputsMWEB for matching transactions to combine with
+    // MW: TODO - Handle upgrade from partial MWEB wallet txs to full transactions.
+    // During restore/rescan (without mempool history), we can create partial wallet entries
+    // keyed by WalletTxInfo hash (tx->IsNull() && mweb_wtx_info). If the full transaction is
+    // later seen (e.g. after reorg/mempool re-accept), it is keyed by txid and currently
+    // becomes a separate mapWallet entry. Before emplace, use mapKernelsMWEB/mapOutputsMWEB
+    // to find matching partial entries and merge/upgrade in place, including index and db
+    // cleanup (mapWallet key, mapTxSpends, mapOutputsMWEB/mapKernelsMWEB, persisted tx row).
 
     // Inserts only if not already there, returns tx inserted or tx found
     auto ret = mapWallet.emplace(std::piecewise_construct, std::forward_as_tuple(hash), std::forward_as_tuple(tx, state, mweb_wtx_info));
@@ -1121,11 +1127,17 @@ bool CWallet::LoadToWallet(const CWalletTx& wtx_in)
 {
     const auto& ins = mapWallet.emplace(std::piecewise_construct, std::forward_as_tuple(wtx_in.GetHash()), std::forward_as_tuple(wtx_in.tx, wtx_in.m_state, wtx_in.mweb_wtx_info));
     if (!ins.second) {
-        // MW: TODO - Investigate this
-        //if (wtx_in.tx->IsNull()) {
-        //    WalletLogPrintf("%s already exists\n", wtx_in.GetHash().ToString());
-        //    return true;
-        //}
+        const CWalletTx& existing = ins.first->second;
+
+        // Partial MWEB entries are keyed by WalletTxInfo hash rather than txid.
+        // During wallet db upgrades, both a legacy-keyed record and the canonical
+        // keyed record can be present for the same logical partial transaction.
+        // If we encounter this exact duplicate while loading, keep the first one
+        // and continue instead of treating the wallet as corrupt.
+        if (wtx_in.IsPartialMWEB() && existing.IsPartialMWEB() && existing.mweb_wtx_info == wtx_in.mweb_wtx_info) {
+            WalletLogPrintf("Ignoring duplicate partial MWEB wallet tx %s during load\n", wtx_in.GetHash().ToString());
+            return true;
+        }
 
         return false;
     }
@@ -1198,7 +1210,7 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const std::op
             }
         }
 
-        bool fExisted = mapWallet.count(hash) != 0; // MW: TODO - Also check if an mweb_wtx_info exists
+        bool fExisted = mapWallet.count(hash) != 0;
         if (fExisted && !fUpdate) return false;
         if (fExisted || IsMine(tx, mweb_wtx_info) || IsFromMe(tx, mweb_wtx_info))
         {
