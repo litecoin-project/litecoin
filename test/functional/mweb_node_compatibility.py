@@ -3,15 +3,12 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-import os
-import shutil
 import time
 
 from test_framework.test_framework import LitecoinTestFramework
 
 from test_framework.util import (
     assert_equal,
-    assert_raises_rpc_error,
 )
 
 class MWEBNodeCompatibilityTest(LitecoinTestFramework):
@@ -37,33 +34,42 @@ class MWEBNodeCompatibilityTest(LitecoinTestFramework):
         self.connect_nodes(1, 2)
 
     def run_test(self):
-        node_a_master = self.nodes[0];
-        node_b_master = self.nodes[1];
+        node_a_master = self.nodes[0]
+        node_b_master = self.nodes[1]
         node_c_v18 = self.nodes[2]
-        
+
         self.setup_mweb_chain(node_a_master)
         self.sync_all()
-        
+
         a_chain_info = node_a_master.getblockchaininfo()
         b_chain_info = node_b_master.getblockchaininfo()
         c_chain_info = node_c_v18.getblockchaininfo()
-        assert int(b_chain_info['blocks']) == int(a_chain_info['blocks'])
-        assert int(c_chain_info['blocks']) == int(a_chain_info['blocks'])
-        
+        assert_equal(int(b_chain_info['blocks']), int(a_chain_info['blocks']))
+        assert_equal(int(c_chain_info['blocks']), int(a_chain_info['blocks']))
+
         self.disconnect_nodes(0, 1)
 
         mweb_addr = node_a_master.getnewaddress(address_type='mweb')
         pegin_txid = node_a_master.sendtoaddress(mweb_addr, 100)
 
-        self.sync_mempools([node_a_master, node_c_v18], wait=1, timeout=5)
-        assert pegin_txid in node_a_master.getrawmempool() and pegin_txid in node_c_v18.getrawmempool()
+        # Synchronization can be slow when this runs in parallel with the full test suite.
+        self.sync_mempools([node_a_master, node_c_v18], wait=0.1, timeout=60)
+        assert_equal(set(node_a_master.getrawmempool()), {pegin_txid})
+        assert_equal(set(node_c_v18.getrawmempool()), {pegin_txid})
 
-        # Wait a few seconds to ensure node_b_master did not accept a pegin tx from node_c_v18
-        time.sleep(3)
-        
-        assert set(node_a_master.getrawmempool()) == set([pegin_txid])
-        assert set(node_c_v18.getrawmempool()) == set([pegin_txid])
-        assert len(node_b_master.getrawmempool()) == 0
+        # Keep checking for a relay interval window. If node_b ever accepts the tx,
+        # the predicate records that and the wait will time out.
+        relay_window_s = 10
+        start_time = time.time()
+        saw_on_node_b = False
+
+        def node_b_rejected_pegin():
+            nonlocal saw_on_node_b
+            saw_on_node_b = saw_on_node_b or pegin_txid in node_b_master.getrawmempool()
+            return not saw_on_node_b and (time.time() - start_time) >= relay_window_s
+
+        self.wait_until(node_b_rejected_pegin, timeout=relay_window_s + 5)
+        assert_equal(set(node_b_master.getrawmempool()), set())
 
 if __name__ == '__main__':
     MWEBNodeCompatibilityTest().main()
