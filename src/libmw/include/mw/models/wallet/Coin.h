@@ -36,9 +36,9 @@ static constexpr uint32_t UNKNOWN_INDEX{std::numeric_limits<uint32_t>::max()};
 /// Represents an output owned by the wallet, or one sent by the wallet.
 /// </summary>
 struct Coin : public Traits::ISerializable {
-    static constexpr uint8_t LATEST_VERSION = 2;
+    static constexpr uint8_t LATEST_VERSION = 3;
 
-    // Index of the subaddress this coin was received at. // MW: TODO - We also need the seed id or master key identifier of some sort.
+    // Index of the subaddress this coin was received at.
     uint32_t address_index{UNKNOWN_INDEX};
 
     // The private key needed in order to spend the coin.
@@ -95,6 +95,7 @@ struct Coin : public Traits::ISerializable {
         sender_key = std::nullopt;
         address = std::nullopt;
         shared_secret = std::nullopt;
+        master_scan_key_id = std::nullopt;
     }
 
     //

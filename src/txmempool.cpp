@@ -873,8 +873,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         assert(std::equal(setChildrenCheck.begin(), setChildrenCheck.end(), it->GetMemPoolChildrenConst().begin(), comp));
         // Also check to make sure size is greater than sum with immediate children.
         // just a sanity check, not definitive that this calc is correct...
-        //LogPrintf("tx: %s, size_with_descendants: %u, child_sizes: %u, tx_size: %u\n", it->GetTx().ToString(), it->GetSizeWithDescendants(), child_sizes, it->GetTxSize());
-        // MW: TODO - assert(it->GetSizeWithDescendants() >= child_sizes + it->GetTxSize());
+        assert(it->GetSizeWithDescendants() >= child_sizes + it->GetTxSize());
 
         TxValidationState dummy_state; // Not used. CheckTxInputs() should always pass
         CAmount txfee = 0;

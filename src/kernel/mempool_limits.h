@@ -24,7 +24,6 @@ struct MemPoolLimits {
     int64_t descendant_count{DEFAULT_DESCENDANT_LIMIT};
     //! The maximum allowed size in virtual bytes of an entry and its descendants within a package.
     int64_t descendant_size_vbytes{DEFAULT_DESCENDANT_SIZE_LIMIT_KVB * 1'000};
-    // MW: TODO - ancestor_mweb_weight and descendant_mweb_weight
 };
 } // namespace kernel
 
