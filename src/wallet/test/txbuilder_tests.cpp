@@ -7,6 +7,7 @@
 #include <wallet/txbuilder.h>
 #include <test/util/setup_common.h>
 
+#include <algorithm>
 #include <boost/test/unit_test.hpp>
 
 namespace wallet {
@@ -79,6 +80,19 @@ public:
         BOOST_REQUIRE(it != m_wallet.mapWallet.end());
         it->second.m_state = TxStateConfirmed{cchain.Tip()->GetBlockHash(), cchain.Height(), /*index=*/1};
         return std::make_pair(&it->second, res->tx);
+    }
+
+    util::Result<CreatedTransactionResult> BuildTx(
+        const std::vector<CRecipient>& recipients,
+        std::optional<CTxDestination> change_address,
+        bool sign)
+    {
+        CCoinControl coin_control;
+        if (change_address) {
+            coin_control.destChange = *change_address;
+        }
+
+        return TxBuilder::New(m_wallet, coin_control, recipients, std::nullopt)->Build(std::nullopt, std::nullopt, sign);
     }
 
     CTxDestination NewDestination(OutputType type)
@@ -357,6 +371,45 @@ BOOST_AUTO_TEST_CASE(MultipleRecipientsSubtractFeeFromOutputsTest)
 BOOST_AUTO_TEST_CASE(MultipleRecipientsCustomChangeTest)
 {
     MultipleRecipientsTest(false, true);
+}
+
+BOOST_AUTO_TEST_CASE(MWEBChangePositionTracksChangeWhenAddressMatchesRecipient)
+{
+    const CTxDestination shared_mweb_addr = NewDestination(OutputType::MWEB);
+
+    // Create an MWEB coin that we can spend in the next transaction.
+    AddTx({{shared_mweb_addr, 5 * COIN, false}}, {}, std::nullopt);
+
+    constexpr CAmount RECIPIENT_AMOUNT{2 * COIN};
+    std::vector<CRecipient> recipients{{shared_mweb_addr, RECIPIENT_AMOUNT, false}};
+    auto tx_result = BuildTx(recipients, shared_mweb_addr, true);
+    BOOST_REQUIRE(tx_result);
+    BOOST_REQUIRE(tx_result->change_pos.IsMWEB());
+    BOOST_REQUIRE(tx_result->change_pos.ToMWEB().hash.has_value());
+
+    const mw::Hash& change_output_id = *tx_result->change_pos.ToMWEB().hash;
+    const auto change_output_iter = std::find_if(
+        tx_result->tx.mweb_tx.outputs.cbegin(), tx_result->tx.mweb_tx.outputs.cend(),
+        [&change_output_id](const mw::MutableOutput& output) {
+            const std::optional<mw::Hash> output_id = output.CalcOutputID();
+            return output_id.has_value() && *output_id == change_output_id;
+        }
+    );
+
+    BOOST_REQUIRE(change_output_iter != tx_result->tx.mweb_tx.outputs.cend());
+    BOOST_REQUIRE(change_output_iter->amount.has_value());
+    BOOST_CHECK(*change_output_iter->amount > RECIPIENT_AMOUNT);
+
+    std::vector<mw::Hash> sorted_output_ids;
+    for (const mw::MutableOutput& output : tx_result->tx.mweb_tx.outputs) {
+        const std::optional<mw::Hash> output_id = output.CalcOutputID();
+        BOOST_REQUIRE(output_id.has_value());
+        sorted_output_ids.push_back(*output_id);
+    }
+
+    std::sort(sorted_output_ids.begin(), sorted_output_ids.end());
+    BOOST_REQUIRE_LT(tx_result->change_pos.ToMWEB().idx, sorted_output_ids.size());
+    BOOST_CHECK(sorted_output_ids[tx_result->change_pos.ToMWEB().idx] == change_output_id);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

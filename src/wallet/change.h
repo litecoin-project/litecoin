@@ -18,6 +18,7 @@ class CWallet;
 struct MWEBChangePosition
 {
     // The position of the change output in the MWEB outputs vector.
+    // For signed transactions this is the canonical position after MWEB output sorting.
     size_t idx;
 
     //! The hash will only be populated for signed transactions.
@@ -54,7 +55,7 @@ struct ChangePosition
 
 struct ChangeBuilder
 {
-    ChangePosition change_position; // MW: TODO - Provide setters so we can always ensure change_position.IsMWEB() == script_or_address.IsMWEB()
+    ChangePosition change_position;
     GenericAddress script_or_address;
     std::shared_ptr<ReserveDestination> reserve_dest;
     CAmount amount;

@@ -15,7 +15,36 @@
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
 
+#include <algorithm>
+
 namespace wallet {
+
+namespace {
+
+std::optional<size_t> FindSortedMWEBOutputIndex(const std::vector<mw::MutableOutput>& outputs, const mw::Hash& output_id)
+{
+    std::vector<mw::Hash> output_ids;
+    output_ids.reserve(outputs.size());
+
+    for (const mw::MutableOutput& output : outputs) {
+        const std::optional<mw::Hash> id = output.CalcOutputID();
+        if (!id.has_value()) {
+            return std::nullopt;
+        }
+
+        output_ids.push_back(*id);
+    }
+
+    std::sort(output_ids.begin(), output_ids.end());
+    auto output_iter = std::find(output_ids.cbegin(), output_ids.cend(), output_id);
+    if (output_iter == output_ids.cend()) {
+        return std::nullopt;
+    }
+
+    return static_cast<size_t>(std::distance(output_ids.cbegin(), output_iter));
+}
+
+} // namespace
 
 TxBuilder::Ptr TxBuilder::New(const CWallet& wallet, const CCoinControl& coin_control, const std::vector<CRecipient>& recipients, const std::optional<int>& change_position)
 {
@@ -444,11 +473,14 @@ void TxBuilder::GrowChangeBy(const CAmount growth_amount)
     if (m_change.GetPosition().IsLTC()) {
         auto& change = m_tx.vout.at(m_change.GetPosition().ToLTC());
         change.nValue += growth_amount;
-    } else {
+    } else if (m_change.GetPosition().IsMWEB()) {
+        const size_t change_idx = m_change.GetPosition().ToMWEB().idx;
         m_change.amount += growth_amount;
-        mw::MutableOutput& change_output = m_tx.mweb_tx.outputs.back();
+        mw::MutableOutput& change_output = m_tx.mweb_tx.outputs.at(change_idx);
         *change_output.amount += growth_amount;
         LogPrintf("DEBUG: change amount: %s = %s, updated fee_paid: %lld\n", FormatMoney(m_change.amount), FormatMoney(*change_output.amount), GetFeePaid());
+    } else {
+        assert(false);
     }
 }
 
@@ -548,15 +580,24 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
 
     LogPrintf("DEBUG: MWEB transaction signed\n");
 
-    // Update change position
+    // Update change position now that finalized output IDs are known.
     if (m_change.change_position.IsMWEB()) {
-        for (size_t i = 0; i < m_tx.mweb_tx.outputs.size(); i++) {
-            const mw::MutableOutput& output = m_tx.mweb_tx.outputs[i];
-            if (output.address.has_value() && *output.address == m_change.script_or_address.GetMWEBAddress()) {
-                m_change.change_position = MWEBChangePosition{i, output.CalcOutputID()};
-                break;
-            }
+        const size_t change_idx = m_change.change_position.ToMWEB().idx;
+        if (change_idx >= m_tx.mweb_tx.outputs.size()) {
+            return util::Error{_("Transaction change output index out of range")};
         }
+
+        const std::optional<mw::Hash> output_id = m_tx.mweb_tx.outputs.at(change_idx).CalcOutputID();
+        if (!output_id.has_value()) {
+            return util::Error{_("Failed to determine MWEB change output ID")};
+        }
+
+        const std::optional<size_t> sorted_idx = FindSortedMWEBOutputIndex(m_tx.mweb_tx.outputs, *output_id);
+        if (!sorted_idx.has_value()) {
+            return util::Error{_("Failed to determine MWEB change output position")};
+        }
+
+        m_change.change_position = MWEBChangePosition{*sorted_idx, *output_id};
     }
 
     // Stage all signed coins so output amounts are available once the tx is committed.
