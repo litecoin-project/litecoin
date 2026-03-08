@@ -107,6 +107,12 @@ struct SignOutputResult {
     mw::Coin coin{};
 };
 
+struct FinalizedPegIn
+{
+    CAmount amount{};
+    mw::Hash kernel_id{};
+};
+
 static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw::Hash& kernel_id) noexcept
 {
     if (output.signature.has_value()) {
@@ -141,6 +147,63 @@ static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw
     return SignOutputResult{std::move(output_blind), std::move(ephemeral_key), std::move(coin)};
 }
 
+static std::optional<util::Error> UpdatePegInScripts(CMutableTransaction& tx) noexcept
+{
+    std::vector<FinalizedPegIn> pegins;
+    pegins.reserve(tx.mweb_tx.kernels.size());
+
+    for (const MutableKernel& kernel : tx.mweb_tx.kernels) {
+        if (!kernel.pegin.has_value()) {
+            continue;
+        }
+
+        const std::optional<mw::Hash> kernel_id = kernel.GetKernelID();
+        if (!kernel_id.has_value()) {
+            return util::Error{Untranslated("Kernel ID could not be calculated")};
+        }
+
+        pegins.push_back(FinalizedPegIn{kernel.pegin.value(), *kernel_id});
+    }
+
+    if (pegins.empty()) {
+        return std::nullopt;
+    }
+
+    std::vector<size_t> pegin_output_indices;
+    pegin_output_indices.reserve(tx.vout.size());
+
+    for (size_t i = 0; i < tx.vout.size(); ++i) {
+        if (tx.vout[i].scriptPubKey.IsMWEBPegin()) {
+            pegin_output_indices.push_back(i);
+        }
+    }
+
+    if (pegin_output_indices.size() != pegins.size()) {
+        return util::Error{Untranslated("Peg-in output count does not match MWEB pegin kernel count")};
+    }
+
+    // Pair peg-in kernels with canonical peg-in outputs by relative order. This
+    // convention survives PSBT round-trips and avoids ambiguous amount-based matching.
+    for (size_t i = 0; i < pegins.size(); ++i) {
+        CTxOut& out = tx.vout[pegin_output_indices[i]];
+        mw::Hash current_kernel_id;
+        const bool is_pegin = out.scriptPubKey.IsMWEBPegin(&current_kernel_id);
+        assert(is_pegin);
+
+        if (out.nValue != pegins[i].amount) {
+            return util::Error{Untranslated("Peg-in output amount does not match MWEB pegin kernel")};
+        }
+
+        if (!current_kernel_id.IsZero() && current_kernel_id != pegins[i].kernel_id) {
+            return util::Error{Untranslated("Peg-in output kernel ID conflicts with MWEB pegin kernel order")};
+        }
+
+        out.scriptPubKey = GetScriptForPegin(pegins[i].kernel_id);
+    }
+
+    return std::nullopt;
+}
+
 util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
 {
     SignTxResult result{};
@@ -150,7 +213,6 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
 
     Blinds kernel_offset{};
     Blinds stealth_offset{};
-    std::vector<PegInCoin> pegins;
 
     if (tx.mweb_tx.kernels.empty()) {
         tx.mweb_tx.kernels.push_back(mw::MutableKernel{});
@@ -178,10 +240,6 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
         kernel.excess = finalized.GetExcess();
         kernel.signature = finalized.GetSignature();
 
-        if (kernel.pegin.has_value()) {
-            pegins.push_back(PegInCoin{kernel.pegin.value(), finalized.GetKernelID()});
-        }
-
         kernel_offset.Sub(kernel_blind);
         stealth_offset.Sub(stealth_blind);
     }
@@ -189,13 +247,9 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
     // Update peg-in scripts with finalized kernel IDs.
     // NOTE: This mutates tx.vout scriptPubKeys and invalidates any previously built
     // PrecomputedTransactionData for this tx.
-    // MW: TODO - Pegging in with multiple pegins of the same amount will cause issues
-    for (const PegInCoin& pegin : pegins) {
-        for (CTxOut& out : tx.vout) {
-            if (out.nValue == pegin.GetAmount() && out.scriptPubKey.IsMWEBPegin()) {
-                out.scriptPubKey = GetScriptForPegin(pegin.GetKernelID());
-            }
-        }
+    const auto error = UpdatePegInScripts(tx);
+    if (error) {
+        return *error;
     }
     
     std::optional<mw::Hash> first_kernel_id = tx.mweb_tx.kernels.front().GetKernelID();

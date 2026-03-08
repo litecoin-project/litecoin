@@ -155,7 +155,7 @@ mw::Block::Ptr CoinsViewCache::BuildNextBlock(const uint64_t height, const std::
 
     std::for_each(
         pTransaction->GetInputs().cbegin(), pTransaction->GetInputs().cend(),
-        [this](const mw::Input& input) { SpendUTXO(input.GetOutputID()); } // MW: TODO - Do we need to check the UTXO's receiver public key? Presumably, that was already done.
+        [this](const mw::Input& input) { SpendUTXO(input.GetOutputID()); }
     );
 
     const uint64_t output_mmr_size = m_pOutputPMMR->GetNumLeaves();

@@ -244,7 +244,8 @@ BITCOIN_TESTS += \
   libmw/test/tests/node/Test_BlockValidator.cpp \
   libmw/test/tests/node/Test_MineChain.cpp \
   libmw/test/tests/node/Test_Reorg.cpp \
-  libmw/test/tests/wallet/Test_Keychain.cpp
+  libmw/test/tests/wallet/Test_Keychain.cpp \
+  libmw/test/tests/wallet/Test_Sign.cpp
 
 
 test_test_litecoin_SOURCES = $(BITCOIN_TEST_SUITE) $(BITCOIN_TESTS) $(JSON_TEST_FILES) $(RAW_TEST_FILES)

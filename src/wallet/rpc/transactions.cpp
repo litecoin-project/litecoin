@@ -110,7 +110,6 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
             continue;
         }
 
-        // MW: TODO - Instead of duplicating logic for outputs, pegouts, and mweb_wtx_info->received_coin, just add a "GetDestinations()" which returns GenericAddress and amount for all 3 output types
         for (const GenericOutputID& output_id : wtx.GetOutputIDs(true)) {
             CTxDestination address;
             if (!wallet.ExtractOutputDestination(wtx, output_id, address))
