@@ -94,8 +94,6 @@ class WalletMigrationTest(BitcoinTestFramework):
         # * A combo(PK) descriptor for the wallet master key.
         # So, should have a total of 11 descriptors on it.
         descs = basic0.listdescriptors()["descriptors"]
-        for i in range(0, len(descs)):
-            print(f'DEBUG: {descs[i]}')
         assert_equal(len(basic0.listdescriptors()["descriptors"]), 12)
 
         # Compare addresses info

@@ -183,10 +183,6 @@ UniValue blockheaderToJSON(const CBlockIndex* tip, const CBlockIndex* blockindex
 
 UniValue blockToJSON(BlockManager& blockman, const CBlock& block, const CBlockIndex* tip, const CBlockIndex* blockindex, TxVerbosity verbosity)
 {
-    std::vector<uint8_t> serialized;
-    CVectorWriter stream(SER_NETWORK, PROTOCOL_VERSION, serialized, 0);
-    stream << block;
-    LogPrintf("DEBUG: blockhash=%s, hex=%s\n", block.GetHash().GetHex(), HexStr(serialized));
     UniValue result = blockheaderToJSON(tip, blockindex);
 
     result.pushKV("strippedsize", (int)::GetSerializeSize(block, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB));

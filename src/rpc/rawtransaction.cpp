@@ -177,7 +177,6 @@ static std::vector<RPCArg> CreateTxDoc()
 // Optionally, sign the inputs that we can using information from the descriptors.
 PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std::any& context, const HidingSigningProvider& provider, int sighash_type, bool finalize)
 {
-    LogPrintf("DEBUG: Processing PSBT\n");
     // MW: TODO - Need to support MWEB
     // Unserialize the transactions
     PartiallySignedTransaction psbtx;

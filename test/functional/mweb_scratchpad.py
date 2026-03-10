@@ -30,10 +30,8 @@ class MWEBScratchpad(LitecoinTestFramework):
         n3_ltc_addr = node3.getnewaddress()
         tx = node3.send(outputs=[{n0_ltc_addr1:10.0}, {n0_ltc_addr2:5.0}])
         
-        print(f"DEBUG:{node3.gettransaction(txid=tx['txid'], verbose=True)}")
 
     def pegin_tx(self):
-        self.log.info("DEBUG: CREATING PEGIN TX")
         node0 = self.nodes[0]
         node1 = self.nodes[1]
         node2 = self.nodes[2]

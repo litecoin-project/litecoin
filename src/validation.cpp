@@ -810,7 +810,6 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     for (const GenericInput& txin : tx.GetInputs())
     {
         const CTransaction* ptxConflicting = m_pool.GetConflictTx(txin.GetID());
-        LogPrintf("DEBUG: PreChecks - Checking input: %s - Conflicting=%s\n", txin.ToString(), ptxConflicting == nullptr ? "NO" : "YES");
         if (ptxConflicting) {
             if (!args.m_allow_replacement) {
                 // Transaction conflicts with a mempool tx, but we're not allowing replacements.

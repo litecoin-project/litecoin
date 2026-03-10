@@ -64,7 +64,6 @@ void TxList::List(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx,
     CAmount nCredit = CachedTxGetCredit(m_wallet, wtx, filter_ismine);
     CAmount nDebit = CachedTxGetDebit(m_wallet, wtx, filter_ismine);
     CAmount nNet = nCredit - nDebit;
-    LogPrintf("DEBUG: wtx: %s, nCredit: %lld, nDebit: %lld, nNet: %lld\n", wtx.GetHash().GetHex(), nCredit, nDebit, nNet);
 
     if (!IsMine(wtx)) {
         return;
@@ -283,14 +282,11 @@ GenericAddress TxList::GetAddress(const GenericOutput& output)
 
     mw::Coin coin;
     if (m_wallet.GetCoin(output.ToMWEBOutputID(), coin)) {
-        LogPrintf("DEBUG: Found MWEB coin for output ID %s\n", output.ToMWEBOutputID().ToHex());
         StealthAddress addr;
         if (m_wallet.GetMWWallet()->GetStealthAddress(coin, addr)) {
-            LogPrintf("DEBUG: MWEB address found for output ID %s\n", output.ToMWEBOutputID().ToHex());
             return addr;
         }
     } else {
-        LogPrintf("DEBUG: No MWEB coin found for output ID %s\n", output.ToMWEBOutputID().ToHex());
     }
 
     return GenericAddress{};
@@ -340,26 +336,22 @@ bool TxList::IsMine(const CWalletTx& wtx)
 {
     for (const GenericInput& input : wtx.GetInputs()) {
         if (InputIsMine(m_wallet, input)) {
-            LogPrintf("DEBUG: Input %s mine for wtx %s\n", input.ToString(), wtx.GetHash().GetHex());
             return true;
         }
     }
 
     for (const GenericOutputID& output_id : wtx.GetOutputIDs(true)) {
         if (m_wallet.IsMine(output_id)) {
-            LogPrintf("DEBUG: Output %s mine for wtx %s\n", output_id.ToString(), wtx.GetHash().GetHex());
             return true;
         }
     }
 
     for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
         if (m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()})) {
-            LogPrintf("DEBUG: Pegout %s mine for wtx %s\n", pegout.Format(), wtx.GetHash().GetHex());
             return true;
         }
     }
 
-    LogPrintf("DEBUG: No inputs or outputs mine for wtx %s\n", wtx.GetHash().GetHex());
     return false;
 }
 

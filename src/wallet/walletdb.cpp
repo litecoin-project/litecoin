@@ -709,7 +709,6 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             try {
                 ssValue >> desc;
             } catch (const std::ios_base::failure& e) {
-                LogPrintf("DEBUG: Failed to load descriptor: %s\n", desc_hex);
                 strErr = e.what();
                 wss.descriptor_unknown = true;
                 return false;
@@ -920,7 +919,6 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
             std::string strType, strErr;
             if (!ReadKeyValue(pwallet, ssKey, ssValue, wss, strType, strErr))
             {
-                LogPrintf("DEBUG: Failed to read record of type %s\n", strType);
 
                 // losing keys is considered a catastrophic error, anything else
                 // we assume the user can live with:
@@ -953,7 +951,6 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
                 pwallet->WalletLogPrintf("%s\n", strErr);
         }
     } catch (...) {
-        LogPrintf("DEBUG: Corruption detected - Exception thrown while reading wallet DB\n");
         result = DBErrors::CORRUPT;
     }
     m_batch->CloseCursor();
@@ -1009,15 +1006,12 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
     // MWEB: Load MWEB keychain
     auto mweb_spk_man = pwallet->GetScriptPubKeyMan(OutputType::MWEB, false);
     if (mweb_spk_man) {
-        pwallet->WalletLogPrintf("DEBUG: Loading MWEB Keychain\n");
         mweb_spk_man->LoadMWEBKeychain();
     }
     
-    pwallet->WalletLogPrintf("DEBUG: Writing txs\n");
     for (const uint256& hash : wss.vWalletUpgrade)
         WriteTx(pwallet->mapWallet.at(hash));
     
-    pwallet->WalletLogPrintf("DEBUG: Erasing txs\n");
     for (const uint256& hash : wss.vWalletRemove) {
         EraseTx(hash);
     }
@@ -1029,31 +1023,25 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
     if (!has_last_client || last_client != CLIENT_VERSION) // Update
         m_batch->Write(DBKeys::VERSION, CLIENT_VERSION);
     
-    pwallet->WalletLogPrintf("DEBUG: Reordering transactions\n");
     if (wss.fAnyUnordered)
         result = pwallet->ReorderTransactions();
 
     // Upgrade all of the wallet keymetadata to have the hd master key id
     // This operation is not atomic, but if it fails, updated entries are still backwards compatible with older software
     try {
-        pwallet->WalletLogPrintf("DEBUG: Upgrading key metadata\n");
         pwallet->UpgradeKeyMetadata();
     } catch (...) {
-        LogPrintf("DEBUG: Corruption detected while upgrading key metadata\n");
         result = DBErrors::CORRUPT;
     }
 
     // Upgrade all of the descriptor caches to cache the last hardened xpub
     // This operation is not atomic, but if it fails, only new entries are added so it is backwards compatible
     try {
-        pwallet->WalletLogPrintf("DEBUG: Upgrading descriptor cache\n");
         pwallet->UpgradeDescriptorCache();
     } catch (const std::exception& e) {
-        LogPrintf("DEBUG: Corruption detected while upgrading descriptor cache - %s\n", e.what());
         result = DBErrors::CORRUPT;
     }
     
-    pwallet->WalletLogPrintf("DEBUG: Setting inactive chains\n");
     // Set the inactive chain
     if (wss.m_hd_chains.size() > 0) {
         LegacyScriptPubKeyMan* legacy_spkm = pwallet->GetLegacyScriptPubKeyMan();
@@ -1068,7 +1056,6 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         }
     }
     
-    pwallet->WalletLogPrintf("DEBUG: LoadWallet finished\n");
     return result;
 }
 

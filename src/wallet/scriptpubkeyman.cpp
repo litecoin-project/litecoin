@@ -249,7 +249,6 @@ isminetype LegacyScriptPubKeyMan::IsMine(const GenericAddress& address) const
     if (address.IsMWEB()) {
         const StealthAddress& mweb_address = address.GetMWEBAddress();
         for (const SecretKey& scan_secret : GetAllScanSecrets()) {
-            LogPrintf("DEBUG: Checking MWEB address %s against scan secret %s\n", address.Encode(), scan_secret.ToHex());
             if (mweb_address.GetSpendPubKey().Mul(scan_secret) == mweb_address.GetScanPubKey()) {
                 return HaveKey(mweb_address.GetSpendPubKey().GetID()) ? ISMINE_SPENDABLE : ISMINE_NO;
             }
@@ -520,11 +519,9 @@ bool LegacyScriptPubKeyMan::CanGetAddresses(const KeyPurpose purpose) const
         keypool_has_keys = setInternalKeyPool.size() > 0;
     } else if (purpose == KeyPurpose::MWEB) {
         if (GetScanSecret().IsNull()) {
-            LogPrintf("DEBUG: Scan secret required to generate new MWEB addresses\n");
             return false;
         }
 
-        LogPrintf("DEBUG: set_mweb_keypool.size=%u\n", set_mweb_keypool.size());
         keypool_has_keys = set_mweb_keypool.size() > 0;
     } else {
         keypool_has_keys = KeypoolCountExternalKeys() > 0;
@@ -1188,7 +1185,6 @@ CPubKey LegacyScriptPubKeyMan::GenerateNewKey(WalletBatch &batch, CHDChain& hd_c
     mapKeyMetadata[pubkey.GetID()] = metadata;
     UpdateTimeFirstKey(nCreationTime);
 
-    WalletLogPrintf("DEBUG: Generated key: Pubkey(%s), Type(%u)\n", HexStr(pubkey), (unsigned int)purpose);
     if (!AddKeyPubKeyWithDB(batch, secret, pubkey)) {
         throw std::runtime_error(std::string(__func__) + ": AddKey failed");
     }
@@ -1895,7 +1891,6 @@ const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> LegacyScrip
     // For all keys, if they have segwit scripts, those scripts will end up in mapScripts
     for (const auto& script_pair : mapScripts) {
         if (scriptsToIgnore.count(script_pair.first) != 0) {
-            LogPrintf("DEBUG: Ignoring MWEB script_id\n");
             continue;
         }
         const CScript& script = script_pair.second;
@@ -2020,11 +2015,8 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
     for (const auto& chain_pair : m_inactive_hd_chains) {
         chains.push_back(chain_pair.second);
     }
-    LogPrintf("DEBUG: Chains=%u\n", chains.size());
     for (const CHDChain& chain : chains) {
-        LogPrintf("DEBUG: Chain counters - %u external, %u internal, %u MWEB\n", chain.nExternalChainCounter, chain.nInternalChainCounter, chain.nMWEBIndexCounter);
         if (chain.seed_id.IsNull()) {
-            LogPrintf("DEBUG: Chain has null seed_id, skipping\n");
             continue;
         }
 
@@ -2062,7 +2054,6 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
             // Make the DescriptorScriptPubKeyMan and get the scriptPubKeys
             auto desc_spk_man = std::unique_ptr<DescriptorScriptPubKeyMan>(new DescriptorScriptPubKeyMan(m_storage, w_desc));
 
-            LogPrintf("DEBUG: Adding descriptor key for purpose=%u\n", (uint32_t)purpose);
             desc_spk_man->AddDescriptorKey(master_key.key, master_key.key.GetPubKey());
             desc_spk_man->TopUp();
             auto desc_spks = desc_spk_man->GetScriptPubKeys();
@@ -2070,7 +2061,6 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
             // Remove the scriptPubKeys from our current set
             for (const GenericAddress& spk : desc_spks) {
                 size_t erased = spks.erase(spk);
-                LogPrintf("DEBUG: Erasing spk %s, erased=%u, IsMine=%d\n", spk.Encode(), (uint32_t)erased, IsMine(spk));
                 assert(erased == 1);
                 assert(IsMine(spk) == ISMINE_SPENDABLE);
             }
@@ -2087,20 +2077,16 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
         out.master_key.SetSeed(seed_key);
     }
 
-    LogPrintf("DEBUG: Keys remaining in spks: %u\n", spks.size());
 
     // Handle the rest of the scriptPubKeys which must be imports and may not have all info
     for (auto it = spks.begin(); it != spks.end();) {
         const GenericAddress& spk = *it;
-        LogPrintf("DEBUG: SPK: %s, %s\n", spk.Encode(), CScriptID(spk.GetScript()).ToString());
 
         // Get birthdate from script meta
         uint64_t creation_time = 0;
         const auto& mit = m_script_metadata.find(CScriptID(spk.GetScript()));
         if (mit != m_script_metadata.end()) {
-            LogPrintf("DEBUG: origin=%s\n", FormatHDKeypath(mit->second.key_origin.hdkeypath));
             if (mit->second.key_origin.hdkeypath.mweb_index.has_value()) {
-                LogPrintf("DEBUG: Erasing MWEB key\n");
                 it = spks.erase(it);
                 continue;
             }
@@ -2110,7 +2096,6 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
 
         // InferDescriptor as that will get us all the solving info if it is there
         std::unique_ptr<Descriptor> desc = InferDescriptor(spk, *GetSolvingProvider(spk));
-        LogPrintf("DEBUG: Descriptor=%s, address=%s\n", desc->ToString(), spk.Encode());
         // Get the private keys for this descriptor
         std::vector<GenericAddress> scripts;
         FlatSigningProvider keys;
@@ -2237,7 +2222,6 @@ void LegacyScriptPubKeyMan::LoadMWEBKeychain()
     CKey seed;
     if (m_storage.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS) || !GetKey(m_hd_chain.seed_id, seed)) {
         if (m_hd_chain.mweb_scan_key) {
-            WalletLogPrintf("DEBUG: LoadMWEBKeychain - Loading keychain from cached MWEB master key\n");
             m_mwebKeychain = std::make_shared<mw::Keychain>(this, *m_hd_chain.mweb_scan_key, m_hd_chain.mweb_spend_pubkey);
         }
 
@@ -2662,7 +2646,6 @@ bool DescriptorScriptPubKeyMan::SetupDescriptorGeneration(const CExtKey& master_
         desc_str = "mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1',*)";
     }
 
-    LogPrintf("DEBUG: SetupDescriptorGeneration for descriptor %s\n", desc_str);
 
     // Make the descriptor
     FlatSigningProvider keys;
@@ -2983,7 +2966,6 @@ void DescriptorScriptPubKeyMan::SetCache(const DescriptorCache& cache)
         FlatSigningProvider out_keys;
         std::vector<GenericAddress> scripts_temp;
         if (!m_wallet_descriptor.descriptor->ExpandFromCache(i, m_wallet_descriptor.cache, scripts_temp, out_keys)) {
-            WalletLogPrintf("DEBUG: Unable to ExpandFromCache for descriptor=%s\n", GetID().GetHex());
             throw std::runtime_error("Error: Unable to expand wallet descriptor from cache");
         }
         // Add all of the scriptPubKeys to the scriptPubKey set
@@ -3092,14 +3074,12 @@ void DescriptorScriptPubKeyMan::UpgradeDescriptorCache()
     std::vector<GenericAddress> scripts_temp;
     DescriptorCache temp_cache;
     if (!m_wallet_descriptor.descriptor->Expand(0, provider, scripts_temp, out_keys, &temp_cache)){
-        LogPrintf("DEBUG: Unable to expand descriptor\n");
         throw std::runtime_error("Unable to expand descriptor");
     }
 
     // Cache the last hardened xpubs
     DescriptorCache diff = m_wallet_descriptor.cache.MergeAndDiff(temp_cache);
     if (!WalletBatch(m_storage.GetDatabase()).WriteDescriptorCacheItems(GetID(), diff)) {
-        LogPrintf("DEBUG: Writing cache items failed\n");
         throw std::runtime_error(std::string(__func__) + ": writing cache items failed");
     }
 }
@@ -3156,7 +3136,6 @@ void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
     m_wallet_descriptor.descriptor->ExpandPrivate(-1, provider, out_keys_scan);
     CKey master_scan_key;
     if (!out_keys_scan.GetMWEBMasterScanKey(master_scan_key)) {
-        WalletLogPrintf("DEBUG: Unable to retrieve master_scan_key\n");
         return;
     }
 
@@ -3171,7 +3150,6 @@ void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
     }
 
     if (out_keys_spend.pubkeys.empty()) {
-        WalletLogPrintf("DEBUG: Unable to retrieve master_spend_pubkey\n");
         return;
     }
 
@@ -3185,14 +3163,12 @@ void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
 
     CKey spend_key;
     if (!out_keys_spend.GetKey(master_spend_pubkey.GetID(), spend_key)) {
-        WalletLogPrintf("DEBUG: spend_key not found\n");
         m_mwebKeychain = std::make_shared<mw::Keychain>(
             this,
             master_scan_secret,
             master_spend_pubkey
         );
     } else {
-        WalletLogPrintf("DEBUG: Creating MWEB keychain with spend_key\n");
         m_mwebKeychain = std::make_shared<mw::Keychain>(
             this,
             master_scan_secret,

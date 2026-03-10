@@ -234,7 +234,6 @@ bool Node::CheckTransaction(const CTransaction& tx, TxValidationState& state)
     
     auto pegin_coins = tx.mweb_tx.GetPegIns();
     if (pegin_coins.size() != tx_pegins.size()) {
-        LogPrintf("DEBUG: Pegin count mismatch. Tx pegins: %zu, MWEB pegins: %zu\n", tx_pegins.size(), pegin_coins.size());
         return state.Invalid(TxValidationResult::TX_WITNESS_MUTATED, "pegin-count-mismatch");
     }
 
@@ -250,7 +249,6 @@ bool Node::CheckTransaction(const CTransaction& tx, TxValidationState& state)
         try {
             tx.mweb_tx.m_transaction->Validate();
         } catch (const std::exception& e) {
-            LogPrintf("DEBUG: MWEB transaction validation failed with error - %s\n", e.what());
             return state.Invalid(TxValidationResult::TX_WITNESS_MUTATED, "bad-mweb-txn");
         }
     }

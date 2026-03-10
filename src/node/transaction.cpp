@@ -63,7 +63,6 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
             // The mempool transaction may have the same or different witness (and
             // wtxid) as this transaction. Use the mempool's wtxid for reannouncement.
             wtxid = mempool_tx->GetWitnessHash();
-            LogPrintf("DEBUG: mempool already contains transaction with txid=%s. wtxid=%s(tx), wtxid=%s(mempool)\n", txid.GetHex(), tx->GetWitnessHash().GetHex(), wtxid.GetHex());
         } else {
             // Transaction is not already in the mempool.
             if (max_tx_fee > 0) {

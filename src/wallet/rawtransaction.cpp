@@ -26,7 +26,6 @@ RawTransaction RawTransaction::FromRPC(const UniValue& inputs_in, const UniValue
         int64_t nLockTime = locktime.getInt<int64_t>();
         if (nLockTime < 0 || nLockTime > LOCKTIME_MAX)
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, locktime out of range");
-        LogPrintf("DEBUG: Setting locktime to %lld\n", nLockTime);
         rawTx.tx.nLockTime = nLockTime;
     }
 
@@ -59,7 +58,6 @@ RawTransaction RawTransaction::FromRPC(const UniValue& inputs_in, const UniValue
         } else {
             nSequence = CTxIn::SEQUENCE_FINAL;
         }
-        LogPrintf("DEBUG: Setting input sequence to 0x%08x\n", nSequence);
 
         // set the sequence number if passed in the parameters object
         const UniValue& sequenceObj = find_value(o, "sequence");
@@ -177,7 +175,6 @@ FundTransactionResult RawTransaction::FundTransaction(CWallet& wallet, const int
     }
 
     std::vector<CRecipient> recipients = BuildRecipients(setSubtractFeeFromOutputs);
-    LogPrintf("DEBUG: Calling CreateTransaction with nLockTime=%lld\n", tx.nLockTime);
     auto res = CreateTransaction(wallet, recipients, nChangePosIn, coinControl, tx.nVersion, tx.nLockTime, false);
     if (!res) {
         throw JSONRPCError(RPC_WALLET_ERROR, util::ErrorString(res).original);
@@ -273,24 +270,15 @@ PartiallySignedTransaction RawTransaction::ToPSBT(const CWallet& wallet) const
     // Make a blank psbt
     PartiallySignedTransaction psbtx(tx, 2);
 
-    // DEBUG
-    uint32_t nLockTime{0};
-    bool computed = psbtx.ComputeTimeLock(nLockTime);
-    LogPrintf("DEBUG: RawTransaction::ToPSBT() - psbtx has fallback_locktime=%s, ComputeTimeLock() %s with nLockTime=%llu\n", psbtx.fallback_locktime.has_value() ? std::to_string(psbtx.fallback_locktime.value()) : "NONE", computed ? "SUCCEEDED" : "FAILED", nLockTime);
-
     // First fill transaction with our data without signing,
     // so external signers are not asked sign more than once.
     bool complete;
-    LogPrintf("DEBUG: ToPSBT() - Calling FillPSBT(sign=false, finalize=true)\n");
     wallet.FillPSBT(psbtx, complete, SIGHASH_DEFAULT, false, true);
-    LogPrintf("DEBUG: ToPSBT() - Calling FillPSBT(sign=true, finalize=false)\n");
     const TransactionError err{wallet.FillPSBT(psbtx, complete, SIGHASH_DEFAULT, true, false)};
     if (err != TransactionError::OK) {
-        LogPrintf("DEBUG: ToPSBT() - Signed with error\n");
         throw JSONRPCTransactionError(err);
     }
 
-    LogPrintf("DEBUG: ToPSBT() - Signed successfully\n");
     return psbtx;
 }
 

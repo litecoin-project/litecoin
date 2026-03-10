@@ -21,10 +21,8 @@ bool CCoinsView::HaveCoin(const GenericOutputID& output_id) const
     if (output_id.IsMWEB()) {
         auto mweb_view = GetMWEBView();
         if (!mweb_view) {
-            LogPrintf("DEBUG: [CCoinsView: 0x%08x]WARNING!! NO MWEB VIEW!\n", (size_t)this);
             return false;
         }
-        LogPrintf("DEBUG: Calling HasCoin() for %s\n", output_id.ToString());
         return GetMWEBView()->HasCoin(output_id.ToMWEB());
     } else {
         Coin coin;
@@ -313,7 +311,6 @@ bool CCoinsViewCache::Flush() {
 
 void CCoinsViewCache::Uncache(const GenericOutputID& output_id)
 {
-    LogPrintf("DEBUG: Uncaching %s\n", output_id.ToString());
     if (output_id.IsOutPoint()) {
         const COutPoint& outpoint = output_id.ToOutPoint();
         CCoinsMap::iterator it = cacheCoins.find(outpoint);
@@ -339,7 +336,6 @@ bool CCoinsViewCache::HaveInputs(const CTransaction& tx) const
     if (!tx.IsCoinBase()) {
         for (const GenericInput& input : tx.GetInputs()) {
             if (!HaveCoin(input.GetID())) {
-                LogPrintf("DEBUG: [0x%08x] HaveInputs: %s is missing\n", (size_t)this, input.ToString());
                 return false;
             }
         }

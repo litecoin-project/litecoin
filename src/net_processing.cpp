@@ -2557,8 +2557,6 @@ void PeerManagerImpl::ProcessGetData(CNode& pfrom, Peer& peer, const std::atomic
         if (tx) {
             // WTX and WITNESS_TX imply we serialize with witness
             int nSendFlags = (inv.IsMsgTx() ? SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB : (CanServeMWEB(peer) ? 0 : SERIALIZE_NO_MWEB));
-            LogPrintf("DEBUG: Send flags: %d, CanServeMWEB: %s, inv: %s, type: 0x%04x\n", nSendFlags, CanServeMWEB(peer) ? "TRUE" : "FALSE", inv.ToString(), inv.type);
-            LogPrint(BCLog::NET, "DEBUG: Sending TX: %s\n", tx->ToString());
             m_connman.PushMessage(&pfrom, msgMaker.Make(nSendFlags, NetMsgType::TX, *tx));
             m_mempool.RemoveUnbroadcastTx(tx->GetHash());
             // As we're going to send tx, make sure its unconfirmed parents are made requestable.
@@ -3472,7 +3470,6 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
         bool fRelay = true;
 
         vRecv >> nVersion >> Using<CustomUintFormatter<8>>(nServices) >> nTime;
-        LogPrintf("DEBUG: Version message from peer=%d, nVersion=%d, nServices=0x%08x\n", pfrom.GetId(), nVersion, (uint64_t)nServices);
         if (nTime < 0) {
             nTime = 0;
         }

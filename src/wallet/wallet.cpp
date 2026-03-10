@@ -1016,7 +1016,6 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
 
     CWalletTx tmp_wtx(tx, state, mweb_wtx_info);
     uint256 hash = CWalletTx(tx, state, mweb_wtx_info).GetHash();
-    WalletLogPrintf("DEBUG: AddToWallet - Adding %s\n", hash.ToString());
 
     if (IsWalletFlagSet(WALLET_FLAG_AVOID_REUSE)) {
         // Mark used destinations
@@ -1574,15 +1573,12 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
 
         mw::Coin mweb_coin;
         for (const mw::Output& output : block.data->mweb_block.m_block->GetOutputs()) {
-            LogPrintf("DEBUG: Attempting to rewind output %s\n", output.GetOutputID().ToHex());
             if (mweb_wallet->RewindOutput(output, mweb_coin)) {
                 auto wtx = FindWalletTx(output.GetOutputID());
                 if (wtx != nullptr) {
-                    LogPrintf("DEBUG: Output rewound successfully! Syncing transaction\n");
                     SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateConfirmed{block.hash, block.height, TxStateSerializedIndex(wtx->m_state)});
                     transactionRemovedFromMempool(wtx->tx, MemPoolRemovalReason::BLOCK, 0 /* mempool_sequence */);
                 } else {
-                    LogPrintf("DEBUG: Output rewound successfully! Adding to wallet\n");
                     AddToWallet(
                         MakeTransactionRef(),
                         std::make_optional<MWEB::WalletTxInfo>(mweb_coin),
@@ -2551,7 +2547,6 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
     // Fill in information from ScriptPubKeyMans
     for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
         int n_signed_this_spkm = 0;
-        LogPrintf("DEBUG: Calling spkman->FillPSBT\n");
         TransactionError res = spk_man->FillPSBT(psbtx, txdata, sighash_type, sign, bip32derivs, &n_signed_this_spkm, finalize);
         if (res != TransactionError::OK) {
             return res;
@@ -2567,7 +2562,6 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
     // Complete if every input is now signed
     complete = psbtx.IsComplete();
 
-    LogPrintf("DEBUG: Complete: %d\n", complete ? 1 : 0);
 
     return TransactionError::OK;
 }
@@ -2692,7 +2686,6 @@ void CWallet::CommitTransaction(CTransactionRef tx, mapValue_t mapValue, std::ve
     std::string err_string;
     if (!SubmitTxMemoryPoolAndRelay(*wtx, err_string, true)) {
         WalletLogPrintf("CommitTransaction(): Transaction cannot be broadcast immediately, %s\n", err_string);
-        WalletLogPrintf("DEBUG: %s\n", wtx->tx->ToString());
         // TODO: if we expect the failure to be long term or permanent, instead delete wtx from the wallet and return failure.
     }
 }

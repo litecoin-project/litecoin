@@ -302,9 +302,7 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
         }
 
         finalized_tx.mweb_tx.m_transaction->Validate();
-        LOG_INFO("DEBUG: Valid Tx - {}", finalized_tx.ToString());
     } catch (std::exception& e) {
-        LOG_INFO("DEBUG: Validate() failed - {} for tx: {}", e.what(), finalized_tx.ToString());
         return util::Error{Untranslated("Validate failed")};
     }
 

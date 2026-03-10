@@ -48,7 +48,6 @@ std::vector<mw::Coin> Wallet::RewindOutputs(const CTransaction& tx)
         for (const mw::Output& output : tx.mweb_tx.m_transaction->GetOutputs()) {
             mw::Coin mweb_coin;
             if (RewindOutput(output, mweb_coin)) {
-                LogPrintf("DEBUG: Rewound output: %s\n", mweb_coin.output_id.ToHex());
                 coins.push_back(mweb_coin);
             }
         }

@@ -505,7 +505,6 @@ public:
         if (!subscript.empty()) subscript = ',' + subscript;
 
         out = "mweb(" + scan_key_str + "," + spend_key_str + subscript + ")";
-        LogPrintf("DEBUG: Output descriptor of string type %d: %s\n", (int)type, out);
         return true;
     }
 
@@ -1290,9 +1289,7 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
     // 2. mweb(master_scan, master_spend, address_idx) - A single stealth subaddress derived from the master keypair with index 'address_idx'
     // 3. mweb(master_scan, subaddr_spend) - A single stealth subaddress derived from a known subaddress spend key
     if (ctx == ParseScriptContext::TOP && Func("mweb", expr)) {
-        LogPrintf("DEBUG: Parsing master_scan_pk (%s)\n", std::string(expr.begin(), expr.end()));
         auto scan_pk_expr = Expr(expr);
-        LogPrintf("DEBUG: scan_pk_expr=%s\n", std::string(scan_pk_expr.begin(), scan_pk_expr.end()));
         auto master_scan_pk = ParsePubkey(key_exp_index, scan_pk_expr, ctx, out, error);
         if (!master_scan_pk) {
             error = strprintf("mweb(): %s", error);
@@ -1313,7 +1310,6 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
         }
 
         auto spend_pk_expr = Expr(expr);
-        LogPrintf("DEBUG: spend_pk_expr=%s\n", std::string(spend_pk_expr.begin(), spend_pk_expr.end()));
         auto master_spend_pk = ParsePubkey(key_exp_index, spend_pk_expr, ctx, out, error);
         if (!master_spend_pk) {
             error = strprintf("mweb(): %s", error);
@@ -1338,7 +1334,6 @@ std::unique_ptr<DescriptorImpl> ParseScript(uint32_t& key_exp_index, Span<const 
         std::optional<uint32_t> mweb_index;
         MWEBDescriptor::Type mweb_type = MWEBDescriptor::Type::SINGLE_SUBADDR;
         if (!expr.empty()) {
-            LogPrintf("DEBUG: Parsing mweb_index (%s)\n", std::string(expr.begin(), expr.end()));
             if (!Const(",", expr)) {
                 error = strprintf("mweb(): expected ',', got '%c'", expr[0]);
                 return nullptr;

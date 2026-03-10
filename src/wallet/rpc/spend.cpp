@@ -21,6 +21,7 @@
 #include <wallet/wallet.h>
 
 #include <univalue.h>
+#include <limits>
 
 namespace wallet {
 
@@ -77,15 +78,36 @@ static void InterpretFeeEstimationInstructions(const UniValue& conf_target, cons
     }
 }
 
+// Returns change position in the logical output list where LTC outputs come first
+// followed by MWEB outputs. Returns -1 when no change is present.
+static int GetRPCChangePos(const CMutableTransaction& tx, const ChangePosition& change_pos)
+{
+    if (change_pos.IsNull()) {
+        return -1;
+    }
+
+    size_t position{0};
+    if (change_pos.IsLTC()) {
+        position = change_pos.ToLTC();
+    } else if (change_pos.IsMWEB()) {
+        position = tx.vout.size() + change_pos.ToMWEB().idx;
+    } else {
+        return -1;
+    }
+
+    if (position > static_cast<size_t>(std::numeric_limits<int>::max())) {
+        return -1;
+    }
+
+    return static_cast<int>(position);
+}
+
 static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const UniValue& options, const RawTransaction& rawTx)
 {
-    LogPrintf("DEBUG: BEGIN\n");
     PartiallySignedTransaction psbtx = rawTx.ToPSBT(*pwallet);
-    LogPrintf("DEBUG: PSBT created\n");
 
     util::Result<CMutableTransaction> finalize_result = FinalizePSBT(psbtx);
     const bool complete = finalize_result.has_value();
-    LogPrintf("DEBUG: PSBT finalized. Complete: %d\n", complete ? 1 : 0);
 
     UniValue result(UniValue::VOBJ);
 
@@ -100,17 +122,6 @@ static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const 
 
     if (complete) {
         CMutableTransaction mtx = finalize_result.value();
-        LogPrintf("DEBUG: MWEB IsFinal: %d, MWEB finalized: %d\n", mtx.mweb_tx.IsFinal() ? 1 : 0, mtx.mweb_tx.Finalized().has_value() ? 1 : 0);
-        for (const auto& input : mtx.mweb_tx.inputs) {
-            LogPrintf("DEBUG: MWEB input IsFinal: %d\n", input.IsFinal());
-        }
-        for (const auto& output : mtx.mweb_tx.outputs) {
-            LogPrintf("DEBUG: MWEB output IsFinal: %d\n", output.IsFinal());
-        }
-        for (const auto& kernel : mtx.mweb_tx.kernels) {
-            LogPrintf("DEBUG: MWEB kernel IsFinal: %d\n", kernel.IsFinal());
-        }
-
         CTransactionRef tx(MakeTransactionRef(std::move(mtx)));
         std::string hex{EncodeHexTx(*tx)};
         result.pushKV("txid", tx->GetHash().GetHex());
@@ -827,7 +838,7 @@ RPCHelpMan fundrawtransaction()
     UniValue result(UniValue::VOBJ);
     result.pushKV("hex", rawTx.ToHex());
     result.pushKV("fee", ValueFromAmount(ret.fee));
-    result.pushKV("changepos", ret.change_pos.IsLTC() ? (int)ret.change_pos.ToLTC() : -1); // MW: TODO - Support MWEB change position
+    result.pushKV("changepos", GetRPCChangePos(rawTx.tx, ret.change_pos));
 
     return result;
 },
@@ -1532,20 +1543,12 @@ RPCHelpMan walletprocesspsbt()
     bool finalize = request.params[4].isNull() ? true : request.params[4].get_bool();
     bool complete = true;
 
-    CDataStream ss_psbtx(SER_NETWORK, PROTOCOL_VERSION);
-    ss_psbtx << psbtx;
-    LogPrintf("DEBUG: INPUT - Base64=%s, psbtx=%s, sign=%d, bip32derives=%d, finalize=%d\n", request.params[0].get_str(), HexStr(ss_psbtx), sign, bip32derivs, finalize);
-
     if (sign) EnsureWalletIsUnlocked(*pwallet);
 
     const TransactionError err{wallet.FillPSBT(psbtx, complete, nHashType, sign, bip32derivs, nullptr, finalize)};
     if (err != TransactionError::OK) {
         throw JSONRPCTransactionError(err);
     }
-
-    CDataStream ss_ret(SER_NETWORK, PROTOCOL_VERSION);
-    ss_ret << psbtx;
-    LogPrintf("DEBUG: OUTPUT - Base64=%s, psbtx=%s, complete=%d\n", EncodeBase64(ss_ret.str()), HexStr(ss_ret), complete);
 
     UniValue result(UniValue::VOBJ);
     CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
@@ -1703,7 +1706,7 @@ RPCHelpMan walletcreatefundedpsbt()
     UniValue result(UniValue::VOBJ);
     result.pushKV("psbt", EncodeBase64(ssTx.str()));
     result.pushKV("fee", ValueFromAmount(ret.fee));
-    result.pushKV("changepos", ret.change_pos.IsLTC() ? ret.change_pos.ToLTC() : -1); // MW: TODO - Support MWEB change position
+    result.pushKV("changepos", GetRPCChangePos(rawTx.tx, ret.change_pos));
     return result;
 },
     };

@@ -207,14 +207,12 @@ class PSBTTest(BitcoinTestFramework):
 
         inputs = [{"txid": txid, "vout": p2wpkh_pos}, {"txid": txid, "vout": p2sh_p2wpkh_pos}, {"txid": txid, "vout": p2pkh_pos}]
         outputs = [{self.nodes[1].getnewaddress(): 29.99}]
-        print(f'DEBUG: Inputs - {inputs}')
 
         # spend single key from node 1
         created_psbt = self.nodes[1].walletcreatefundedpsbt(inputs, outputs)
         walletprocesspsbt_out = self.nodes[1].walletprocesspsbt(created_psbt['psbt'])
         # Make sure it has both types of UTXOs
         decoded = self.nodes[1].decodepsbt(walletprocesspsbt_out['psbt'])
-        print(f'DEBUG: Decoded["inputs"] - {decoded["inputs"]}')
         assert 'non_witness_utxo' in decoded['inputs'][0]
         assert 'witness_utxo' in decoded['inputs'][0]
         # Check decodepsbt fee calculation (input values shall only be counted once per UTXO)
