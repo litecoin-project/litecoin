@@ -57,6 +57,18 @@ mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock)
     std::for_each(
         pBlock->GetInputs().cbegin(), pBlock->GetInputs().cend(),
         [this, &coinsSpent](const Input& input) {
+            // Block validation must rebind serialized input metadata to the real spent UTXO.
+            UTXO::CPtr pUTXO = GetUTXO(input.GetOutputID());
+            if (pUTXO == nullptr) {
+                ThrowValidation(EConsensusError::UTXO_MISSING);
+            }
+
+            if (pUTXO->GetCommitment() != input.GetCommitment()
+                || pUTXO->GetReceiverPubKey() != input.GetOutputPubKey())
+            {
+                ThrowValidation(EConsensusError::UTXO_MISMATCH);
+            }
+
             UTXO spentUTXO = SpendUTXO(input.GetOutputID());
             coinsSpent.push_back(std::move(spentUTXO));
         }
