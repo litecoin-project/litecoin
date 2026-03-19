@@ -63,7 +63,8 @@ Output Output::Create(
         SecretKey(blind.vec()),
         SecretKey::Random(),
         SecretKey::Random(),
-        ProofMessage{},
+        BigInt<32>{},
+        blind.GetBigInt(),
         message.Serialized()
     );
     

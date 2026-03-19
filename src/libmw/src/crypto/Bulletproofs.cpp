@@ -95,7 +95,8 @@ RangeProof::CPtr Bulletproofs::Generate(
     const SecretKey& key,
     const SecretKey& sharedNonce,
     const SecretKey& privateNonce,
-    const ProofMessage& proofMessage,
+    const BigInt<32>& sharedMessage,
+    const BigInt<32>& privateMessage,
     const std::vector<uint8_t>& extraData)
 {
     auto contextWriter = BP_CONTEXT.Write();
@@ -127,7 +128,8 @@ RangeProof::CPtr Bulletproofs::Generate(
         privateNonce.data(),
         extraData.data(),
         extraData.size(),
-        proofMessage.data()
+        sharedMessage.data(),
+        privateMessage.data()
     );
     secp256k1_scratch_space_destroy(pContext, pScratchSpace);
 
@@ -139,7 +141,7 @@ RangeProof::CPtr Bulletproofs::Generate(
     return std::make_shared<RangeProof>(std::move(proofBytes));
 }
 
-std::pair<std::vector<uint8_t>, std::vector<uint8_t>> Bulletproofs::Rewind(
+std::pair<BigInt<32>, BigInt<32>> Bulletproofs::Rewind(
     const Commitment& commitment,
     const RangeProof& rangeProof,
     const std::vector<uint8_t>& extraData,
@@ -148,8 +150,8 @@ std::pair<std::vector<uint8_t>, std::vector<uint8_t>> Bulletproofs::Rewind(
 {
     secp256k1_pedersen_commitment secpCommitment = ConversionUtil::ToSecp256k1(commitment);
 
-    std::vector<uint8_t> shared_message(32, 0);
-    std::vector<uint8_t> private_message(28, 0);
+    BigInt<32> shared_message;
+    BigInt<32> private_message;
 
     size_t shared_message_len = shared_message.size();
     size_t private_message_len = private_message.size();
@@ -170,9 +172,8 @@ std::pair<std::vector<uint8_t>, std::vector<uint8_t>> Bulletproofs::Rewind(
         extraData.size()
     );
 
-    if (result == 1) {
-        shared_message.resize(shared_message_len);
-        private_message.resize(private_message_len);
+    if (result != 1 || shared_message_len != shared_message.size() || private_message_len != private_message.size()) {
+        return std::make_pair(BigInt<32>{}, BigInt<32>{});
     }
 
     return std::make_pair(std::move(shared_message), std::move(private_message));

@@ -4,7 +4,8 @@
 #include <mweb/mweb_db.h>
 #include <test/util/setup_common.h>
 
-struct MWEBTestingSetup : public BasicTestingSetup {
+struct MWEBTestingSetup : public BasicTestingSetup
+{
     explicit MWEBTestingSetup()
         : BasicTestingSetup(CBaseChainParams::MAIN)
     {

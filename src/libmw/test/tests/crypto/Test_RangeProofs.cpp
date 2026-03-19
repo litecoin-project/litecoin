@@ -124,97 +124,18 @@ static void secp256k1_scalar_get_b32(unsigned char *bin, const secp256k1_scalar*
     bin[24] = a->d[0] >> 56; bin[25] = a->d[0] >> 48; bin[26] = a->d[0] >> 40; bin[27] = a->d[0] >> 32; bin[28] = a->d[0] >> 24; bin[29] = a->d[0] >> 16; bin[30] = a->d[0] >> 8; bin[31] = a->d[0];
 }
 
-typedef struct {
-    /* X = sum(i=0..4, n[i]*2^(i*52)) mod p
-     * where p = 2^256 - 0x1000003D1
-     */
-    uint64_t n[5];
-} secp256k1_fe;
-
-/** Convert a field element to a 32-byte big endian value. Requires the input to be normalized */
-static void secp256k1_fe_get_b32(unsigned char *r, const secp256k1_fe *a) {
-    r[0] = (a->n[4] >> 40) & 0xFF;
-    r[1] = (a->n[4] >> 32) & 0xFF;
-    r[2] = (a->n[4] >> 24) & 0xFF;
-    r[3] = (a->n[4] >> 16) & 0xFF;
-    r[4] = (a->n[4] >> 8) & 0xFF;
-    r[5] = a->n[4] & 0xFF;
-    r[6] = (a->n[3] >> 44) & 0xFF;
-    r[7] = (a->n[3] >> 36) & 0xFF;
-    r[8] = (a->n[3] >> 28) & 0xFF;
-    r[9] = (a->n[3] >> 20) & 0xFF;
-    r[10] = (a->n[3] >> 12) & 0xFF;
-    r[11] = (a->n[3] >> 4) & 0xFF;
-    r[12] = ((a->n[2] >> 48) & 0xF) | ((a->n[3] & 0xF) << 4);
-    r[13] = (a->n[2] >> 40) & 0xFF;
-    r[14] = (a->n[2] >> 32) & 0xFF;
-    r[15] = (a->n[2] >> 24) & 0xFF;
-    r[16] = (a->n[2] >> 16) & 0xFF;
-    r[17] = (a->n[2] >> 8) & 0xFF;
-    r[18] = a->n[2] & 0xFF;
-    r[19] = (a->n[1] >> 44) & 0xFF;
-    r[20] = (a->n[1] >> 36) & 0xFF;
-    r[21] = (a->n[1] >> 28) & 0xFF;
-    r[22] = (a->n[1] >> 20) & 0xFF;
-    r[23] = (a->n[1] >> 12) & 0xFF;
-    r[24] = (a->n[1] >> 4) & 0xFF;
-    r[25] = ((a->n[0] >> 48) & 0xF) | ((a->n[1] & 0xF) << 4);
-    r[26] = (a->n[0] >> 40) & 0xFF;
-    r[27] = (a->n[0] >> 32) & 0xFF;
-    r[28] = (a->n[0] >> 24) & 0xFF;
-    r[29] = (a->n[0] >> 16) & 0xFF;
-    r[30] = (a->n[0] >> 8) & 0xFF;
-    r[31] = a->n[0] & 0xFF;
-}
-
-typedef struct {
-    secp256k1_fe x;
-    secp256k1_fe y;
-    int infinity; /* whether this represents the point at infinity */
-} secp256k1_ge;
-
-/** A group element of the secp256k1 curve, in jacobian coordinates.
- *  Note: For exhastive test mode, sepc256k1 is replaced by a small subgroup of a different curve.
- */
-typedef struct {
-    secp256k1_fe x; /* actual X: x/z^2 */
-    secp256k1_fe y; /* actual Y: y/z^3 */
-    secp256k1_fe z;
-    int infinity; /* whether this represents the point at infinity */
-} secp256k1_gej;
-
-struct secp256k1_bulletproof_generators {
-    size_t n;
-    /* `G_i`, `H_i` generators, `n` each of them which are generated when creating this struct */
-    secp256k1_ge *gens;
-    /* `H` "alternate" generator, used in Pedersen commitments. Passed in by caller to
-     * `secp256k1_bulletproof_generators_create`; stored in this structure to allow consistent
-     * generators between functions using `secp256k1_bulletproof_generators` and functions
-     * using the Pedersen commitment module. */
-    secp256k1_ge *blinding_gen;
-};
-
 BOOST_FIXTURE_TEST_SUITE(TestRangeProofs, MWEBTestingSetup)
 
 BOOST_AUTO_TEST_CASE(RangeProofs)
 {
     const uint64_t value = 12345678;
-    BlindingFactor blind = BlindingFactor::FromHex("82d4bab55eddcc1227ee7013ce81ff5106633161d304f11c9b5e24f6cf2c774f");
+    BlindingFactor blind = BlindingFactor::FromHex("0000000000000000000000000000000000000000000000000000000000000001");
     Commitment commit = Commitment::Blinded(blind, value);
     SecretKey sharedNonce = SecretKey::FromHex("5021e7378095d5dc0dc59d7886a4f65c126db9580a1dde3fedc4fe6dc7734cd5");
     SecretKey privateNonce = SecretKey::FromHex("f42ba7b1e657a397e608958d36c49e0edc249b4f02180bf62464560d5ba51afe");
-    ProofMessage message = secret_key_t<20>::FromHex("c2ca9d0aa93184f598f595147cd6c786f2bafb70").GetBigInt();
+    BigInt<32> shared_message = BigInt<32>::FromHex("c2ca9d0aa93184f598f595147cd6c786f2bafb7000112233445566778899aabb");
+    BigInt<32> private_message = BigInt<32>::FromHex("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364142");
     std::vector<uint8_t> extraData = ParseHex("d21cf3d38aa9a7de357949164d8134a7686a7b107c279f50735d487874ffc56fe0b62b759baf6ecde5a73dd6932634f97501");
-
-    // secp256k1_context* ctx = secp256k1_context_create(SECP256K1_CONTEXT_SIGN | SECP256K1_CONTEXT_VERIFY);
-    // secp256k1_bulletproof_generators* gen = secp256k1_bulletproof_generators_create(ctx, &secp256k1_generator_const_g, 256);
-    // for (size_t i = 0; i < gen->n; i++) {
-    //     secp256k1_ge* g = &gen->gens[i];
-    //     std::vector<uint8_t> g_data(64);
-    //     secp256k1_fe_get_b32(g_data.data(), &g->x);
-    //     secp256k1_fe_get_b32(g_data.data() + 32, &g->y);
-    //     std::cout << "Generator " << i << ": " << HexStr(g_data) << std::endl;
-    // }
 
     secp256k1_scalar alpha;
     secp256k1_scalar rho;
@@ -222,10 +143,9 @@ BOOST_AUTO_TEST_CASE(RangeProofs)
 
     std::vector<uint8_t> alpha_out(32);
     secp256k1_scalar_get_b32(alpha_out.data(), &alpha);
-    //std::cout << "alpha: " << HexStr(alpha_out) << std::endl;
+
     std::vector<uint8_t> rho_out(32);
     secp256k1_scalar_get_b32(rho_out.data(), &rho);
-    //std::cout << "rho: " << HexStr(rho_out) << std::endl;
 
     // Create a RangeProof via Bulletproofs::Generate. Use the same value for privateNonce and rewindNonce.
     RangeProof::CPtr pRangeProof = Bulletproofs::Generate(
@@ -233,16 +153,16 @@ BOOST_AUTO_TEST_CASE(RangeProofs)
         SecretKey(blind.vec()),
         sharedNonce,
         privateNonce,
-        message,
+        shared_message,
+        private_message,
         extraData
     );
 
-    //std::cout << "RangeProof: " << pRangeProof->ToHex() << std::endl;
-
     // Try rewinding it via Bulletproofs::Rewind using the *correct* rewindNonce. Make sure it returns a valid RewoundProof.
-    std::pair<std::vector<uint8_t>, std::vector<uint8_t>> bp_messages = Bulletproofs::Rewind(commit, *pRangeProof, extraData, sharedNonce, privateNonce);
+    std::pair<BigInt<32>, BigInt<32>> bp_messages = Bulletproofs::Rewind(commit, *pRangeProof, extraData, sharedNonce, privateNonce);
 
-    // Make sure amount, blindingFactor (aka 'key'), and ProofMessage match the values passed to Bulletproofs::Generate
+    BOOST_CHECK(bp_messages.first == shared_message);
+    BOOST_CHECK(bp_messages.second == private_message);
 
     // Make sure BatchVerify returns true.
     std::vector<ProofData> rangeProofs;

@@ -1,11 +1,12 @@
 #pragma once
 
+#include <mw/models/crypto/BigInteger.h>
 #include <mw/models/crypto/Commitment.h>
 #include <mw/models/crypto/ProofData.h>
-#include <mw/models/crypto/ProofMessage.h>
 #include <mw/models/crypto/RangeProof.h>
 #include <mw/models/crypto/SecretKey.h>
 #include <memory>
+#include <utility>
 
 class Bulletproofs
 {
@@ -19,11 +20,12 @@ public:
         const SecretKey& key,
         const SecretKey& sharedNonce,
         const SecretKey& privateNonce,
-        const ProofMessage& proofMessage,
+        const BigInt<32>& sharedMessage,
+        const BigInt<32>& privateMessage,
         const std::vector<uint8_t>& extraData
     );
 
-    static std::pair<std::vector<uint8_t>, std::vector<uint8_t>> Rewind(
+    static std::pair<BigInt<32>, BigInt<32>> Rewind(
         const Commitment& commitment,
         const RangeProof& rangeProof,
         const std::vector<uint8_t>& extraData,

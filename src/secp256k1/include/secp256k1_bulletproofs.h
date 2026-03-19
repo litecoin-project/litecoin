@@ -103,11 +103,11 @@ SECP256K1_WARN_UNUSED_RESULT SECP256K1_API int secp256k1_bulletproof_rangeproof_
     size_t *extra_commit_len
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4) SECP256K1_ARG_NONNULL(8);
 
-/** Extracts the value and blinding factor from a single-commit rangeproof given a secret nonce
- *  Returns: 1: value and blinding factor were extracted and matched the input commit
+/** Extracts the shared and private rewind payloads from a single-commit rangeproof given secret nonces
+ *  Returns: 1: rewind data was extracted and matched the input commit
  *           0: one of the above was not true, extraction failed
  *  Args:       ctx: pointer to a context object (cannot be NULL)
- *  Out: shared_msg: pointer to 28-byte array for shared message to be extracted
+ *  Out: shared_msg: pointer to 32-byte array for shared message to be extracted
  *   shared_msg_len: pointer to length of shared message array. This will be set to 0 if no shared message is extracted.
  *      private_msg: pointer to 32-byte array for private message to be extracted
  *  private_msg_len: pointer to length of private message array. This will be set to 0 if no private message is extracted.
@@ -160,7 +160,9 @@ SECP256K1_WARN_UNUSED_RESULT SECP256K1_API int secp256k1_bulletproof_rangeproof_
  *    private_nonce: only for multi-party; random 32-byte seed used to derive private blinding factors
  *     extra_commit: additonal data committed to by the rangeproof
  * extra_commit_len: length of additional data
- *          message: optional 20 bytes of message that can be recovered by rewinding with the correct nonce
+ * shared_message: optional 32 bytes of message that can be recovered by rewinding with the correct shared nonce
+ * private_message: optional 32 bytes of message that can be recovered by rewinding with the correct private nonce.
+ *                  This currently must encode the same scalar as the corresponding blinding factor.
  */
 SECP256K1_WARN_UNUSED_RESULT SECP256K1_API int secp256k1_bulletproof_rangeproof_prove(
     const secp256k1_context* ctx,
@@ -182,7 +184,8 @@ SECP256K1_WARN_UNUSED_RESULT SECP256K1_API int secp256k1_bulletproof_rangeproof_
     const unsigned char* private_nonce,
     const unsigned char* extra_commit,
     size_t extra_commit_len,
-    const unsigned char* message
+    const unsigned char* shared_message,
+    const unsigned char* private_message
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(9) SECP256K1_ARG_NONNULL(11) SECP256K1_ARG_NONNULL(14) SECP256K1_ARG_NONNULL(16);
 
 # ifdef __cplusplus
