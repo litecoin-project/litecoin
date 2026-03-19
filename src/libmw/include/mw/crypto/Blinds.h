@@ -78,7 +78,7 @@ public:
     }
 
     BlindingFactor Total() const { return Pedersen::AddBlindingFactors(m_positive, m_negative); }
-    SecretKey ToKey() const { return Pedersen::AddBlindingFactors(m_positive, m_negative).data(); }
+    SecretKey ToKey() const { return SecretKey(Pedersen::AddBlindingFactors(m_positive, m_negative).data()); }
 
 private:
     std::vector<BlindingFactor> m_positive;

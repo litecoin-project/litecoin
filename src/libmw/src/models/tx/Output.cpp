@@ -18,21 +18,21 @@ Output Output::Create(
     BigInt<16> n(Hashed(EHashTag::NONCE, sender_privkey).data());
 
     // Calculate unique sending key 's' = H(T_send, A, B, v, n)
-    SecretKey s = Hasher(EHashTag::SEND_KEY)
+    SecretKey s = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
         .Append(receiver_addr.A())
         .Append(receiver_addr.B())
         .Append(value)
         .Append(n)
-        .hash();
+        .hash());
 
     // Derive shared secret 't' = H(T_derive, s*A)
     PublicKey sA = receiver_addr.A().Mul(s);
-    SecretKey t = Hasher(EHashTag::DERIVE)
+    SecretKey t = SecretKey::FromHash(Hasher(EHashTag::DERIVE)
         .Append(sA)
-        .hash();
+        .hash());
 
     // Construct one-time public key for receiver 'Ko' = H(T_outkey, t)*B
-    PublicKey Ko = receiver_addr.B().Mul(Hashed(EHashTag::OUT_KEY, t));
+    PublicKey Ko = receiver_addr.B().Mul(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, t)));
 
     // Key exchange public key 'Ke' = s*B
     PublicKey Ke = receiver_addr.B().Mul(s);

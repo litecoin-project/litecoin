@@ -20,8 +20,8 @@ bool Keychain::RewindOutput(const Output& output, mw::Coin& coin) const
         return false;
     }
 
-    SecretKey t = Hashed(EHashTag::DERIVE, shared_secret);
-    PublicKey B_i = output.Ko().Div(Hashed(EHashTag::OUT_KEY, t));
+    SecretKey t = SecretKey::FromHash(Hashed(EHashTag::DERIVE, shared_secret));
+    PublicKey B_i = output.Ko().Div(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, t)));
 
     // Check if B_i belongs to wallet
     StealthAddress address(B_i.Mul(m_scanSecret), B_i);
@@ -40,12 +40,12 @@ bool Keychain::RewindOutput(const Output& output, mw::Coin& coin) const
     }
 
     // Calculate Carol's sending key 's' and check that s*B ?= Ke
-    SecretKey s = Hasher(EHashTag::SEND_KEY)
+    SecretKey s = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
         .Append(address.A())
         .Append(address.B())
         .Append(value)
         .Append(n)
-        .hash();
+        .hash());
     if (output.Ke() != address.B().Mul(s)) {
         return false;
     }
@@ -77,7 +77,7 @@ boost::optional<SecretKey> Keychain::CalculateOutputKey(const mw::Coin& coin) co
 
     auto derive_output_key = [](const SecretKey& spend_key, const SecretKey& shared_secret) -> SecretKey {
         return SecretKeys::From(spend_key)
-            .Mul(Hashed(EHashTag::OUT_KEY, shared_secret))
+            .Mul(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, shared_secret)))
             .Total();
     };
 
@@ -113,10 +113,10 @@ SecretKey Keychain::GetSpendKey(const uint32_t index) const
 {
     assert(!m_spendSecret.IsNull());
 
-    SecretKey mi = Hasher(EHashTag::ADDRESS)
+    SecretKey mi = SecretKey::FromHash(Hasher(EHashTag::ADDRESS)
         .Append<uint32_t>(index)
         .Append(m_scanSecret)
-        .hash();
+        .hash());
 
     return SecretKeys::From(m_spendSecret).Add(mi).Total();
 }

@@ -15,8 +15,8 @@ BOOST_AUTO_TEST_CASE(RangeProofs)
     Commitment commit = Commitment::Blinded(blind, value);
     SecretKey nonce = SecretKey::Random();
     SecretKey nonce2 = SecretKey::Random();
-    ProofMessage message = secret_key_t<20>::Random().GetBigInt();
-    std::vector<uint8_t> extraData = secret_key_t<100>::Random().vec();
+    ProofMessage message = RandomBigInt<20>();
+    std::vector<uint8_t> extraData = RandomBytes<100>();
 
     // Create a RangeProof via Bulletproofs::Generate. Use the same value for privateNonce and rewindNonce.
     RangeProof::CPtr pRangeProof = Bulletproofs::Generate(

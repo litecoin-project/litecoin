@@ -17,7 +17,7 @@ Kernel Kernel::Create(
         (lock_height ? HEIGHT_LOCK_FEATURE_BIT : 0) |
         (stealth_blind ? STEALTH_EXCESS_FEATURE_BIT : 0);
 
-    SecretKey sig_key = blind.data();
+    SecretKey sig_key(blind.data());
     Commitment excess_commit = Commitment::Blinded(blind, 0);
     boost::optional<PublicKey> stealth_excess = boost::none;
 
@@ -28,7 +28,7 @@ Kernel Kernel::Create(
         h << PublicKey::From(excess_commit) << stealth_excess.value();
 
         sig_key = SecretKeys::From(sig_key)
-            .Mul(h.hash())
+            .Mul(SecretKey::FromHash(h.hash()))
             .Add(stealth_blind.value())
             .Total();
     }
@@ -67,7 +67,7 @@ SignedMessage Kernel::BuildSignedMsg() const
         h << public_key << stealth_excess;
 
         public_key = public_key
-            .Mul(h.hash())
+            .Mul(SecretKey::FromHash(h.hash()))
             .Add(stealth_excess);
     }
 

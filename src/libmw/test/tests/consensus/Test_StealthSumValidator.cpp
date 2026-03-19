@@ -80,10 +80,10 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
         .Add(input2_key)
         .Sub(input1_output_key)
         .Sub(input2_output_key)
-        .Total().data();
+        .ToKey();
     SecretKey stealth_excess_with_offset = Blinds::From(stealth_excess_no_offset)
         .Sub(stealth_offset)
-        .Total().data();
+        .ToKey();
 
     ////////////////////////////////////////
     // Build kernels

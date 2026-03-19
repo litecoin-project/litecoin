@@ -13,7 +13,7 @@ Input Input::Create(const mw::Hash& output_id, const Commitment& commitment, con
     // Hash keys (K_i||K_o)
     Hasher key_hasher;
     key_hasher << input_pubkey << output_pubkey;
-    SecretKey key_hash = key_hasher.hash();
+    SecretKey key_hash = SecretKey::FromHash(key_hasher.hash());
 
     // Calculate aggregated key k_agg = k_i + HASH(K_i||K_o) * k_o
     SecretKey sig_key = SecretKeys::From(output_key)
@@ -36,7 +36,7 @@ Input Input::Create(const mw::Hash& output_id, const Commitment& commitment, con
     );
 }
 
-SignedMessage Input::BuildSignedMsg() const noexcept
+SignedMessage Input::BuildSignedMsg() const
 {
     // Calculate message hash
     Hasher msg_hasher;
@@ -52,7 +52,7 @@ SignedMessage Input::BuildSignedMsg() const noexcept
         // Hash keys (K_i||K_o)
         Hasher key_hasher;
         key_hasher << (*GetInputPubKey()) << GetOutputPubKey();
-        SecretKey key_hash = key_hasher.hash();
+        SecretKey key_hash = SecretKey::FromHash(key_hasher.hash());
 
         // Calculate aggregated key K_agg = K_i + HASH(K_i||K_o) * K_o
         public_key = public_key

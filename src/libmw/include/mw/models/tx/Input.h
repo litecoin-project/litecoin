@@ -72,7 +72,7 @@ public:
     const std::vector<uint8_t>& GetExtraData() const noexcept { return m_extraData; }
     const Signature& GetSignature() const noexcept { return m_signature; }
 
-    SignedMessage BuildSignedMsg() const noexcept;
+    SignedMessage BuildSignedMsg() const;
 
     //
     // Serialization/Deserialization
