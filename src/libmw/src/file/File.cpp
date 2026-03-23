@@ -112,8 +112,12 @@ void File::Write(const std::vector<uint8_t>& bytes)
 
 void File::Write(const size_t startIndex, const std::vector<uint8_t>& bytes, const bool truncate)
 {
+    if (!Exists()) {
+        Create();
+    }
+    
     if (!bytes.empty()) {
-        std::fstream file(m_path.m_path, std::ios::out | std::ios::binary | std::ios::app);
+        std::fstream file(m_path.m_path, std::ios::in | std::ios::out | std::ios::binary);
         if (!file.is_open()) {
             ThrowFile_F("Failed to write to file: {}", m_path);
         }
