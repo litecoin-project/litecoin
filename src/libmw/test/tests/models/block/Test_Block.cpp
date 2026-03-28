@@ -47,7 +47,9 @@ BOOST_AUTO_TEST_CASE(Block)
     BOOST_REQUIRE(block.GetStealthOffset() == pHeader->GetStealthOffset());
 
     BOOST_REQUIRE(block.GetPegIns() == pTransaction->GetPegIns());
-    BOOST_REQUIRE(block.GetPegInAmount() == 30);
+    const auto pegin_amount = block.GetPegInAmount();
+    BOOST_REQUIRE(pegin_amount.has_value());
+    BOOST_REQUIRE(*pegin_amount == 30);
     BOOST_REQUIRE(block.GetPegOuts().empty());
 
     std::vector<uint8_t> block_serialized = block.Serialized();

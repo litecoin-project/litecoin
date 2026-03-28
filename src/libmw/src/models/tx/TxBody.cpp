@@ -1,4 +1,5 @@
 #include <mw/models/tx/TxBody.h>
+#include <mw/consensus/Amount.h>
 #include <mw/exceptions/ValidationException.h>
 #include <mw/consensus/Params.h>
 #include <mw/consensus/Weight.h>
@@ -18,12 +19,23 @@ std::vector<PegInCoin> TxBody::GetPegIns() const noexcept
     return pegins;
 }
 
-CAmount TxBody::GetPegInAmount() const noexcept
+boost::optional<CAmount> TxBody::GetPegInAmount() const noexcept
 {
-    return std::accumulate(
-        m_kernels.cbegin(), m_kernels.cend(), (CAmount)0,
-        [](const CAmount sum, const auto& kernel) noexcept { return sum + kernel.GetPegIn(); }
-    );
+    CAmount total = 0;
+    for (const Kernel& kernel : m_kernels) {
+        if (!AmountUtil::IsValidMoney(kernel.GetPegIn())) {
+            return boost::none;
+        }
+
+        const auto next_total = AmountUtil::TrySafeAdd(total, kernel.GetPegIn());
+        if (!next_total || !AmountUtil::IsValidMoney(*next_total)) {
+            return boost::none;
+        }
+
+        total = *next_total;
+    }
+
+    return total;
 }
 
 std::vector<PegOutCoin> TxBody::GetPegOuts() const noexcept
@@ -37,20 +49,43 @@ std::vector<PegOutCoin> TxBody::GetPegOuts() const noexcept
     return pegouts;
 }
 
-CAmount TxBody::GetTotalFee() const noexcept
+boost::optional<CAmount> TxBody::GetTotalFee() const noexcept
 {
-    return std::accumulate(
-        m_kernels.cbegin(), m_kernels.cend(), (CAmount)0,
-        [](const CAmount sum, const auto& kernel) noexcept { return sum + kernel.GetFee(); }
-    );
+    CAmount total = 0;
+    for (const Kernel& kernel : m_kernels) {
+        if (!AmountUtil::IsValidMoney(kernel.GetFee())) {
+            return boost::none;
+        }
+
+        const auto next_total = AmountUtil::TrySafeAdd(total, kernel.GetFee());
+        if (!next_total || !AmountUtil::IsValidMoney(*next_total)) {
+            return boost::none;
+        }
+
+        total = *next_total;
+    }
+
+    return total;
 }
 
-CAmount TxBody::GetSupplyChange() const noexcept
+boost::optional<CAmount> TxBody::GetSupplyChange() const noexcept
 {
-    return std::accumulate(
-        m_kernels.cbegin(), m_kernels.cend(), (CAmount)0,
-        [](const CAmount supply_change, const auto& kernel) noexcept { return supply_change + kernel.GetSupplyChange(); }
-    );
+    CAmount total = 0;
+    for (const Kernel& kernel : m_kernels) {
+        const auto kernel_supply_change = kernel.GetSupplyChange();
+        if (!kernel_supply_change) {
+            return boost::none;
+        }
+
+        const auto next_total = AmountUtil::TrySafeAdd(total, *kernel_supply_change);
+        if (!next_total || !AmountUtil::IsValidAmountRange(*next_total)) {
+            return boost::none;
+        }
+
+        total = *next_total;
+    }
+
+    return total;
 }
 
 int32_t TxBody::GetLockHeight() const noexcept

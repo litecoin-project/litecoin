@@ -71,8 +71,8 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
     }
 
     // Validate fee amount range
-    CAmount tx_fee = pTx->mweb_tx.GetFee();
-    if (!MoneyRange(tx_fee)) {
+    const auto tx_fee = pTx->mweb_tx.GetFee();
+    if (!tx_fee || !MoneyRange(*tx_fee)) {
         LogPrintf("Invalid MWEB fee amount\n");
         return false;
     }
@@ -87,10 +87,10 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
 
     hogex_inputs.insert(hogex_inputs.end(), vin.cbegin(), vin.cend());
     hogex_outputs.insert(hogex_outputs.end(), vout.cbegin(), vout.cend());
-    mweb_amount_change += (CAmount(pegin_amount) - CAmount(pegout_amount + tx_fee));
+    mweb_amount_change += (CAmount(pegin_amount) - CAmount(pegout_amount + *tx_fee));
 
     if (pTx->IsMWEBOnly()) {
-        hogex_fees += tx_fee;
+        hogex_fees += *tx_fee;
         hogex_sigops += iter->GetSigOpCost();
     }
 

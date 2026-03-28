@@ -18,11 +18,16 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
     }
     
     // Verify pegin amount matches
-    const uint64_t actual_amount = pTransaction->GetPegInAmount();
-    const uint64_t expected_amount = std::accumulate(pegins.cbegin(), pegins.cend(), (uint64_t)0,
-        [](const uint64_t sum, const PegInCoin& pegin) { return sum + pegin.GetAmount(); }
+    const auto actual_amount = pTransaction->GetPegInAmount();
+    if (!actual_amount) {
+        LOG_ERROR("Invalid pegin amount");
+        return false;
+    }
+
+    const CAmount expected_amount = std::accumulate(pegins.cbegin(), pegins.cend(), (CAmount)0,
+        [](const CAmount sum, const PegInCoin& pegin) { return sum + pegin.GetAmount(); }
     );
-    if (actual_amount != expected_amount) {
+    if (*actual_amount != expected_amount) {
         LOG_ERROR("Mismatched pegin amount");
         return false;
     }

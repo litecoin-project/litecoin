@@ -236,10 +236,13 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, 
             }
         }
 
-        CAmount mweb_fee = tx.mweb_tx.GetFee();
-        txfee_aux += mweb_fee;
+        const auto mweb_fee = tx.mweb_tx.GetFee();
+        if (!mweb_fee) {
+            return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-mwebfee-outofrange");
+        }
 
-        if (!MoneyRange(mweb_fee) || !MoneyRange(txfee_aux)) {
+        txfee_aux += *mweb_fee;
+        if (!MoneyRange(*mweb_fee) || !MoneyRange(txfee_aux)) {
             return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-mwebfee-outofrange");
         }
     }

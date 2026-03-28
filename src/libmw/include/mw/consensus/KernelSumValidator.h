@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mw/consensus/Amount.h>
 #include <mw/exceptions/ValidationException.h>
 #include <mw/crypto/Pedersen.h>
 #include <mw/models/tx/TxBody.h>
@@ -24,7 +25,13 @@ public:
         // Sum all utxo commitments - expected supply.
         int64_t total_mweb_supply = 0;
         for (const Kernel& kernel : kernels) {
-            total_mweb_supply += kernel.GetSupplyChange();
+            const auto supply_change = kernel.GetSupplyChange();
+            if (!supply_change) {
+                ThrowValidation(EConsensusError::AMOUNT_OUT_OF_RANGE);
+            }
+
+            total_mweb_supply = AmountUtil::SafeAdd(total_mweb_supply, *supply_change);
+            AmountUtil::ValidateAmountRange(total_mweb_supply);
 
             // Total supply can never go below 0
             if (total_mweb_supply < 0) {
@@ -56,7 +63,7 @@ public:
             body.GetOutputCommits(),
             body.GetKernelCommits(),
             block_offset,
-            body.GetSupplyChange()
+            GetAmountOrThrow(body.GetSupplyChange())
         );
     }
 
@@ -67,11 +74,20 @@ public:
             tx.GetOutputCommits(),
             tx.GetKernelCommits(),
             tx.GetKernelOffset(),
-            tx.GetSupplyChange()
+            GetAmountOrThrow(tx.GetSupplyChange())
         );
     }
 
 private:
+    static CAmount GetAmountOrThrow(const boost::optional<CAmount>& amount)
+    {
+        if (!amount) {
+            ThrowValidation(EConsensusError::AMOUNT_OUT_OF_RANGE);
+        }
+
+        return *amount;
+    }
+
     static void ValidateSums(
         const std::vector<Commitment>& input_commits,
         const std::vector<Commitment>& output_commits,
@@ -79,6 +95,8 @@ private:
         const BlindingFactor& offset,
         const int64_t coins_added)
     {
+        AmountUtil::ValidateAmountRange(coins_added);
+
         // Calculate UTXO nonce sum
         Commitment sum_utxo_commitment = Pedersen::AddCommitments(output_commits, input_commits);
         if (coins_added > 0) {
@@ -87,7 +105,7 @@ private:
             );
         } else if (coins_added < 0) {
             sum_utxo_commitment = Pedersen::AddCommitments(
-                { sum_utxo_commitment, Commitment::Transparent(std::abs(coins_added)) }
+                { sum_utxo_commitment, Commitment::Transparent(AmountUtil::UnsignedAbs(coins_added)) }
             );
         }
 

@@ -2217,13 +2217,13 @@ class MWEBKernel:
             self.pegin = deser_varint(f)
         self.pegouts = None
         if self.features & 4:
-            self.pegouts =  []# TODO: deser_vector(f, CPegout)
+            self.pegouts = deser_vector(f, MWEBPegOut)
         self.lock_height = None
         if self.features & 8:
             self.lock_height = deser_varint(f)
         self.stealth_excess = None
         if self.features & 16:
-            self.stealth_excess = Hash.deserialize(f)
+            self.stealth_excess = deser_pubkey(f)
         self.extradata = None
         if self.features & 32:
             self.extradata = deser_fixed_bytes(f, deser_compact_size(f))
@@ -2243,7 +2243,7 @@ class MWEBKernel:
         if self.features & 8:
             r += ser_varint(self.lock_height)
         if self.features & 16:
-            r += self.stealth_excess.serialize()
+            r += ser_pubkey(self.stealth_excess)
         if self.features & 32:
             r += ser_compact_size(len(self.extradata))
             r += ser_fixed_bytes(self.extradata, len(self.extradata))
@@ -2257,6 +2257,27 @@ class MWEBKernel:
 
     def __repr__(self):
         return "MWEBKernel(features=%d, excess=%s)" % (self.features, repr(self.excess))
+
+
+class MWEBPegOut:
+    __slots__ = ("amount", "script_pubkey")
+
+    def __init__(self):
+        self.amount = 0
+        self.script_pubkey = b""
+
+    def deserialize(self, f):
+        self.amount = deser_varint(f)
+        self.script_pubkey = deser_string(f)
+
+    def serialize(self):
+        r = b""
+        r += ser_varint(self.amount)
+        r += ser_string(self.script_pubkey)
+        return r
+
+    def __repr__(self):
+        return "MWEBPegOut(amount=%d, script_pubkey=%s)" % (self.amount, repr(self.script_pubkey))
 
 class MWEBTxBody:
     __slots__ = ("inputs", "outputs", "kernels")
