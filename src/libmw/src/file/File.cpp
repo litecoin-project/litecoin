@@ -203,7 +203,7 @@ void File::WriteBytes(const std::unordered_map<uint64_t, uint8_t>& bytes)
 
 void File::Commit() const
 {
-    FILE* file = fsbridge::fopen(m_path.ToBoost(), "rb");
+    FILE* file = fsbridge::fopen(m_path.ToBoost(), "rb+");
     if (file == nullptr) {
         ThrowFile_F("Failed to open {} for syncing", *this);
     }
