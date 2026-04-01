@@ -14,8 +14,3 @@
 * INPUT_BYTES = 196
 * MAX_NUM_INPUTS = 50,000
 * MAX_BLOCK_BYTES = 21,800,195
-
-
-### Rough Calculations
-
-Doing some back-of-the-envelope math,

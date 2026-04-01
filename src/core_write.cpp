@@ -189,65 +189,63 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     CAmount amt_total_in = 0;
     CAmount amt_total_out = 0;
 
-    std::vector<GenericInput> inputs = tx.GetInputs();
-    for (size_t i = 0; i < inputs.size(); i++) {
-        const GenericInput& input = inputs[i];
+    for (size_t i = 0; i < tx.vin.size(); i++) {
         UniValue in(UniValue::VOBJ);
-        //in.pushKV("ismweb", input.IsMWEB());
 
-        if (input.IsMWEB()) {
-            in.pushKV("output_id", input.ToMWEB().ToHex());
+        const CTxIn& txin = tx.vin[i];
+        if (tx.IsCoinBase()) {
+            in.pushKV("coinbase", HexStr(txin.scriptSig));
         } else {
-            const CTxIn& txin = input.GetTxIn();
-            if (tx.IsCoinBase()) {
-                in.pushKV("coinbase", HexStr(txin.scriptSig));
-            } else {
-                in.pushKV("txid", txin.prevout.hash.GetHex());
-                in.pushKV("vout", (int64_t)txin.prevout.n);
-                UniValue o(UniValue::VOBJ);
-                o.pushKV("asm", ScriptToAsmStr(txin.scriptSig, true));
-                o.pushKV("hex", HexStr(txin.scriptSig));
-                in.pushKV("scriptSig", o);
-            }
-            if (!txin.scriptWitness.IsNull()) {
-                UniValue txinwitness(UniValue::VARR);
-                for (const auto& item : txin.scriptWitness.stack) {
-                    txinwitness.push_back(HexStr(item));
-                }
-                in.pushKV("txinwitness", txinwitness);
-            }
-
-            // MW: TODO - Check if we have to do anything for MWEB when have_undo is true
-            if (have_undo) {
-                const Coin& prev_coin = txundo->vprevout[i];
-                const CTxOut& prev_txout = prev_coin.out;
-
-                amt_total_in += prev_txout.nValue;
-
-                if (verbosity == TxVerbosity::SHOW_DETAILS_AND_PREVOUT) {
-                    UniValue o_script_pub_key(UniValue::VOBJ);
-                    ScriptToUniv(prev_txout.scriptPubKey, /*out=*/o_script_pub_key, /*include_hex=*/true, /*include_address=*/true);
-
-                    UniValue p(UniValue::VOBJ);
-                    p.pushKV("generated", bool(prev_coin.fCoinBase));
-                    p.pushKV("height", uint64_t(prev_coin.nHeight));
-                    p.pushKV("value", ValueFromAmount(prev_txout.nValue));
-                    p.pushKV("scriptPubKey", o_script_pub_key);
-                    in.pushKV("prevout", p);
-                }
-            }
-            in.pushKV("sequence", (int64_t)txin.nSequence);
+            in.pushKV("txid", txin.prevout.hash.GetHex());
+            in.pushKV("vout", (int64_t)txin.prevout.n);
+            UniValue o(UniValue::VOBJ);
+            o.pushKV("asm", ScriptToAsmStr(txin.scriptSig, true));
+            o.pushKV("hex", HexStr(txin.scriptSig));
+            in.pushKV("scriptSig", o);
         }
+        if (!txin.scriptWitness.IsNull()) {
+            UniValue txinwitness(UniValue::VARR);
+            for (const auto& item : txin.scriptWitness.stack) {
+                txinwitness.push_back(HexStr(item));
+            }
+            in.pushKV("txinwitness", txinwitness);
+        }
+
+        if (have_undo) {
+            const Coin& prev_coin = txundo->vprevout[i];
+            const CTxOut& prev_txout = prev_coin.out;
+
+            amt_total_in += prev_txout.nValue;
+
+            if (verbosity == TxVerbosity::SHOW_DETAILS_AND_PREVOUT) {
+                UniValue o_script_pub_key(UniValue::VOBJ);
+                ScriptToUniv(prev_txout.scriptPubKey, /*out=*/o_script_pub_key, /*include_hex=*/true, /*include_address=*/true);
+
+                UniValue p(UniValue::VOBJ);
+                p.pushKV("generated", bool(prev_coin.fCoinBase));
+                p.pushKV("height", uint64_t(prev_coin.nHeight));
+                p.pushKV("value", ValueFromAmount(prev_txout.nValue));
+                p.pushKV("scriptPubKey", o_script_pub_key);
+                in.pushKV("prevout", p);
+            }
+        }
+        in.pushKV("sequence", (int64_t)txin.nSequence);
 
         vin.push_back(in);
     }
+
+    for (const mw::Hash& spent_id : tx.mweb_tx.GetSpentIDs()) {
+        UniValue in(UniValue::VOBJ);
+        in.pushKV("output_id", spent_id.ToHex());
+        vin.push_back(in);
+    }
+
     entry.pushKV("vin", vin);
 
     UniValue vout(UniValue::VARR);
     int64_t n = 0;
     for (const GenericOutput& output : tx.GetOutputs()) {
         UniValue out(UniValue::VOBJ);
-        //out.pushKV("ismweb", output.IsMWEB());
 
         if (output.IsMWEB()) {
             out.pushKV("output_id", output.ToMWEBOutputID().ToHex());
@@ -299,7 +297,9 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     }
 
     if (have_undo) {
-        const CAmount fee = amt_total_in - amt_total_out; // MW: TODO - Make sure we add pegouts and other MWEB amounts to amt_total_in and amt_total_out
+        const CAmount mweb_fee = tx.mweb_tx.GetFee();
+        const CAmount fee = (amt_total_in - amt_total_out) + mweb_fee;
+        CHECK_NONFATAL(MoneyRange(mweb_fee));
         CHECK_NONFATAL(MoneyRange(fee));
         entry.pushKV("fee", ValueFromAmount(fee));
     }
