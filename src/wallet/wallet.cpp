@@ -15,6 +15,7 @@
 #include <interfaces/wallet.h>
 #include <key.h>
 #include <key_io.h>
+#include <mw/models/tx/UTXO.h>
 #include <outputtype.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
@@ -24,6 +25,7 @@
 #include <random.h>
 #include <mw/crypto/Hasher.h>
 #include <mw/crypto/SecretKeys.h>
+#include <mw/wallet/sign.h>
 #include <script/descriptor.h>
 #include <script/script.h>
 #include <script/signingprovider.h>
@@ -2395,6 +2397,99 @@ void MaybeResendWalletTxs(WalletContext& context)
     }
 }
 
+template <typename T>
+static void MergeMissingField(std::optional<T>& field, const std::optional<T>& source)
+{
+    if (!field && source) {
+        field = source;
+    }
+}
+
+static void MergeMissingMWEBInputData(mw::MutableInput& input, const mw::MutableInput& source)
+{
+    MergeMissingField(input.commitment, source.commitment);
+    MergeMissingField(input.output_pubkey, source.output_pubkey);
+    MergeMissingField(input.amount, source.amount);
+    MergeMissingField(input.spend_key, source.spend_key);
+    MergeMissingField(input.raw_blind, source.raw_blind);
+    MergeMissingField(input.key_exchange_pubkey, source.key_exchange_pubkey);
+    MergeMissingField(input.shared_secret, source.shared_secret);
+}
+
+static std::optional<SecretKey> DeriveMWEBSpendKey(const CWallet& wallet, const mw::Coin& coin, const mw::MutableInput& input)
+{
+    if (coin.spend_key.has_value()) {
+        return coin.spend_key;
+    }
+    if (!coin.master_scan_key_id.has_value()) {
+        return std::nullopt;
+    }
+
+    const mw::Keychain::Ptr keychain = wallet.GetMWWallet()->GetKeychain(coin.master_scan_key_id.value());
+    if (!keychain) {
+        return std::nullopt;
+    }
+
+    mw::Coin spend_coin = coin;
+    if (!spend_coin.shared_secret.has_value() && input.shared_secret.has_value()) {
+        spend_coin.shared_secret = input.shared_secret;
+    }
+    if (!spend_coin.shared_secret.has_value() && input.key_exchange_pubkey.has_value()) {
+        PublicKey shared_secret_pk = input.key_exchange_pubkey->Mul(keychain->GetScanSecret());
+        spend_coin.shared_secret = Hashed(EHashTag::DERIVE, shared_secret_pk);
+    }
+    if (spend_coin.address_index == mw::UNKNOWN_INDEX && input.output_pubkey.has_value() && spend_coin.shared_secret.has_value()) {
+        PublicKey B_i = input.output_pubkey->Div(Hashed(EHashTag::OUT_KEY, *spend_coin.shared_secret));
+        const StealthAddress address(B_i.Mul(keychain->GetScanSecret()), B_i);
+        const std::optional<uint32_t> address_index = keychain->LookupAddressIndex(address);
+        if (address_index.has_value()) {
+            spend_coin.address_index = *address_index;
+        }
+    }
+
+    return keychain->CalculateOutputSpendKey(spend_coin);
+}
+
+static bool SignMWEBTransaction(const CWallet& wallet, CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins)
+{
+    if (tx.mweb_tx.IsNull() || tx.mweb_tx.IsFinal()) {
+        return true;
+    }
+
+    for (mw::MutableInput& input : tx.mweb_tx.inputs) {
+        if (input.IsFinal()) {
+            continue;
+        }
+
+        const auto coin_it = coins.find(input.output_id);
+        if (coin_it != coins.end() && coin_it->second.IsMWEB() && !coin_it->second.IsNull()) {
+            MergeMissingMWEBInputData(input, mw::MutableInput::FromOutput(coin_it->second.ToMWEB()->GetOutput()));
+        }
+
+        mw::Coin wallet_coin;
+        if (!wallet.GetCoin(input.output_id, wallet_coin) || !wallet_coin.IsMine()) {
+            continue;
+        }
+
+        MergeMissingMWEBInputData(input, mw::MutableInput::FromCoin(wallet_coin));
+        if (!input.spend_key.has_value()) {
+            input.spend_key = DeriveMWEBSpendKey(wallet, wallet_coin, input);
+        }
+    }
+
+    util::Result<mw::SignTxResult> mweb_result = mw::SignTx(tx);
+    if (!mweb_result) {
+        wallet.WalletLogPrintf("%s: mw::SignTx failed, %s\n", __func__, util::ErrorString(mweb_result).original);
+        return false;
+    }
+
+    if (!mweb_result->coins_by_output_id.empty()) {
+        wallet.GetMWWallet()->StageCoins(mweb_result->coins_by_output_id);
+    }
+
+    return tx.mweb_tx.IsFinal();
+}
+
 
 /** @defgroup Actions
  *
@@ -2408,20 +2503,35 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
     // Build coins map
     std::map<GenericOutputID, GenericCoin> coins;
     for (const GenericInput& tx_input : tx.GetInputs()) {
-        const CWalletTx* wtx = FindPrevTx(tx_input);
         GenericOutputID input_id = tx_input.GetID();
-        if (wtx == nullptr || !wtx->HasOutput(input_id)) {
+        if (input_id.IsMWEB()) {
+            const CWalletTx* wtx = FindPrevTx(tx_input);
+            if (wtx != nullptr && wtx->HasOutput(input_id, /*include_partial_mweb=*/false)) {
+                const GenericOutput prev_output = wtx->GetOutput(input_id);
+                if (!prev_output.IsMWEB()) {
+                    return false;
+                }
+
+                // Raw signing only needs the public output fields, so a synthetic UTXO is sufficient here.
+                coins[input_id] = GenericCoin(std::make_shared<const mw::UTXO>(mw::UTXO::ForMempool(prev_output.ToMWEBOutput())));
+            } else {
+                mw::Coin coin;
+                if (!GetCoin(input_id.ToMWEB(), coin)) {
+                    return false;
+                }
+            }
+            continue;
+        }
+
+        const CWalletTx* wtx = FindPrevTx(tx_input);
+        if (wtx == nullptr || !wtx->HasOutput(input_id, /*include_partial_mweb=*/false)) {
             return false;
         }
 
         int prev_height = wtx->state<TxStateConfirmed>() ? wtx->state<TxStateConfirmed>()->confirmed_block_height : 0;
-        if (input_id.IsMWEB()) {
-            // MW: TODO - Build a mw::UTXO somehow. We probably need to find a way to store leaf_idx in TxStateConfirmed
-        } else {
-            const COutPoint& outpoint = input_id.ToOutPoint();
-            const bool is_pegout = wtx->IsHogEx(); // If the previous tx was a hogex, the coin must have been a pegout
-            coins[input_id] = GenericCoin(outpoint, Coin(wtx->tx->vout[outpoint.n], prev_height, wtx->IsCoinBase(), is_pegout)); 
-        }
+        const COutPoint& outpoint = input_id.ToOutPoint();
+        const bool is_pegout = wtx->IsHogEx(); // If the previous tx was a hogex, the coin must have been a pegout
+        coins[input_id] = GenericCoin(outpoint, Coin(wtx->tx->vout[outpoint.n], prev_height, wtx->IsCoinBase(), is_pegout));
     }
     std::map<int, bilingual_str> input_errors;
     return SignTransaction(tx, coins, SIGHASH_DEFAULT, input_errors);
@@ -2429,17 +2539,24 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
 
 bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const
 {
+    AssertLockHeld(cs_wallet);
+
+    // Finalize the MWEB portion first. This may rewrite peg-in scriptPubKeys
+    // that the canonical signing code later commits to.
+    const bool mweb_complete = SignMWEBTransaction(*this, tx, coins);
+
     // Try to sign with all ScriptPubKeyMans
+    bool script_complete = tx.vin.empty();
     for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
         // spk_man->SignTransaction will return true if the transaction is complete,
         // so we can exit early and return true if that happens
         if (spk_man->SignTransaction(tx, coins, sighash, input_errors)) {
-            return true;
+            script_complete = true;
+            break;
         }
     }
 
-    // At this point, one input was not fully signed otherwise we would have exited already
-    return false;
+    return mweb_complete && script_complete;
 }
 
 TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& complete, int sighash_type, bool sign, bool bip32derivs, size_t * n_signed, bool finalize) const

@@ -2798,7 +2798,7 @@ bool DescriptorScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const s
     std::unique_ptr<FlatSigningProvider> keys = std::make_unique<FlatSigningProvider>();
     for (const auto& coin_pair : coins) {
         if (coin_pair.second.IsMWEB()) {
-            // MW: TODO - Descriptors - Get signing provider
+            // MWEB inputs are finalized by CWallet before script signing.
             continue;
         }
         std::unique_ptr<FlatSigningProvider> coin_keys = GetSigningProvider(coin_pair.second.ToLTC().out.scriptPubKey, true);

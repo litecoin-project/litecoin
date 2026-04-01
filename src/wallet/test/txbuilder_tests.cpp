@@ -95,11 +95,55 @@ public:
         return TxBuilder::New(m_wallet, coin_control, recipients, std::nullopt)->Build(std::nullopt, std::nullopt, sign);
     }
 
+    util::Result<CreatedTransactionResult> BuildTx(
+        const std::vector<CRecipient>& recipients,
+        const std::vector<GenericWalletUTXO>& select_coins,
+        std::optional<CTxDestination> change_address,
+        bool sign)
+    {
+        CCoinControl coin_control;
+        if (!select_coins.empty()) {
+            for (const auto& coin : select_coins) {
+                coin_control.Select(coin.GetID());
+            }
+        }
+        if (change_address) {
+            coin_control.destChange = *change_address;
+        }
+
+        return TxBuilder::New(m_wallet, coin_control, recipients, std::nullopt)->Build(std::nullopt, std::nullopt, sign);
+    }
+
+    std::vector<GenericWalletUTXO> AvailableCoinsByType(OutputType type)
+    {
+        LOCK(m_wallet.cs_wallet);
+        auto coins = AvailableCoins(m_wallet).coins;
+        return coins[type];
+    }
+
+    std::vector<GenericWalletUTXO> AvailableLTCCoins()
+    {
+        LOCK(m_wallet.cs_wallet);
+        std::vector<GenericWalletUTXO> coins;
+        for (const GenericWalletUTXO& coin : AvailableCoins(m_wallet).All()) {
+            if (!coin.IsMWEB()) {
+                coins.push_back(coin);
+            }
+        }
+        return coins;
+    }
+
     CTxDestination NewDestination(OutputType type)
     {
         auto dest = m_wallet.GetNewDestination(type, "");
         BOOST_REQUIRE(dest);
         return *dest;
+    }
+
+    bool SignWithWallet(CMutableTransaction& tx)
+    {
+        LOCK(m_wallet.cs_wallet);
+        return m_wallet.SignTransaction(tx);
     }
 
     void ExpectInputs(const CWalletTx& wtx, size_t ltc, size_t mweb)
@@ -410,6 +454,33 @@ BOOST_AUTO_TEST_CASE(MWEBChangePositionTracksChangeWhenAddressMatchesRecipient)
     std::sort(sorted_output_ids.begin(), sorted_output_ids.end());
     BOOST_REQUIRE_LT(tx_result->change_pos.ToMWEB().idx, sorted_output_ids.size());
     BOOST_CHECK(sorted_output_ids[tx_result->change_pos.ToMWEB().idx] == change_output_id);
+}
+
+BOOST_AUTO_TEST_CASE(WalletSignTransactionFinalizesPureMWEBSpend)
+{
+    const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
+    AddTx({{existing_mweb_addr, 5 * COIN, false}}, {}, std::nullopt);
+
+    const GenericWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
+    const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
+    auto tx_result = BuildTx({{recipient_addr, 2 * COIN, false}}, {mweb_coin}, std::nullopt, false);
+    BOOST_REQUIRE(tx_result);
+
+    CMutableTransaction tx = tx_result->tx;
+    BOOST_REQUIRE(tx.vin.empty());
+    BOOST_REQUIRE(tx.vout.empty());
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.inputs.size(), 1U);
+    BOOST_REQUIRE(!tx.mweb_tx.IsFinal());
+    BOOST_CHECK(!tx.mweb_tx.inputs.front().signature.has_value());
+
+    BOOST_CHECK(SignWithWallet(tx));
+    BOOST_CHECK(tx.mweb_tx.IsFinal());
+    BOOST_CHECK(tx.mweb_tx.inputs.front().signature.has_value());
+    BOOST_CHECK(tx.mweb_tx.inputs.front().input_pubkey.has_value());
+
+    const CTransaction signed_tx(tx);
+    BOOST_CHECK(signed_tx.IsMWEBOnly());
+    BOOST_CHECK(!signed_tx.mweb_tx.IsNull());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

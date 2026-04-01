@@ -1389,7 +1389,7 @@ RPCHelpMan sendall()
                         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Input not available. UTXO (%s) was already spent.", input.ToString()));
                     }
                     const CWalletTx* wtx{pwallet->FindPrevTx(input)};
-                    if (!wtx || !wtx->HasOutput(input.GetID()) || !(pwallet->IsMine(wtx->GetOutput(input.GetID())) & (coin_control.fAllowWatchOnly ? ISMINE_ALL : ISMINE_SPENDABLE))) {
+                    if (!wtx || !wtx->HasOutput(input.GetID(), /*include_partial_mweb=*/false) || !(pwallet->IsMine(wtx->GetOutput(input.GetID())) & (coin_control.fAllowWatchOnly ? ISMINE_ALL : ISMINE_SPENDABLE))) {
                         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Input not found. UTXO (%s) is not part of wallet.", input.ToString()));
                     }
                     total_input_value += pwallet->GetValue(input.GetID());

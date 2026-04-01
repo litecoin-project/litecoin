@@ -57,6 +57,7 @@ private:
     std::optional<util::Error> AddOutputs(const SelectionResult& selection_result);
     std::optional<util::Error> AddChangeOutput(const SelectionResult& selection_result);
     std::optional<util::Error> AddPeginOutput(const SelectionResult& selection_result);
+    std::optional<util::Error> UpdatePeginOutput(const SelectionResult& selection_result);
     void GrowChangeBy(const CAmount growth_amount);
     std::optional<util::Error> SubtractFeeFromOutputs(const CAmount fee_to_distribute);
     std::optional<util::Error> SignMWEBTx();
