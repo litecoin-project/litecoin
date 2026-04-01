@@ -287,6 +287,8 @@ BASE_SCRIPTS = [
     'mweb_wallet_address.py --descriptors',
     'mweb_wallet_basic.py --legacy-wallet',
     'mweb_wallet_basic.py --descriptors',
+    'mweb_wallet_sendall.py --legacy-wallet',
+    'mweb_wallet_sendall.py --descriptors',
     'mweb_wallet_upgrade.py --legacy-wallet',
     'mweb_wallet_upgrade.py --descriptors',
     'mweb_watchonly.py --descriptors',

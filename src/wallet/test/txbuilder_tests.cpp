@@ -483,6 +483,33 @@ BOOST_AUTO_TEST_CASE(WalletSignTransactionFinalizesPureMWEBSpend)
     BOOST_CHECK(!signed_tx.mweb_tx.IsNull());
 }
 
+BOOST_AUTO_TEST_CASE(MixedPeginSubtractFeeRefreshesPegInAmount)
+{
+    const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
+    AddTx({{existing_mweb_addr, 5 * COIN, false}}, {}, std::nullopt);
+
+    const GenericWalletUTXO ltc_coin = SmallestCoin(AvailableLTCCoins());
+    const GenericWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
+    const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
+
+    const CAmount selected_value = ltc_coin.GetValue() + mweb_coin.GetValue();
+    auto tx_result = BuildTx({{recipient_addr, selected_value, true}}, {ltc_coin, mweb_coin}, std::nullopt, true);
+    BOOST_REQUIRE(tx_result);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_REQUIRE_EQUAL(tx.vout.size(), 1U);
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.outputs.size(), 1U);
+    BOOST_REQUIRE(tx.mweb_tx.GetPeginAmount().has_value());
+    BOOST_REQUIRE(tx.mweb_tx.outputs[0].amount.has_value());
+
+    const CAmount pegin_amount = *tx.mweb_tx.GetPeginAmount();
+    const CAmount recipient_amount = *tx.mweb_tx.outputs[0].amount;
+    const CAmount mweb_fee = tx.mweb_tx.kernels.front().fee.value_or(0);
+    BOOST_CHECK_EQUAL(tx.vout.back().nValue, pegin_amount);
+    BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == recipient_addr);
+    BOOST_CHECK_EQUAL(mweb_coin.GetValue() + pegin_amount, recipient_amount + mweb_fee);
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 } // namespace wallet

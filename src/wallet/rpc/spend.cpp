@@ -102,6 +102,67 @@ static int GetRPCChangePos(const CMutableTransaction& tx, const ChangePosition& 
     return static_cast<int>(position);
 }
 
+static std::string GetRecipientAddress(const CRecipient& recipient)
+{
+    if (recipient.IsMWEB()) {
+        return EncodeDestination(recipient.GetMWEBAddress());
+    }
+
+    CTxDestination dest;
+    const bool extracted = ExtractDestination(recipient.GetScript(), dest);
+    assert(extracted);
+
+    return EncodeDestination(dest);
+}
+
+static std::vector<CRecipient> BuildSendAllRecipients(const std::vector<CRecipient>& recipients, const std::set<std::string>& addresses_without_amount, const CAmount total_input_value)
+{
+    CAmount specified_output_amounts{0};
+    size_t num_unspecified{0};
+
+    for (const CRecipient& recipient : recipients) {
+        if (addresses_without_amount.count(GetRecipientAddress(recipient)) == 0) {
+            specified_output_amounts += recipient.nAmount;
+        } else {
+            ++num_unspecified;
+        }
+    }
+
+    if (specified_output_amounts > total_input_value) {
+        throw JSONRPCError(RPC_WALLET_INSUFFICIENT_FUNDS, "Assigned more value to outputs than available funds.");
+    }
+
+    assert(num_unspecified > 0);
+
+    const CAmount remainder = total_input_value - specified_output_amounts;
+    const CAmount amount_per_unspecified = remainder / static_cast<CAmount>(num_unspecified);
+    const CAmount remainder_extra = remainder % static_cast<CAmount>(num_unspecified);
+
+    std::vector<CRecipient> sendall_recipients = recipients;
+    bool gave_remainder_to_first{false};
+    for (CRecipient& recipient : sendall_recipients) {
+        if (addresses_without_amount.count(GetRecipientAddress(recipient)) == 0) {
+            continue;
+        }
+
+        recipient.nAmount = amount_per_unspecified;
+        recipient.fSubtractFeeFromAmount = true;
+        if (!gave_remainder_to_first) {
+            recipient.nAmount += remainder_extra;
+            gave_remainder_to_first = true;
+        }
+    }
+
+    return sendall_recipients;
+}
+
+static std::string EncodePSBTResult(const PartiallySignedTransaction& psbtx)
+{
+    CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
+    ssTx << psbtx;
+    return EncodeBase64(ssTx.str());
+}
+
 static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const UniValue& options, const RawTransaction& rawTx)
 {
     PartiallySignedTransaction psbtx = rawTx.ToPSBT(*pwallet);
@@ -1389,25 +1450,114 @@ RPCHelpMan sendall()
                         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Input not available. UTXO (%s) was already spent.", input.ToString()));
                     }
                     const CWalletTx* wtx{pwallet->FindPrevTx(input)};
-                    if (!wtx || !wtx->HasOutput(input.GetID(), /*include_partial_mweb=*/false) || !(pwallet->IsMine(wtx->GetOutput(input.GetID())) & (coin_control.fAllowWatchOnly ? ISMINE_ALL : ISMINE_SPENDABLE))) {
+                    if (!wtx || !wtx->HasOutput(input.GetID(), /*include_partial_mweb=*/true) || !(pwallet->IsMine(wtx->GetOutput(input.GetID())) & (coin_control.fAllowWatchOnly ? ISMINE_ALL : ISMINE_SPENDABLE))) {
                         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Input not found. UTXO (%s) is not part of wallet.", input.ToString()));
                     }
                     total_input_value += pwallet->GetValue(input.GetID());
                 }
             } else {
                 for (const GenericWalletUTXO& output : AvailableCoins(*pwallet, &coin_control, fee_rate, /*nMinimumAmount=*/0).All()) {
-                    if (output.IsMWEB()) {
-                        continue; // MW: TODO - Add MWEB support
+                    if (!output.IsMWEB()) {
+                        CHECK_NONFATAL(output.GetInputBytes() > 0);
                     }
 
-                    CHECK_NONFATAL(output.GetInputBytes() > 0);
-                    if (send_max && fee_rate.GetFee(output.GetInputBytes(), 0) > output.GetValue()) {
+                    if (send_max && !output.IsMWEB() && fee_rate.GetFee(output.GetInputBytes(), 0) > output.GetValue()) {
                         continue;
                     }
-                    CTxIn input(output.GetTxHash(), output.GetID().ToOutPoint().n, CScript(), rbf ? MAX_BIP125_RBF_SEQUENCE : CTxIn::SEQUENCE_FINAL);
-                    rawTx.tx.vin.push_back(std::move(input));
+
+                    if (output.IsMWEB()) {
+                        rawTx.tx.mweb_tx.inputs.push_back(mw::MutableInput::FromCoin(output.GetMWEB().coin));
+                    } else {
+                        CTxIn input(output.GetTxHash(), output.GetID().ToOutPoint().n, CScript(), rbf ? MAX_BIP125_RBF_SEQUENCE : CTxIn::SEQUENCE_FINAL);
+                        rawTx.tx.vin.push_back(std::move(input));
+                    }
                     total_input_value += output.GetValue();
                 }
+            }
+
+            const std::vector<CRecipient> recipients_to_send = rawTx.BuildRecipients();
+            const std::vector<GenericInput> selected_inputs = rawTx.tx.GetInputs();
+            const bool use_txbuilder = std::any_of(
+                recipients_to_send.cbegin(), recipients_to_send.cend(),
+                [](const CRecipient& recipient) { return recipient.IsMWEB(); }
+            ) || std::any_of(
+                selected_inputs.cbegin(), selected_inputs.cend(),
+                [](const GenericInput& input) { return input.IsMWEB(); }
+            );
+
+            const bool lock_unspents{options.exists("lock_unspents") ? options["lock_unspents"].get_bool() : false};
+            if (use_txbuilder) {
+                const bool psbt_opt_in{options.exists("psbt") && options["psbt"].get_bool()};
+                const bool add_to_wallet{options.exists("add_to_wallet") ? options["add_to_wallet"].get_bool() : true};
+                const bool can_sign{!pwallet->IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS) && !pwallet->IsLocked()};
+
+                CCoinControl sendall_coin_control = coin_control;
+                sendall_coin_control.m_allow_other_inputs = false;
+                sendall_coin_control.m_signal_bip125_rbf = rbf;
+                for (const GenericInput& input : selected_inputs) {
+                    sendall_coin_control.Select(input.GetID());
+                }
+
+                auto create_result = CreateTransaction(
+                    *pwallet,
+                    BuildSendAllRecipients(recipients_to_send, addresses_without_amount, total_input_value),
+                    /*change_pos=*/-1,
+                    sendall_coin_control,
+                    rawTx.tx.nVersion,
+                    rawTx.tx.nLockTime,
+                    /*sign=*/can_sign
+                );
+                if (!create_result) {
+                    throw JSONRPCError(RPC_WALLET_ERROR, util::ErrorString(create_result).original);
+                }
+
+                rawTx.tx = std::move(create_result->tx);
+
+                if (lock_unspents) {
+                    for (const GenericInput& input : rawTx.tx.GetInputs()) {
+                        pwallet->LockCoin(input.GetID());
+                    }
+                }
+
+                if (!psbt_opt_in && can_sign) {
+                    UniValue result(UniValue::VOBJ);
+                    CTransactionRef tx(MakeTransactionRef(std::move(rawTx.tx)));
+                    std::string hex{EncodeHexTx(*tx)};
+                    result.pushKV("txid", tx->GetHash().GetHex());
+                    if (add_to_wallet) {
+                        pwallet->CommitTransaction(tx, {}, /*orderForm=*/{});
+                    } else {
+                        result.pushKV("hex", hex);
+                    }
+                    result.pushKV("complete", true);
+                    return result;
+                }
+
+                PartiallySignedTransaction psbtx(rawTx.tx, 2);
+                bool complete{false};
+                TransactionError err{pwallet->FillPSBT(psbtx, complete, SIGHASH_DEFAULT, false, true)};
+                if (err != TransactionError::OK) {
+                    throw JSONRPCTransactionError(err);
+                }
+                if (can_sign) {
+                    err = pwallet->FillPSBT(psbtx, complete, SIGHASH_DEFAULT, true, false);
+                    if (err != TransactionError::OK) {
+                        throw JSONRPCTransactionError(err);
+                    }
+                }
+
+                UniValue result(UniValue::VOBJ);
+                result.pushKV("psbt", EncodePSBTResult(psbtx));
+                if (complete) {
+                    util::Result<CMutableTransaction> finalize_result = FinalizePSBT(psbtx);
+                    if (finalize_result.has_value()) {
+                        CTransactionRef tx(MakeTransactionRef(std::move(finalize_result.value())));
+                        result.pushKV("txid", tx->GetHash().GetHex());
+                        result.pushKV("hex", EncodeHexTx(*tx));
+                    }
+                }
+                result.pushKV("complete", complete);
+                return result;
             }
 
             // estimate final size of tx
@@ -1433,7 +1583,7 @@ RPCHelpMan sendall()
             }
 
             CAmount output_amounts_claimed{0};
-            for (const wallet::CRecipient& out : rawTx.BuildRecipients()) {
+            for (const wallet::CRecipient& out : recipients_to_send) {
                 output_amounts_claimed += out.nAmount;
             }
 
@@ -1450,8 +1600,6 @@ RPCHelpMan sendall()
 
             bool gave_remaining_to_first{false};
             for (CTxOut& out : rawTx.tx.vout) {
-                // MW: TODO - Handle MWEB outputs
-
                 CTxDestination dest;
                 ExtractDestination(out.scriptPubKey, dest);
                 std::string addr{EncodeDestination(dest)};
@@ -1473,7 +1621,6 @@ RPCHelpMan sendall()
                 }
             }
 
-            const bool lock_unspents{options.exists("lock_unspents") ? options["lock_unspents"].get_bool() : false};
             if (lock_unspents) {
                 for (const GenericInput& input : rawTx.tx.GetInputs()) {
                     pwallet->LockCoin(input.GetID());
