@@ -2506,8 +2506,8 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
         GenericOutputID input_id = tx_input.GetID();
         if (input_id.IsMWEB()) {
             const CWalletTx* wtx = FindPrevTx(tx_input);
-            if (wtx != nullptr && wtx->HasOutput(input_id, /*include_partial_mweb=*/false)) {
-                const GenericOutput prev_output = wtx->GetOutput(input_id);
+            if (wtx != nullptr && wtx->tx->HasOutput(input_id)) {
+                const GenericOutput prev_output = wtx->tx->GetOutput(input_id);
                 if (!prev_output.IsMWEB()) {
                     return false;
                 }
@@ -2524,7 +2524,7 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
         }
 
         const CWalletTx* wtx = FindPrevTx(tx_input);
-        if (wtx == nullptr || !wtx->HasOutput(input_id, /*include_partial_mweb=*/false)) {
+        if (wtx == nullptr || !wtx->tx->HasOutput(input_id)) {
             return false;
         }
 

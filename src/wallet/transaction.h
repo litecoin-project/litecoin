@@ -363,27 +363,6 @@ public:
         return outputs;
     }
 
-    GenericOutput GetOutput(const GenericOutputID& output_id) const noexcept
-    {
-        // MW: TODO - Need to check received_coin
-        return tx->GetOutput(output_id);
-    }
-
-    bool HasOutput(const GenericOutputID& output_id, const bool include_partial_mweb) const noexcept
-    {
-        if (tx->HasOutput(output_id)) {
-            return true;
-        }
-
-        if (include_partial_mweb && mweb_wtx_info && mweb_wtx_info->received_coin) {
-            if (output_id.IsMWEB()) {
-                return output_id.ToMWEB() == mweb_wtx_info->received_coin->output_id;
-            }
-        }
-
-        return false;
-    }
-
     bool IsPartialMWEB() const
     {
         return tx->IsNull() && mweb_wtx_info;
