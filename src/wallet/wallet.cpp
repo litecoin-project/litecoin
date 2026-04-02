@@ -805,20 +805,20 @@ bool CWallet::EncryptWallet(const SecureString& strWalletPassphrase)
         Lock();
         Unlock(strWalletPassphrase);
 
-        // MW: TODO - No need to replace HD seed, which would complicate MWEB key management.
-        // So for now, we don't generate a new seed.
-        // 
         // If we are using descriptors, make new descriptors with a new seed
-        //if (IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS) && !IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET)) {
-        //    SetupDescriptorScriptPubKeyMans();
-        //} else if (auto spk_man = GetLegacyScriptPubKeyMan()) {
-        //    // if we are using HD, replace the HD seed with a new one
-        //    if (spk_man->IsHDEnabled()) {
-        //        if (!spk_man->SetupGeneration(true)) {
-        //            return false;
-        //        }
-        //    }
-        //}
+        if (IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS) && !IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET)) {
+           SetupDescriptorScriptPubKeyMans();
+        }
+        // MWEB: We don't have support for replacing HD seed due to complications from MWEB key management.
+        // So for now, we don't generate a new seed.
+        // else if (auto spk_man = GetLegacyScriptPubKeyMan()) {
+        //     // if we are using HD, replace the HD seed with a new one
+        //     if (spk_man->IsHDEnabled()) {
+        //         if (!spk_man->SetupGeneration(true)) {
+        //             return false;
+        //         }
+        //     }
+        // }
         Lock();
 
         // Need to completely rewrite the wallet file; if we don't, bdb might keep

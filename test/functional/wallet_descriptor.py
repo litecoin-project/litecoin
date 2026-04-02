@@ -113,8 +113,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         addr = send_wrpc.getnewaddress()
         info2 = send_wrpc.getaddressinfo(addr)
         
-        # MWEB: We don't update hd seed when encrypting wallet, so fingerprint shouldn't change
-        assert info1['hdmasterfingerprint'] == info2['hdmasterfingerprint']
+        assert info1['hdmasterfingerprint'] != info2['hdmasterfingerprint']
         send_wrpc.walletlock()
         assert 'hdmasterfingerprint' in send_wrpc.getaddressinfo(send_wrpc.getnewaddress())
         info3 = send_wrpc.getaddressinfo(addr)

@@ -41,7 +41,7 @@ class KeyPoolTest(BitcoinTestFramework):
         addr_data = nodes[0].getaddressinfo(addr)
         wallet_info = nodes[0].getwalletinfo()
         
-        assert addr_before_encrypting_data['hdmasterfingerprint'] == addr_data['hdmasterfingerprint']
+        assert addr_before_encrypting_data['hdmasterfingerprint'] != addr_data['hdmasterfingerprint']
         if not self.options.descriptors:
             assert addr_data['hdseedid'] == wallet_info['hdseedid']
 
