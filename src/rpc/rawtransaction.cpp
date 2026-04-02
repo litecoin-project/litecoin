@@ -173,11 +173,28 @@ static std::vector<RPCArg> CreateTxDoc()
     };
 }
 
+static void UpdatePSBTMWEBInput(const GenericCoin& coin, PSBTInput& input)
+{
+    if (!input.IsMWEB() || coin.IsNull() || !coin.IsMWEB()) {
+        return;
+    }
+
+    const mw::Output& output = coin.ToMWEB()->GetOutput();
+    if (!input.mweb_output_commit.has_value()) {
+        input.mweb_output_commit = output.GetCommitment();
+    }
+    if (!input.mweb_output_pubkey.has_value()) {
+        input.mweb_output_pubkey = output.GetReceiverPubKey();
+    }
+    if (!input.mweb_key_exchange_pubkey.has_value() && output.HasStandardFields()) {
+        input.mweb_key_exchange_pubkey = output.GetKeyExchangePubKey();
+    }
+}
+
 // Update PSBT with information from the mempool, the UTXO set, the txindex, and the provided descriptors.
 // Optionally, sign the inputs that we can using information from the descriptors.
 PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std::any& context, const HidingSigningProvider& provider, int sighash_type, bool finalize)
 {
-    // MW: TODO - Need to support MWEB
     // Unserialize the transactions
     PartiallySignedTransaction psbtx;
     std::string error;
@@ -199,7 +216,10 @@ PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std
         // The `non_witness_utxo` is the whole previous transaction
         if (psbt_input.non_witness_utxo) continue;
 
-        if (psbt_input.IsMWEB()) continue; // MW: TODO - Do we need to load anything for MWEB txs?
+        if (psbt_input.IsMWEB()) {
+            coins[psbt_input.GetID()]; // Create empty map entry keyed by MWEB output id.
+            continue;
+        }
 
         CTransactionRef tx;
 
@@ -223,7 +243,10 @@ PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std
     if (!coins.empty()) {
         FindCoins(node, coins);
         for (PSBTInput& input : psbtx.inputs) {
-            if (input.IsMWEB()) continue; // MW: TODO - Do we need to load anything for MWEB txs?
+            if (input.IsMWEB()) {
+                UpdatePSBTMWEBInput(coins.at(input.GetID()), input);
+                continue;
+            }
 
             // If there are still missing utxos, add them if they were found in the utxo set
             if (!input.non_witness_utxo) {
@@ -906,19 +929,12 @@ const RPCResult decodepsbt_inputs{
                 {RPCResult::Type::STR_HEX, "output_commit", /*optional=*/true, "The hex-encoded output commitment"},
                 {RPCResult::Type::STR_HEX, "output_pubkey", /*optional=*/true, "The hex-encoded output pubkey"},
                 {RPCResult::Type::STR_HEX, "input_pubkey", /*optional=*/true, "The hex-encoded input pubkey"},
-                {RPCResult::Type::ARR, "features", /*optional=*/ true, "",
-                {
-                    {RPCResult::Type::OBJ, "", "",
-                    {
-                        {RPCResult::Type::NUM, "feature", "The feature mask"},
-                        {RPCResult::Type::STR_HEX, "data", "The hex-encoded feature data"},
-                    }},
-                }},
+                {RPCResult::Type::NUM, "features", /*optional=*/true, "The MWEB input feature mask"},
                 {RPCResult::Type::STR_HEX, "signature", /*optional=*/true, "The hex-encoded MWEB input signature"},
                 {RPCResult::Type::NUM, "address_idx", /*optional=*/true, "The index of the subaddress the UTXO was sent to"},
                 {RPCResult::Type::NUM, "amount", /*optional=*/true, "The UTXO amount"},
                 {RPCResult::Type::STR_HEX, "shared_secret", /*optional=*/true, "The hex-encoded shared secret"},
-                {RPCResult::Type::STR_HEX, "blind", /*optional=*/true, "The hex-encoded blinding factor"},
+                {RPCResult::Type::STR_HEX, "key_exchange_pk", /*optional=*/true, "The hex-encoded MWEB key exchange public key"},
                 //{RPCResult::Type::OBJ_DYN, "utxo", /*optional=*/true, "The MWEB UTXO being spent",{}}, // MW: TODO - Define the structure
             }},
             {RPCResult::Type::OBJ_DYN, "unknown", /*optional=*/ true, "The unknown input fields",

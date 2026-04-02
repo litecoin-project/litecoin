@@ -6,6 +6,7 @@
 
 #include <logging.h>
 #include <mw/crypto/Hasher.h>
+#include <mw/crypto/Schnorr.h>
 #include <mw/crypto/SecretKeys.h>
 #include <mw/wallet/sign.h>
 #include <mw/wallet/Keychain.h>
@@ -632,14 +633,46 @@ bool PSBTInputSigned(const PSBTInput& input)
     return !input.final_script_sig.empty() || !input.final_script_witness.IsNull() || input.mweb_sig.has_value();
 }
 
+static bool VerifyMWEBPSBTInputSignature(const PSBTInput& input)
+{
+    if (!input.mweb_sig.has_value() || !input.mweb_output_id.has_value() || !input.mweb_output_pubkey.has_value() || !input.mweb_features.has_value()) {
+        return false;
+    }
+
+    const uint8_t features = *input.mweb_features;
+    if ((features & mw::Input::STEALTH_KEY_FEATURE_BIT) != 0 && !input.mweb_input_pubkey.has_value()) {
+        return false;
+    }
+    if ((features & mw::Input::EXTRA_DATA_FEATURE_BIT) != 0 && input.mweb_extra_data.empty()) {
+        return false;
+    }
+
+    Hasher msg_hasher;
+    msg_hasher << features << *input.mweb_output_id;
+    if ((features & mw::Input::EXTRA_DATA_FEATURE_BIT) != 0) {
+        msg_hasher << input.mweb_extra_data;
+    }
+    const mw::Hash msg_hash = msg_hasher.hash();
+
+    PublicKey public_key = *input.mweb_output_pubkey;
+    if ((features & mw::Input::STEALTH_KEY_FEATURE_BIT) != 0) {
+        Hasher key_hasher;
+        key_hasher << *input.mweb_input_pubkey << *input.mweb_output_pubkey;
+        const SecretKey key_hash = key_hasher.hash();
+
+        public_key = public_key.Mul(key_hash).Add(*input.mweb_input_pubkey);
+    }
+
+    return Schnorr::Verify(*input.mweb_sig, public_key, msg_hash);
+}
+
 bool PSBTInputSignedAndVerified(const PartiallySignedTransaction& psbt, unsigned int input_index, const PrecomputedTransactionData* txdata)
 {
     assert(psbt.inputs.size() >= input_index);
     const PSBTInput& input = psbt.inputs[input_index];
 
     if (input.mweb_sig.has_value()) {
-        // MW: TODO - Verify MWEB signature
-        return true;
+        return VerifyMWEBPSBTInputSignature(input);
     }
 
     CTxOut utxo;
@@ -726,9 +759,15 @@ util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransac
         }
 
         const mw::MutableInput& input = mtx.mweb_tx.inputs[idx++];
-        psbt_input.mweb_output_id = input.output_id;
-        psbt_input.mweb_output_commit = input.commitment;
-        psbt_input.mweb_output_pubkey = input.output_pubkey;
+        if (!psbt_input.mweb_output_id.has_value()) {
+            psbt_input.mweb_output_id = input.output_id;
+        }
+        if (!psbt_input.mweb_output_commit.has_value()) {
+            psbt_input.mweb_output_commit = input.commitment;
+        }
+        if (!psbt_input.mweb_output_pubkey.has_value()) {
+            psbt_input.mweb_output_pubkey = input.output_pubkey;
+        }
         psbt_input.mweb_input_pubkey = input.input_pubkey;
         psbt_input.mweb_features = input.features;
         psbt_input.mweb_sig = input.signature;

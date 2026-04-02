@@ -25,6 +25,9 @@ PSBT_GLOBAL_FALLBACK_LOCKTIME = 0x03
 PSBT_GLOBAL_INPUT_COUNT = 0x04
 PSBT_GLOBAL_OUTPUT_COUNT = 0x05
 PSBT_GLOBAL_TX_MODIFIABLE = 0x06
+PSBT_GLOBAL_MWEB_TX_OFFSET = 0x90
+PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET = 0x91
+PSBT_GLOBAL_MWEB_KERNEL_COUNT = 0x92
 PSBT_GLOBAL_VERSION = 0xfb
 PSBT_GLOBAL_PROPRIETARY = 0xfc
 
@@ -54,6 +57,18 @@ PSBT_IN_TAP_LEAF_SCRIPT = 0x15
 PSBT_IN_TAP_BIP32_DERIVATION = 0x16
 PSBT_IN_TAP_INTERNAL_KEY = 0x17
 PSBT_IN_TAP_MERKLE_ROOT = 0x18
+PSBT_IN_MWEB_COMMIT = 0x91
+PSBT_IN_MWEB_OUTPUT_PUBKEY = 0x92
+PSBT_IN_MWEB_INPUT_PUBKEY = 0x93
+PSBT_IN_MWEB_FEATURES = 0x94
+PSBT_IN_MWEB_INPUT_SIG = 0x95
+PSBT_IN_MWEB_ADDRESS_INDEX = 0x96
+PSBT_IN_MWEB_AMOUNT = 0x97
+PSBT_IN_MWEB_SHARED_SECRET = 0x98
+PSBT_IN_MWEB_KEY_EXCHANGE_PK = 0x99
+PSBT_IN_MWEB_MASTER_SCAN_KEY_ORIGIN = 0x9A
+PSBT_IN_MWEB_MASTER_SPEND_KEY_ORIGIN = 0x9B
+PSBT_IN_MWEB_EXTRA_DATA = 0x9C
 PSBT_IN_PROPRIETARY = 0xfc
 
 # per-output types
@@ -65,7 +80,28 @@ PSBT_OUT_SCRIPT = 0x04
 PSBT_OUT_TAP_INTERNAL_KEY = 0x05
 PSBT_OUT_TAP_TREE = 0x06
 PSBT_OUT_TAP_BIP32_DERIVATION = 0x07
+PSBT_OUT_MWEB_STEALTH_ADDRESS = 0x90
+PSBT_OUT_MWEB_COMMIT = 0x91
+PSBT_OUT_MWEB_FEATURES = 0x92
+PSBT_OUT_MWEB_SENDER_PUBKEY = 0x93
+PSBT_OUT_MWEB_OUTPUT_PUBKEY = 0x94
+PSBT_OUT_MWEB_STANDARD_FIELDS = 0x95
+PSBT_OUT_MWEB_RANGEPROOF = 0x96
+PSBT_OUT_MWEB_SIG = 0x97
+PSBT_OUT_MWEB_EXTRA_DATA = 0x98
 PSBT_OUT_PROPRIETARY = 0xfc
+
+# per-kernel types
+PSBT_KERN_EXCESS_COMMIT = 0x00
+PSBT_KERN_STEALTH_COMMIT = 0x01
+PSBT_KERN_FEE = 0x02
+PSBT_KERN_PEGIN_AMOUNT = 0x03
+PSBT_KERN_PEGOUT = 0x04
+PSBT_KERN_LOCK_HEIGHT = 0x05
+PSBT_KERN_FEATURES = 0x06
+PSBT_KERN_EXTRA_DATA = 0x07
+PSBT_KERN_SIG = 0x08
+PSBT_KERN_PROPRIETARY = 0xfc
 
 
 class PSBTMap:
@@ -100,12 +136,14 @@ class PSBTMap:
 class PSBT:
     """Class for serializing and deserializing PSBTs"""
 
-    def __init__(self, *, g=None, i=None, o=None):
+    def __init__(self, *, g=None, i=None, o=None, k=None):
         self.g = g if g is not None else PSBTMap()
         self.i = i if i is not None else []
         self.o = o if o is not None else []
+        self.k = k if k is not None else []
         self.in_count = len(i) if i is not None else None
         self.out_count = len(o) if o is not None else None
+        self.kernel_count = len(k) if k is not None else None
         self.version = None
 
     def deserialize(self, f):
@@ -121,25 +159,35 @@ class PSBT:
         if self.version == 2:
             self.in_count = deser_compact_size(BytesIO(self.g.map[PSBT_GLOBAL_INPUT_COUNT]))
             self.out_count = deser_compact_size(BytesIO(self.g.map[PSBT_GLOBAL_OUTPUT_COUNT]))
+            self.kernel_count = 0
+            if PSBT_GLOBAL_MWEB_KERNEL_COUNT in self.g.map:
+                self.kernel_count = deser_compact_size(BytesIO(self.g.map[PSBT_GLOBAL_MWEB_KERNEL_COUNT]))
         else:
             assert PSBT_GLOBAL_UNSIGNED_TX in self.g.map
             tx = from_binary(CTransaction, self.g.map[PSBT_GLOBAL_UNSIGNED_TX])
             self.in_count = len(tx.vin)
             self.out_count = len(tx.vout)
+            self.kernel_count = 0
 
         self.i = [from_binary(PSBTMap, f) for _ in range(self.in_count)]
         self.o = [from_binary(PSBTMap, f) for _ in range(self.out_count)]
+        self.k = [from_binary(PSBTMap, f) for _ in range(self.kernel_count)]
         return self
 
     def serialize(self):
         assert isinstance(self.g, PSBTMap)
         assert isinstance(self.i, list) and all(isinstance(x, PSBTMap) for x in self.i)
         assert isinstance(self.o, list) and all(isinstance(x, PSBTMap) for x in self.o)
+        assert isinstance(self.k, list) and all(isinstance(x, PSBTMap) for x in self.k)
         if self.version is not None and self.version == 2:
             self.g.map[PSBT_GLOBAL_INPUT_COUNT] = ser_compact_size(len(self.i))
             self.g.map[PSBT_GLOBAL_OUTPUT_COUNT] = ser_compact_size(len(self.o))
+            if self.k:
+                self.g.map[PSBT_GLOBAL_MWEB_KERNEL_COUNT] = ser_compact_size(len(self.k))
+            elif PSBT_GLOBAL_MWEB_KERNEL_COUNT in self.g.map:
+                del self.g.map[PSBT_GLOBAL_MWEB_KERNEL_COUNT]
 
-        psbt = [x.serialize() for x in [self.g] + self.i + self.o]
+        psbt = [x.serialize() for x in [self.g] + self.i + self.o + self.k]
         return b"psbt\xff" + b"".join(psbt)
 
     def make_blank(self):
@@ -152,12 +200,15 @@ class PSBT:
 
             self.g = PSBTMap(map={PSBT_GLOBAL_UNSIGNED_TX: self.g.map[PSBT_GLOBAL_UNSIGNED_TX]})
         elif self.version == 2:
-            self.g = PSBTMap(map={
+            new_g = {
                 PSBT_GLOBAL_TX_VERSION: self.g.map[PSBT_GLOBAL_TX_VERSION],
                 PSBT_GLOBAL_INPUT_COUNT: self.g.map[PSBT_GLOBAL_INPUT_COUNT],
                 PSBT_GLOBAL_OUTPUT_COUNT: self.g.map[PSBT_GLOBAL_OUTPUT_COUNT],
                 PSBT_GLOBAL_VERSION: self.g.map[PSBT_GLOBAL_VERSION],
-            })
+            }
+            if PSBT_GLOBAL_MWEB_KERNEL_COUNT in self.g.map:
+                new_g[PSBT_GLOBAL_MWEB_KERNEL_COUNT] = self.g.map[PSBT_GLOBAL_MWEB_KERNEL_COUNT]
+            self.g = PSBTMap(map=new_g)
 
             new_i = []
             for m in self.i:
@@ -174,6 +225,7 @@ class PSBT:
                     PSBT_OUT_AMOUNT: m.map[PSBT_OUT_AMOUNT],
                 }))
             self.o = new_o
+            self.k = [PSBTMap() for _ in self.k]
         else:
             assert False
 

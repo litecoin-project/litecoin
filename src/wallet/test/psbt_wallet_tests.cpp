@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <key_io.h>
+#include <mw/models/tx/Input.h>
 #include <util/bip32.h>
 #include <util/strencodings.h>
 #include <wallet/wallet.h>
@@ -69,6 +70,37 @@ BOOST_AUTO_TEST_CASE(psbt_updater_test)
     // Try to sign the mutated input
     SignatureData sigdata;
     BOOST_CHECK(m_wallet.FillPSBT(psbtx, complete, SIGHASH_ALL, true, true) != TransactionError::OK);
+}
+
+BOOST_AUTO_TEST_CASE(psbt_mweb_signature_verification_test)
+{
+    const mw::Input mweb_input = mw::Input::Create(
+        mw::Hash::ValueOf(1),
+        Commitment::Transparent(1),
+        SecretKey::FromHex(std::string(64, '1')),
+        SecretKey::FromHex(std::string(64, '2'))
+    );
+
+    PartiallySignedTransaction psbt(CMutableTransaction{}, 2);
+    PSBTInput psbt_input(2);
+    psbt_input.mweb_output_id = mweb_input.GetOutputID();
+    psbt_input.mweb_output_commit = mweb_input.GetCommitment();
+    psbt_input.mweb_output_pubkey = mweb_input.GetOutputPubKey();
+    psbt_input.mweb_input_pubkey = mweb_input.GetInputPubKey();
+    psbt_input.mweb_features = mweb_input.GetFeatures();
+    psbt_input.mweb_sig = mweb_input.GetSignature();
+    psbt.inputs.push_back(psbt_input);
+
+    BOOST_CHECK(PSBTInputSignedAndVerified(psbt, 0, nullptr));
+
+    Signature tampered_sig = mweb_input.GetSignature();
+    tampered_sig.data()[0] ^= 0x01;
+    psbt.inputs[0].mweb_sig = tampered_sig;
+    BOOST_CHECK(!PSBTInputSignedAndVerified(psbt, 0, nullptr));
+
+    psbt.inputs[0].mweb_sig = mweb_input.GetSignature();
+    psbt.inputs[0].mweb_input_pubkey = std::nullopt;
+    BOOST_CHECK(!PSBTInputSignedAndVerified(psbt, 0, nullptr));
 }
 
 BOOST_AUTO_TEST_CASE(parse_hd_keypath)

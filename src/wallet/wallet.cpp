@@ -2590,19 +2590,22 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
                 keychain = mweb_wallet->GetKeychain(mweb_coin.master_scan_key_id.value());
             }
 
+            std::optional<SecretKey> shared_secret = input.mweb_shared_secret;
+            if (!shared_secret && have_coin && mweb_coin.shared_secret.has_value()) {
+                shared_secret = mweb_coin.shared_secret;
+            }
+
+            if (!shared_secret && input.mweb_key_exchange_pubkey.has_value() && keychain) {
+                PublicKey shared_secret_pk = input.mweb_key_exchange_pubkey->Mul(keychain->GetScanSecret());
+                shared_secret = Hashed(EHashTag::DERIVE, shared_secret_pk);
+            }
+
+            if (shared_secret) {
+                input.mweb_shared_secret = shared_secret;
+            }
+
             std::optional<SecretKey> spend_key = have_coin ? mweb_coin.spend_key : std::nullopt;
             if (!spend_key) {
-                std::optional<SecretKey> shared_secret = input.mweb_shared_secret;
-                if (!shared_secret && mweb_coin.shared_secret.has_value()) {
-                    shared_secret = mweb_coin.shared_secret;
-                }
-
-                if (!shared_secret && input.mweb_key_exchange_pubkey.has_value() && keychain) {
-                    PublicKey shared_secret_pk = input.mweb_key_exchange_pubkey->Mul(keychain->GetScanSecret());
-                    shared_secret = Hashed(EHashTag::DERIVE, shared_secret_pk);
-                    input.mweb_shared_secret = shared_secret;
-                }
-
                 std::optional<uint32_t> address_index = input.mweb_address_index;
                 if (!address_index && have_coin && mweb_coin.address_index != mw::UNKNOWN_INDEX) {
                     address_index = mweb_coin.address_index;
