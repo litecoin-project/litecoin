@@ -708,22 +708,22 @@ void CWallet::AddToSpends(const GenericOutputID& idx, const uint256& wtxid, Wall
 
 void CWallet::AddToSpends(const CWalletTx& wtx, WalletBatch* batch)
 {
-    if (wtx.IsCoinBase()) // Coinbases don't spend anything! // MW: TODO - Can probably include hogex
+    if (wtx.IsCoinBase()) // Coinbases don't spend anything! 
         return;
 
     for (const GenericInput& input : wtx.GetInputs())
-        AddToSpends(input.GetID(), wtx.GetHash(), batch); // MW: TODO - Shouldn't we just add our own inputs?
+        AddToSpends(input.GetID(), wtx.GetHash(), batch);
 }
 
 void CWallet::AddMWEBOrigins(const CWalletTx& wtx)
 {
     for (const mw::Hash& output_id : wtx.tx->mweb_tx.GetOutputIDs()) {
-        mapOutputsMWEB.insert(std::make_pair(output_id, wtx.GetHash()));
+        mapOutputsMWEB[output_id] = wtx.GetHash();
     }
 
     if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_coin) {
         const mw::Hash& output_id = wtx.mweb_wtx_info->received_coin->output_id;
-        mapOutputsMWEB.insert(std::make_pair(output_id, wtx.GetHash()));
+        mapOutputsMWEB[output_id] = wtx.GetHash();
     }
 
     for (const mw::Hash& kernel_id : wtx.tx->mweb_tx.GetKernelIDs()) {
@@ -1018,6 +1018,7 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
 
     CWalletTx tmp_wtx(tx, state, mweb_wtx_info);
     uint256 hash = CWalletTx(tx, state, mweb_wtx_info).GetHash();
+    std::vector<uint256> removed_partial_mweb_hashes;
 
     if (IsWalletFlagSet(WALLET_FLAG_AVOID_REUSE)) {
         // Mark used destinations
@@ -1030,13 +1031,73 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
         MarkDestinationsDirty(tx_destinations);
     }
 
-    // MW: TODO - Handle upgrade from partial MWEB wallet txs to full transactions.
-    // During restore/rescan (without mempool history), we can create partial wallet entries
-    // keyed by WalletTxInfo hash (tx->IsNull() && mweb_wtx_info). If the full transaction is
-    // later seen (e.g. after reorg/mempool re-accept), it is keyed by txid and currently
-    // becomes a separate mapWallet entry. Before emplace, use mapKernelsMWEB/mapOutputsMWEB
-    // to find matching partial entries and merge/upgrade in place, including index and db
-    // cleanup (mapWallet key, mapTxSpends, mapOutputsMWEB/mapKernelsMWEB, persisted tx row).
+    const bool has_tx_data = tx->HasMWEBTx() || !tx->IsNull();
+
+    // During restore/rescan we can create synthetic wallet rows for received
+    // MWEB outputs before learning the full transaction. If the transaction is
+    // later seen, collapse those partial rows into the canonical txid entry
+    // before the map insertion below.
+    if (tx->HasMWEBTx()) {
+        struct PartialMWEBReceiveMatch {
+            uint256 wallet_tx_hash;
+            mw::Hash output_id;
+            int64_t order_pos;
+        };
+
+        std::vector<PartialMWEBReceiveMatch> partial_matches;
+        for (const auto& [wallet_tx_hash, partial_wtx] : mapWallet) {
+            if (!partial_wtx.IsPartialMWEB() || !partial_wtx.HasPartialMWEBReceive()) {
+                continue;
+            }
+
+            const mw::Hash& output_id = partial_wtx.mweb_wtx_info->received_coin->output_id;
+            if (!tx->HasOutput(GenericOutputID(output_id))) {
+                continue;
+            }
+
+            partial_matches.push_back({wallet_tx_hash, output_id, partial_wtx.nOrderPos});
+        }
+
+        if (!partial_matches.empty()) {
+            std::sort(partial_matches.begin(), partial_matches.end(), [](const auto& lhs, const auto& rhs) {
+                return std::tie(lhs.order_pos, lhs.wallet_tx_hash) < std::tie(rhs.order_pos, rhs.wallet_tx_hash);
+            });
+
+            const bool had_full_hash = mapWallet.count(hash) != 0;
+            const uint256& primary_partial_hash = partial_matches.front().wallet_tx_hash;
+            if (!had_full_hash) {
+                auto node = mapWallet.extract(primary_partial_hash);
+                assert(!node.empty());
+                node.key() = hash;
+
+                auto inserted = mapWallet.insert(std::move(node));
+                assert(inserted.inserted);
+                removed_partial_mweb_hashes.push_back(primary_partial_hash);
+            }
+
+            for (const auto& match : partial_matches) {
+                mapOutputsMWEB[match.output_id] = hash;
+
+                if (!had_full_hash && match.wallet_tx_hash == primary_partial_hash) {
+                    continue;
+                }
+
+                auto partial_iter = mapWallet.find(match.wallet_tx_hash);
+                if (partial_iter == mapWallet.end()) {
+                    continue;
+                }
+
+                wtxOrdered.erase(partial_iter->second.m_it_wtxOrdered);
+                mapWallet.erase(partial_iter);
+                removed_partial_mweb_hashes.push_back(match.wallet_tx_hash);
+            }
+
+            std::sort(removed_partial_mweb_hashes.begin(), removed_partial_mweb_hashes.end());
+            removed_partial_mweb_hashes.erase(std::unique(removed_partial_mweb_hashes.begin(), removed_partial_mweb_hashes.end()), removed_partial_mweb_hashes.end());
+
+            WalletLogPrintf("Upgraded %u partial MWEB wallet tx(s) into %s\n", static_cast<unsigned>(partial_matches.size()), hash.ToString());
+        }
+    }
 
     // Inserts only if not already there, returns tx inserted or tx found
     auto ret = mapWallet.emplace(std::piecewise_construct, std::forward_as_tuple(hash), std::forward_as_tuple(tx, state, mweb_wtx_info));
@@ -1061,20 +1122,19 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
             assert(TxStateSerializedIndex(wtx.m_state) == TxStateSerializedIndex(state));
             assert(TxStateSerializedBlockHash(wtx.m_state) == TxStateSerializedBlockHash(state));
         }
-        // If we have a witness-stripped version of this transaction, and we
-        // see a new version with a witness, then we must be upgrading a pre-segwit
-        // wallet.  Store the new version of the transaction with the witness,
-        // as the stripped-version must be invalid.
-        // TODO: Store all versions of the transaction, instead of just one.
-        if (tx->HasWitness() && !wtx.tx->HasWitness()) {
-            wtx.SetTx(tx);
-            fUpdated = true;
-        }
-
         // MWEB: If we have only a partial transaction, and tx is not partial, replace it.
-        if (wtx.tx->IsNull() && !tx->IsNull()) {
+        if (wtx.IsPartialMWEB() && has_tx_data) {
             wtx.SetTx(tx);
             wtx.mweb_wtx_info = mweb_wtx_info;
+            AddMWEBOrigins(wtx);
+            fUpdated = true;
+        } else if (tx->HasWitness() && !wtx.tx->HasWitness()) {
+            // If we have a witness-stripped version of this transaction, and we
+            // see a new version with a witness, then we must be upgrading a pre-segwit
+            // wallet.  Store the new version of the transaction with the witness,
+            // as the stripped-version must be invalid.
+            // TODO: Store all versions of the transaction, instead of just one.
+            wtx.SetTx(tx);
             fUpdated = true;
         }
     }
@@ -1087,8 +1147,18 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
         if (!batch.WriteTx(wtx))
             return nullptr;
 
+    for (const uint256& removed_hash : removed_partial_mweb_hashes) {
+        if (!batch.EraseTx(removed_hash)) {
+            return nullptr;
+        }
+    }
+
     // Break debit/credit balance caches:
     wtx.MarkDirty();
+
+    for (const uint256& removed_hash : removed_partial_mweb_hashes) {
+        NotifyTransactionChanged(removed_hash, CT_DELETED);
+    }
 
     // Notify UI of new or updated transaction
     NotifyTransactionChanged(hash, fInsertedNew ? CT_NEW : CT_UPDATED);

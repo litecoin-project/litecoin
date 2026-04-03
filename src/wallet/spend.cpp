@@ -280,7 +280,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
                 MWWalletUTXO mweb_utxo{mweb_coin, nDepth, address, tx_from_me, wtx.GetHash()};
                 result.Add(OutputType::MWEB, mweb_utxo);
             } else {
-                CTxOut txout = wtx.GetOutput(output_id).GetTxOut();
+                CTxOut txout = wtx.tx->GetOutput(output_id).GetTxOut();
                 std::unique_ptr<SigningProvider> provider = wallet.GetSolvingProvider(txout.scriptPubKey);
 
                 int input_bytes = CalculateMaximumSignedInputSize(txout, COutPoint(), provider.get(), coinControl);
