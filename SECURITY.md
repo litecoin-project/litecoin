@@ -9,7 +9,7 @@ The following keys may be used to communicate sensitive information to developer
 | Name | Fingerprint |
 |------|-------------|
 | Charlie Lee | 1A2511E978239E491A096D0A828AC1F94EF26053 |
-| Xinxi Wang | EEF1C9FE09262D71DDE83C223EF697503BF73187 |
-| Adrian Gallagher | 59CAF0E96F23F53747945FD4FE3348877809386C |
+| David Burkett | D35621D53A1CC6A3456758D03620E9D387E55666 |
+| Loshan T | C0921846FED0BF4CF28BE1D73B2A6315CD51A673 |
 
 You can import a key by running the following command with that individual’s fingerprint: `gpg --recv-keys "<fingerprint>"` Ensure that you put quotes around fingerprints containing spaces.
