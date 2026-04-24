@@ -54,6 +54,7 @@ public:
     void SaveStagedCoinsToWallet(const std::set<mw::Hash>& output_ids);
     
     mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_keyid) const;
+    std::optional<SecretKey> GetRewindKey() const;
 
 private:
     std::vector<mw::Keychain::Ptr> GetAllKeychains() const;

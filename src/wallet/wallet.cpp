@@ -2520,6 +2520,16 @@ static std::optional<SecretKey> DeriveMWEBSpendKey(const CWallet& wallet, const 
     return keychain->CalculateOutputSpendKey(spend_coin);
 }
 
+static SecretKey GetMWEBRewindKeyForSigning(const CWallet& wallet)
+{
+    const std::shared_ptr<MWEB::Wallet>& mweb_wallet = wallet.GetMWWallet();
+    if (!mweb_wallet) {
+        return SecretKey::Random();
+    }
+
+    return mweb_wallet->GetRewindKey().value_or(SecretKey::Random());
+}
+
 static bool SignMWEBTransaction(const CWallet& wallet, CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins)
 {
     if (tx.mweb_tx.IsNull() || tx.mweb_tx.IsFinal()) {
@@ -2547,7 +2557,7 @@ static bool SignMWEBTransaction(const CWallet& wallet, CMutableTransaction& tx, 
         }
     }
 
-    util::Result<mw::SignTxResult> mweb_result = mw::SignTx(tx);
+    util::Result<mw::SignTxResult> mweb_result = mw::SignTx(tx, GetMWEBRewindKeyForSigning(wallet));
     if (!mweb_result) {
         wallet.WalletLogPrintf("%s: mw::SignTx failed, %s\n", __func__, util::ErrorString(mweb_result).original);
         return false;
@@ -2719,7 +2729,7 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
     }
 
     if (sign) {
-        util::Result<std::map<mw::Hash, mw::Coin>> coins_by_output_id = PSBTSignMWEBTx(psbtx, mweb_spend_keys);
+        util::Result<std::map<mw::Hash, mw::Coin>> coins_by_output_id = PSBTSignMWEBTx(psbtx, mweb_spend_keys, GetMWEBRewindKeyForSigning(*this));
         if (!coins_by_output_id) {
             WalletLogPrintf("FillPSBT: PSBTSignMWEBTx failed, %s\n", util::ErrorString(coins_by_output_id).original);
             return TransactionError::INVALID_PSBT;

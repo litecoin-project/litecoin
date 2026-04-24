@@ -113,7 +113,7 @@ struct FinalizedPegIn
     mw::Hash kernel_id{};
 };
 
-static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw::Hash& kernel_id) noexcept
+static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw::Hash& kernel_id, const SecretKey& rewind_key) noexcept
 {
     if (output.signature.has_value()) {
         return util::Error{Untranslated("Output is already signed")};
@@ -129,7 +129,7 @@ static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw
     mw::Output finalized = mw::Output::Create(
         &raw_blind,
         ephemeral_key,
-        SecretKey::Random(),
+        rewind_key,
         *output.address,
         *output.amount
     );
@@ -205,7 +205,7 @@ static std::optional<util::Error> UpdatePegInScripts(CMutableTransaction& tx) no
     return std::nullopt;
 }
 
-util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
+util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& rewind_key) noexcept
 {
     SignTxResult result{};
     if (tx.mweb_tx.IsNull() || tx.mweb_tx.IsFinal()) {
@@ -264,7 +264,7 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept
             continue;
         }
 
-        util::Result<SignOutputResult> sign_output_result = SignOutput(output, first_kernel_id.value());
+        util::Result<SignOutputResult> sign_output_result = SignOutput(output, first_kernel_id.value(), rewind_key);
         if (!sign_output_result) {
             return sign_output_result.error();
         }

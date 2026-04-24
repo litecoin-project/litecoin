@@ -1,6 +1,7 @@
 #pragma once
 
 #include <mw/common/Macros.h>
+#include <mw/models/crypto/SecretKey.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/wallet/Coin.h>
 
@@ -26,6 +27,6 @@ struct SignTxResult
 /// </remarks>
 /// <returns></returns>
 // MW: TODO - Probably needs wallet ptr or some kind of signing provider to generate secrets.
-extern util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx) noexcept;
+extern util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& rewind_key) noexcept;
 
 END_NAMESPACE

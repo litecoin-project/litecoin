@@ -557,7 +557,12 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
         return std::nullopt;
     }
 
-    util::Result<mw::SignTxResult> sign_tx_result = mw::SignTx(m_tx);
+    SecretKey rewind_key = SecretKey::Random();
+    if (m_wallet.GetMWWallet()) {
+        rewind_key = m_wallet.GetMWWallet()->GetRewindKey().value_or(rewind_key);
+    }
+
+    util::Result<mw::SignTxResult> sign_tx_result = mw::SignTx(m_tx, rewind_key);
     if (!sign_tx_result) {
         return util::Error{util::ErrorString(sign_tx_result)};
     }

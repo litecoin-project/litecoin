@@ -51,6 +51,7 @@ public:
     std::optional<uint32_t> LookupAddressIndex(const StealthAddress& address) const;
 
     const SecretKey& GetScanSecret() const noexcept { return m_scanSecret; }
+    SecretKey GetRewindKey() const;
 
     bool HasSpendPubKey() const noexcept { return m_spendPubkey.has_value(); }
     bool HasSpendSecret() const noexcept { return m_spendSecret.has_value(); }

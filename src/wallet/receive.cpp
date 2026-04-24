@@ -46,23 +46,12 @@ CAmount OutputGetCredit(const CWallet& wallet, const CWalletTx& wtx, const Gener
 CAmount TxGetCredit(const CWallet& wallet, const CWalletTx& wtx, const isminefilter& filter)
 {
     CAmount nCredit = 0;
-    for (const GenericOutputID& output_id : wtx.GetOutputIDs(true))
-    {
+    for (const GenericOutputID& output_id : wtx.GetOutputIDs(true)) {
         nCredit += OutputGetCredit(wallet, wtx, output_id, filter);
         if (!MoneyRange(nCredit))
             throw std::runtime_error(std::string(__func__) + ": value out of range");
     }
 
-    //bool has_my_inputs = false;
-    //for (const GenericInput& txin : wtx.GetInputs()) {
-    //    LOCK(wallet.cs_wallet);
-    //    if (InputIsMine(wallet, txin)) {
-    //        has_my_inputs = true;
-    //        break;
-    //    }
-    //}
-
-    //if (!has_my_inputs) { // MW: TODO - Why does this have to be false?
     LOCK(wallet.cs_wallet);
     for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
         if (wallet.IsMine(pegout.GetScriptPubKey()) & filter) {
@@ -71,7 +60,6 @@ CAmount TxGetCredit(const CWallet& wallet, const CWalletTx& wtx, const isminefil
                 throw std::runtime_error(std::string(__func__) + ": value out of range");
         }
     }
-    //}
 
     return nCredit;
 }

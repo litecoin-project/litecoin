@@ -2348,7 +2348,7 @@ void UpdatePSBTOutput(const SigningProvider& provider, PartiallySignedTransactio
  * This may rewrite peg-in output scripts in psbtx.outputs, so any
  * PrecomputedTransactionData built before this call must be rebuilt afterward.
  */
-util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys);
+util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys, const SecretKey& rewind_key);
 
 /**
  * Finalizes a PSBT if possible, combining partial signatures.

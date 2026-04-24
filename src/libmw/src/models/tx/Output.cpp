@@ -56,7 +56,7 @@ Output Output::Create(
 
     OutputMessage message{features, OutputStandardFields(Ke, view_tag, mv, mn)};
 
-    SecretKey proof_nonce = Hasher(EHashTag::REWIND)
+    SecretKey proof_nonce = Hasher(EHashTag::PROOF_NONCE)
         .Append(rewind_key)
         .Append(output_commit)
         .hash();

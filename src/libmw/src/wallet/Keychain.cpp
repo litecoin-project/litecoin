@@ -7,6 +7,11 @@
 
 MW_NAMESPACE
 
+SecretKey Keychain::GetRewindKey() const
+{
+    return SecretKey(Hashed(EHashTag::REWIND_KEY, m_scanSecret).data());
+}
+
 bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
 {
     if (!m_spk_man) {

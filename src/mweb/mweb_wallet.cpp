@@ -213,3 +213,13 @@ mw::Keychain::Ptr Wallet::GetKeychain(const CKeyID& master_scan_keyid) const
     }
     return nullptr;
 }
+
+std::optional<SecretKey> Wallet::GetRewindKey() const
+{
+    mw::Keychain::Ptr keychain = GetActiveKeychain();
+    if (!keychain) {
+        return std::nullopt;
+    }
+
+    return std::make_optional(keychain->GetRewindKey());
+}
