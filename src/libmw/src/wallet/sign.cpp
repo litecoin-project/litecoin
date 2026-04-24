@@ -113,7 +113,7 @@ struct FinalizedPegIn
     mw::Hash kernel_id{};
 };
 
-static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw::Hash& kernel_id, const SecretKey& rewind_key) noexcept
+static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw::Hash& kernel_id, const SecretKey& rewind_key, const SenderKeyGenerator& generate_sender_key) noexcept
 {
     if (output.signature.has_value()) {
         return util::Error{Untranslated("Output is already signed")};
@@ -124,8 +124,12 @@ static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw
     }
 
     BlindingFactor raw_blind;
-    SecretKey ephemeral_key = SecretKey::Random();
-    // MW: TODO - Pass kernel_id when signing output messages to encrypt them in the output proof
+    util::Result<SecretKey> sender_key_result = generate_sender_key();
+    if (!sender_key_result) {
+        return sender_key_result.error();
+    }
+
+    SecretKey ephemeral_key = sender_key_result.value();
     mw::Output finalized = mw::Output::Create(
         &raw_blind,
         ephemeral_key,
@@ -205,11 +209,15 @@ static std::optional<util::Error> UpdatePegInScripts(CMutableTransaction& tx) no
     return std::nullopt;
 }
 
-util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& rewind_key) noexcept
+util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& rewind_key, const SenderKeyGenerator& generate_sender_key) noexcept
 {
     SignTxResult result{};
     if (tx.mweb_tx.IsNull() || tx.mweb_tx.IsFinal()) {
         return result;
+    }
+
+    if (!generate_sender_key) {
+        return util::Error{Untranslated("Sender key generator missing")};
     }
 
     Blinds kernel_offset{};
@@ -264,7 +272,7 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& 
             continue;
         }
 
-        util::Result<SignOutputResult> sign_output_result = SignOutput(output, first_kernel_id.value(), rewind_key);
+        util::Result<SignOutputResult> sign_output_result = SignOutput(output, first_kernel_id.value(), rewind_key, generate_sender_key);
         if (!sign_output_result) {
             return sign_output_result.error();
         }

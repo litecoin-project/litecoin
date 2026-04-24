@@ -8,7 +8,9 @@
 #include <mw/models/wallet/StealthAddress.h>
 #include <mw/wallet/Keychain.h>
 #include <streams.h>
+#include <util/result.h>
 #include <util/strencodings.h>
+#include <cstdint>
 #include <optional>
 #include <variant>
 #include <map>
@@ -26,6 +28,7 @@ class Wallet
     wallet::CWallet* m_pWallet;
     std::map<mw::Hash, mw::Coin> m_coins;
     std::map<mw::Hash, mw::Coin> m_staged_coins;
+    std::map<CKeyID, uint64_t> m_next_sender_key_indices;
 
 public:
     Wallet(wallet::CWallet* pWallet)
@@ -55,6 +58,8 @@ public:
     
     mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_keyid) const;
     std::optional<SecretKey> GetRewindKey() const;
+    util::Result<SecretKey> GenerateSenderKey();
+    void LoadNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t next_index);
 
 private:
     std::vector<mw::Keychain::Ptr> GetAllKeychains() const;

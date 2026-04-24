@@ -75,6 +75,7 @@ extern const std::string KEYMETA;
 extern const std::string LOCKED_UTXO;
 extern const std::string MASTER_KEY;
 extern const std::string MINVERSION;
+extern const std::string MWEB_SENDER_KEY_INDEX;
 extern const std::string NAME;
 extern const std::string OLD_KEY;
 extern const std::string ORDERPOSNEXT;
@@ -297,6 +298,7 @@ public:
     bool WriteDescriptorLastHardenedCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index);
     bool WriteDescriptorMWEBAddressCache(const uint256& desc_id, const uint32_t idx, const StealthAddress& address);
     bool WriteDescriptorCacheItems(const uint256& desc_id, const DescriptorCache& cache);
+    bool WriteMWEBNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t next_index);
 
     bool WriteLockedUTXO(const GenericOutputID& output);
     bool EraseLockedUTXO(const GenericOutputID& output);

@@ -558,11 +558,18 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
     }
 
     SecretKey rewind_key = SecretKey::Random();
+    mw::SenderKeyGenerator generate_sender_key = []() -> util::Result<SecretKey> {
+        return SecretKey::Random();
+    };
     if (m_wallet.GetMWWallet()) {
-        rewind_key = m_wallet.GetMWWallet()->GetRewindKey().value_or(rewind_key);
+        const std::shared_ptr<MWEB::Wallet>& mweb_wallet = m_wallet.GetMWWallet();
+        rewind_key = mweb_wallet->GetRewindKey().value_or(rewind_key);
+        generate_sender_key = [mweb_wallet]() -> util::Result<SecretKey> {
+            return mweb_wallet->GenerateSenderKey();
+        };
     }
 
-    util::Result<mw::SignTxResult> sign_tx_result = mw::SignTx(m_tx, rewind_key);
+    util::Result<mw::SignTxResult> sign_tx_result = mw::SignTx(m_tx, rewind_key, generate_sender_key);
     if (!sign_tx_result) {
         return util::Error{util::ErrorString(sign_tx_result)};
     }

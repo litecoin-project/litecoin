@@ -14,6 +14,7 @@ enum class EHashTag : char
     NONCE = 'N',
     OUT_KEY = 'O',
     PROOF_NONCE = 'P',
+    SENDER_ROOT = 'Q',
     REWIND_KEY = 'R',
     SEND_KEY = 'S',
     TAG = 'T',

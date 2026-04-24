@@ -4,11 +4,13 @@
 
 #include <key_io.h>
 #include <validation.h>
+#include <wallet/scriptpubkeyman.h>
 #include <wallet/txbuilder.h>
 #include <test/util/setup_common.h>
 
 #include <algorithm>
 #include <boost/test/unit_test.hpp>
+#include <set>
 
 namespace wallet {
 
@@ -138,6 +140,15 @@ public:
         auto dest = m_wallet.GetNewDestination(type, "");
         BOOST_REQUIRE(dest);
         return *dest;
+    }
+
+    mw::Keychain::Ptr ActiveMWEBKeychain() const
+    {
+        auto spk_man = m_wallet.GetScriptPubKeyMan(OutputType::MWEB, false);
+        BOOST_REQUIRE(spk_man);
+        mw::Keychain::Ptr keychain = spk_man->GetMWEBKeychain();
+        BOOST_REQUIRE(keychain);
+        return keychain;
     }
 
     bool SignWithWallet(CMutableTransaction& tx)
@@ -386,6 +397,31 @@ public:
 };
 
 BOOST_FIXTURE_TEST_SUITE(txbuilder_tests, TxBuilderTestingSetup)
+
+BOOST_AUTO_TEST_CASE(MWEBSenderKeysUseScanDerivedSequence)
+{
+    const mw::Keychain::Ptr keychain = ActiveMWEBKeychain();
+    std::vector<CRecipient> recipients{
+        {NewDestination(OutputType::MWEB), 1 * COIN, false},
+        {NewDestination(OutputType::MWEB), 2 * COIN, false},
+    };
+
+    auto tx_result = BuildTx(recipients, std::nullopt, true);
+    BOOST_REQUIRE(tx_result);
+    BOOST_REQUIRE_GE(tx_result->tx.mweb_tx.outputs.size(), recipients.size());
+
+    std::set<PublicKey> expected_sender_pubkeys;
+    for (size_t i = 0; i < tx_result->tx.mweb_tx.outputs.size(); ++i) {
+        expected_sender_pubkeys.insert(PublicKey::From(keychain->GetSenderKey(i)));
+    }
+
+    for (const mw::MutableOutput& output : tx_result->tx.mweb_tx.outputs) {
+        BOOST_REQUIRE(output.sender_pubkey.has_value());
+        BOOST_CHECK_EQUAL(expected_sender_pubkeys.erase(*output.sender_pubkey), 1U);
+    }
+
+    BOOST_CHECK(expected_sender_pubkeys.empty());
+}
 
 BOOST_AUTO_TEST_CASE(SingleRecipientBasicTest)
 {

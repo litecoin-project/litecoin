@@ -723,7 +723,7 @@ void UpdatePSBTOutput(const SigningProvider& provider, PartiallySignedTransactio
     psbt_out.FromSignatureData(sigdata);
 }
 
-util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys, const SecretKey& rewind_key)
+util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys, const SecretKey& rewind_key, const mw::SenderKeyGenerator& generate_sender_key)
 {
     std::map<mw::Hash, mw::Coin> coins_by_output_id;
 
@@ -745,7 +745,7 @@ util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransac
 
     // mw::SignTx may rewrite peg-in scriptPubKeys in mtx.vout.
     // Any precomputed sighash data from before this point must be discarded.
-    util::Result<mw::SignTxResult> mweb_result = mw::SignTx(mtx, rewind_key);
+    util::Result<mw::SignTxResult> mweb_result = mw::SignTx(mtx, rewind_key, generate_sender_key);
     if (!mweb_result) {
         return util::Error{util::ErrorString(mweb_result)};
     }

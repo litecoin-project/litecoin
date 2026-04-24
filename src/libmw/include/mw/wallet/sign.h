@@ -9,7 +9,11 @@
 #include <primitives/transaction.h>
 #include <util/result.h>
 
+#include <functional>
+
 MW_NAMESPACE
+
+using SenderKeyGenerator = std::function<util::Result<SecretKey>()>;
 
 struct SignTxResult
 {
@@ -27,6 +31,6 @@ struct SignTxResult
 /// </remarks>
 /// <returns></returns>
 // MW: TODO - Probably needs wallet ptr or some kind of signing provider to generate secrets.
-extern util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& rewind_key) noexcept;
+extern util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& rewind_key, const SenderKeyGenerator& generate_sender_key) noexcept;
 
 END_NAMESPACE

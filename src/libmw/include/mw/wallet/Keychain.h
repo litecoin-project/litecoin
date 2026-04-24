@@ -4,6 +4,7 @@
 #include <mw/models/tx/Output.h>
 #include <mw/models/wallet/Coin.h>
 #include <mw/models/wallet/StealthAddress.h>
+#include <cstdint>
 #include <memory>
 
 // Forward Declarations
@@ -52,6 +53,7 @@ public:
 
     const SecretKey& GetScanSecret() const noexcept { return m_scanSecret; }
     SecretKey GetRewindKey() const;
+    SecretKey GetSenderKey(uint64_t index) const;
 
     bool HasSpendPubKey() const noexcept { return m_spendPubkey.has_value(); }
     bool HasSpendSecret() const noexcept { return m_spendSecret.has_value(); }

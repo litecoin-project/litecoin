@@ -7,11 +7,6 @@
 
 MW_NAMESPACE
 
-SecretKey Keychain::GetRewindKey() const
-{
-    return SecretKey(Hashed(EHashTag::REWIND_KEY, m_scanSecret).data());
-}
-
 bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
 {
     if (!m_spk_man) {
@@ -145,6 +140,22 @@ std::optional<uint32_t> Keychain::LookupAddressIndex(const StealthAddress& addre
         return std::nullopt;
     }
     return pMetadata->key_origin.hdkeypath.mweb_index.value_or(CUSTOM_KEY);
+}
+
+SecretKey Keychain::GetRewindKey() const
+{
+    return SecretKey(Hashed(EHashTag::REWIND_KEY, m_scanSecret).data());
+}
+
+SecretKey Keychain::GetSenderKey(uint64_t index) const
+{
+    const SecretKey sender_root(Hashed(EHashTag::SENDER_ROOT, m_scanSecret).data());
+    SecretKey sender_key = Hasher(EHashTag::SENDER_ROOT)
+        .Append(sender_root)
+        .Append(index)
+        .hash();
+    SecretKeys normalized = SecretKeys::From(sender_key);
+    return normalized.Total();
 }
 
 END_NAMESPACE

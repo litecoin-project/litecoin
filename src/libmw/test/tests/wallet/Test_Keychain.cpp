@@ -9,12 +9,27 @@
 #include <mw/crypto/SecretKeys.h>
 #include <mw/models/tx/Output.h>
 #include <mw/models/wallet/StealthAddress.h>
+#include <mw/wallet/Keychain.h>
 
 #include <crypto/common.h>
 #include <test_framework/Deserializer.h>
 #include <test_framework/TestMWEB.h>
 
 BOOST_FIXTURE_TEST_SUITE(TestKeychain, MWEBTestingSetup)
+
+BOOST_AUTO_TEST_CASE(SenderKeys)
+{
+    const SecretKey scan_secret = SecretKey::FromHex("000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f");
+    mw::Keychain keychain(nullptr, scan_secret, PublicKey::Random());
+
+    const SecretKey sender_key_0 = keychain.GetSenderKey(0);
+    BOOST_CHECK(sender_key_0 == keychain.GetSenderKey(0));
+    BOOST_CHECK(sender_key_0 != keychain.GetSenderKey(1));
+    BOOST_CHECK(PublicKey::From(sender_key_0) == PublicKey::From(keychain.GetSenderKey(0)));
+
+    mw::Keychain other_keychain(nullptr, SecretKey::Random(), PublicKey::Random());
+    BOOST_CHECK(sender_key_0 != other_keychain.GetSenderKey(0));
+}
 
 BOOST_AUTO_TEST_CASE(Create)
 {

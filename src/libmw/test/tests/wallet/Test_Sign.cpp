@@ -56,7 +56,9 @@ BOOST_AUTO_TEST_CASE(MultiplePegInsSameAmount)
         tx.mweb_tx.kernels.push_back(std::move(kernel));
     }
 
-    const auto sign_result = mw::SignTx(tx, SecretKey::Random());
+    const auto sign_result = mw::SignTx(tx, SecretKey::Random(), []() -> util::Result<SecretKey> {
+        return SecretKey::Random();
+    });
     BOOST_REQUIRE(sign_result);
 
     CheckPegInScriptsMatchKernelIDs(tx);

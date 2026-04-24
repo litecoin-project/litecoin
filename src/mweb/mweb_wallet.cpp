@@ -1,7 +1,11 @@
 #include <mweb/mweb_wallet.h>
-#include <wallet/wallet.h>
 #include <wallet/coincontrol.h>
+#include <wallet/wallet.h>
+#include <wallet/walletdb.h>
 #include <util/bip32.h>
+#include <util/translation.h>
+
+#include <limits>
 
 using namespace MWEB;
 
@@ -222,4 +226,34 @@ std::optional<SecretKey> Wallet::GetRewindKey() const
     }
 
     return std::make_optional(keychain->GetRewindKey());
+}
+
+util::Result<SecretKey> Wallet::GenerateSenderKey()
+{
+    LOCK(m_pWallet->cs_wallet);
+
+    mw::Keychain::Ptr keychain = GetActiveKeychain();
+    if (!keychain) {
+        return SecretKey::Random();
+    }
+
+    const CKeyID master_scan_keyid = PublicKey::From(keychain->GetScanSecret()).GetID();
+    uint64_t& next_index = m_next_sender_key_indices[master_scan_keyid];
+    if (next_index == std::numeric_limits<uint64_t>::max()) {
+        return util::Error{Untranslated("MWEB sender key index exhausted")};
+    }
+
+    const SecretKey sender_key = keychain->GetSenderKey(next_index);
+    const uint64_t next_index_to_write = next_index + 1;
+    if (!wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBNextSenderKeyIndex(master_scan_keyid, next_index_to_write)) {
+        return util::Error{Untranslated("Failed to write MWEB sender key index")};
+    }
+
+    next_index = next_index_to_write;
+    return sender_key;
+}
+
+void Wallet::LoadNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t next_index)
+{
+    m_next_sender_key_indices[master_scan_keyid] = next_index;
 }

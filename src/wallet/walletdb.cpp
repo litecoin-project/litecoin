@@ -45,6 +45,7 @@ const std::string KEY{"key"};
 const std::string LOCKED_UTXO{"lockedutxo"};
 const std::string MASTER_KEY{"mkey"};
 const std::string MINVERSION{"minversion"};
+const std::string MWEB_SENDER_KEY_INDEX{"mweb_sender_key_index"};
 const std::string NAME{"name"};
 const std::string OLD_KEY{"wkey"};
 const std::string ORDERPOSNEXT{"orderposnext"};
@@ -310,6 +311,11 @@ bool WalletBatch::WriteDescriptorCacheItems(const uint256& desc_id, const Descri
     }
 
     return true;
+}
+
+bool WalletBatch::WriteMWEBNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t next_index)
+{
+    return WriteIC(std::make_pair(DBKeys::MWEB_SENDER_KEY_INDEX, master_scan_keyid), next_index);
 }
 
 class SerializableOutputIndex
@@ -675,6 +681,12 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             }
         } else if (strType == DBKeys::ORDERPOSNEXT) {
             ssValue >> pwallet->nOrderPosNext;
+        } else if (strType == DBKeys::MWEB_SENDER_KEY_INDEX) {
+            CKeyID master_scan_keyid;
+            ssKey >> master_scan_keyid;
+            uint64_t next_index;
+            ssValue >> next_index;
+            pwallet->GetMWWallet()->LoadNextSenderKeyIndex(master_scan_keyid, next_index);
         } else if (strType == DBKeys::DESTDATA) {
             std::string strAddress, strKey, strValue;
             ssKey >> strAddress;
