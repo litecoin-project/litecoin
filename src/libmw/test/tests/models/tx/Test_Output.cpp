@@ -53,6 +53,7 @@ BOOST_AUTO_TEST_CASE(Create)
     mw::Output output = mw::Output::Create(
         &blind,
         sender_key,
+        SecretKey::Random(),
         receiver_subaddr,
         amount
     );

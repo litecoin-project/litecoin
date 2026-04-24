@@ -93,10 +93,8 @@ bool Bulletproofs::BatchVerify(const std::vector<ProofData>& proofs)
 RangeProof::CPtr Bulletproofs::Generate(
     const uint64_t amount,
     const SecretKey& key,
-    const SecretKey& sharedNonce,
-    const SecretKey& privateNonce,
-    const BigInt<32>& sharedMessage,
-    const BigInt<32>& privateMessage,
+    const SecretKey& nonce,
+    const BigInt<32>& message,
     const std::vector<uint8_t>& extraData)
 {
     auto contextWriter = BP_CONTEXT.Write();
@@ -124,12 +122,11 @@ RangeProof::CPtr Bulletproofs::Generate(
         1,
         &secp256k1_generator_const_h,
         NUM_BITS_PROVEN,
-        sharedNonce.data(),
-        privateNonce.data(),
+        nonce.data(),
+        NULL,
         extraData.data(),
         extraData.size(),
-        sharedMessage.data(),
-        privateMessage.data()
+        message.data()
     );
     secp256k1_scratch_space_destroy(pContext, pScratchSpace);
 
@@ -141,40 +138,37 @@ RangeProof::CPtr Bulletproofs::Generate(
     return std::make_shared<RangeProof>(std::move(proofBytes));
 }
 
-std::pair<BigInt<32>, BigInt<32>> Bulletproofs::Rewind(
+BigInt<32> Bulletproofs::Rewind(
     const Commitment& commitment,
     const RangeProof& rangeProof,
     const std::vector<uint8_t>& extraData,
-    const SecretKey& sharedNonce,
-    const SecretKey& privateNonce)
+    const SecretKey& nonce)
 {
     secp256k1_pedersen_commitment secpCommitment = ConversionUtil::ToSecp256k1(commitment);
 
-    BigInt<32> shared_message;
-    BigInt<32> private_message;
+    BigInt<32> message;
 
-    size_t shared_message_len = shared_message.size();
-    size_t private_message_len = private_message.size();
+    size_t message_len = message.size();
     int result = secp256k1_bulletproof_rangeproof_rewind(
         BP_CONTEXT.Read()->Get(),
-        shared_message.data(),
-        &shared_message_len,
-        private_message.data(),
-        &private_message_len,
+        message.data(),
+        &message_len,
+        NULL,
+        NULL,
         rangeProof.data(),
         rangeProof.size(),
         0,
         &secpCommitment,
         &secp256k1_generator_const_h,
-        sharedNonce.data(),
-        privateNonce.data(),
+        nonce.data(),
+        NULL,
         extraData.data(),
         extraData.size()
     );
 
-    if (result != 1 || shared_message_len != shared_message.size() || private_message_len != private_message.size()) {
-        return std::make_pair(BigInt<32>{}, BigInt<32>{});
+    if (result != 1 || message_len != message.size()) {
+        return BigInt<32>{};
     }
 
-    return std::make_pair(std::move(shared_message), std::move(private_message));
+    return message;
 }

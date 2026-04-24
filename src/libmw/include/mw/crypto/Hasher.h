@@ -13,6 +13,7 @@ enum class EHashTag : char
     DERIVE = 'D',
     NONCE = 'N',
     OUT_KEY = 'O',
+    REWIND = 'R',
     SEND_KEY = 'S',
     TAG = 'T',
     NONCE_MASK = 'X',

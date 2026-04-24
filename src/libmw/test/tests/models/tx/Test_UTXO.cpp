@@ -17,6 +17,7 @@ BOOST_AUTO_TEST_CASE(TxUTXO)
     mw::Output output = mw::Output::Create(
         &blind,
         SecretKey::Random(),
+        SecretKey::Random(),
         StealthAddress::Random(),
         amount
     );

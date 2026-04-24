@@ -57,6 +57,7 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
     mw::Output output1 = mw::Output::Create(
         nullptr,                            // (out) blinding_factor
         output1_sender_key,                 // sender private key
+        SecretKey::Random(),                // rewind key
         StealthAddress::Random(),           // receiver_addr
         1'000'000                           // amount
     );
@@ -66,6 +67,7 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
     mw::Output output2 = mw::Output::Create(
         nullptr,                            // (out) blinding_factor
         output2_sender_key,                 // sender private key
+        SecretKey::Random(),                // rewind key
         StealthAddress::Random(),           // receiver_addr
         2'000'000                           // amount
     );

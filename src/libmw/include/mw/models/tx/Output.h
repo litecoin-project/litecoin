@@ -221,6 +221,7 @@ public:
     static Output Create(
         BlindingFactor* blind_out,
         const SecretKey& sender_privkey,
+        const SecretKey& rewind_key,
         const StealthAddress& receiver_addr,
         const uint64_t value
     );

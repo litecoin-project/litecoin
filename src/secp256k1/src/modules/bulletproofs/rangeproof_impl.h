@@ -476,7 +476,7 @@ static int secp256k1_bulletproof_rangeproof_prove_impl(
     const secp256k1_scalar *blind, const secp256k1_ge *commitp, size_t n_commits, 
     const secp256k1_ge *value_gen, const secp256k1_bulletproof_generators *gens, 
     const unsigned char *nonce, const unsigned char *private_nonce,
-    const unsigned char *extra_commit, size_t extra_commit_len, int private_msg_overflow, const unsigned char *shared_message) {
+    const unsigned char *extra_commit, size_t extra_commit_len, int private_msg_overflow, const unsigned char *message) {
     secp256k1_bulletproof_lr_generator lr_gen;
     secp256k1_bulletproof_abgh_data abgh_data;
     secp256k1_scalar zero;
@@ -564,15 +564,15 @@ static int secp256k1_bulletproof_rangeproof_prove_impl(
         return 1;
     }
 
-    if (shared_message != NULL && n_commits != 1) {
+    if (message != NULL && n_commits != 1) {
         return 0;
     }
 
-    /* Encrypt the shared rewind payload into alpha, so it will be recoverable from -mu by someone who knows `nonce` */
+    /* Encrypt the rewind payload into alpha, so it will be recoverable from -mu by someone who knows `nonce` */
     if (n_commits == 1) {
         secp256k1_scalar vals;
-        if (shared_message != NULL) {
-            secp256k1_bulletproof_message32_to_scalar(&vals, &shared_msg_overflow, shared_message);
+        if (message != NULL) {
+            secp256k1_bulletproof_message32_to_scalar(&vals, &shared_msg_overflow, message);
             proof_flags |= SECP256K1_BULLETPROOF_SHARED_MSG_PRESENT;
             if (shared_msg_overflow) {
                 proof_flags |= SECP256K1_BULLETPROOF_SHARED_MSG_OVERFLOW;
@@ -863,7 +863,6 @@ static int secp256k1_bulletproof_rangeproof_rewind_impl(unsigned char* shared_ms
     if (private_nonce != NULL) {
         secp256k1_scalar_chacha20(&tau1, &tau2, private_nonce, 1);
 
-        /* // MW: TODO - Unwind the private message instead, not the blinding factor*/
         /* Derive blinding factor */
         secp256k1_scalar_mul(&tau1, &tau1, &x);
         secp256k1_scalar_mul(&tau2, &tau2, &x);

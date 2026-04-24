@@ -205,7 +205,7 @@ BOOST_AUTO_TEST_CASE(ValidateForTx)
 
 BOOST_AUTO_TEST_CASE(ValidateForTx_AllowsPointAtInfinity)
 {
-    mw::Output output = mw::Output::Create(nullptr, SecretKey::Random(), StealthAddress::Random(), 100);
+    mw::Output output = mw::Output::Create(nullptr, SecretKey::Random(), SecretKey::Random(), StealthAddress::Random(), 100);
     mw::Input input = mw::Input::Create(
         SecretKey::Random().GetBigInt(),
         output.GetCommitment(),

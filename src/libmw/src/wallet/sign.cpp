@@ -129,6 +129,7 @@ static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw
     mw::Output finalized = mw::Output::Create(
         &raw_blind,
         ephemeral_key,
+        SecretKey::Random(),
         *output.address,
         *output.amount
     );

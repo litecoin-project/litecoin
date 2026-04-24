@@ -11,6 +11,7 @@ MW_NAMESPACE
 Output Output::Create(
     BlindingFactor* blind_out,
     const SecretKey& sender_privkey,
+    const SecretKey& rewind_key,
     const StealthAddress& receiver_addr,
     const uint64_t value)
 {
@@ -55,16 +56,15 @@ Output Output::Create(
 
     OutputMessage message{features, OutputStandardFields(Ke, view_tag, mv, mn)};
 
-    // MW: TODO - Need to store:
-    // * Shared message = kernel_id where nonce is H(tag || shared_secret)
-    // * Private message = keychain idx of sender_key + sender_key nonce + checksum where nonce is H(tag || seed-derived key || output commitment)
+    SecretKey proof_nonce = Hasher(EHashTag::REWIND)
+        .Append(rewind_key)
+        .Append(output_commit)
+        .hash();
     RangeProof::CPtr pRangeProof = Bulletproofs::Generate(
         value,
         SecretKey(blind.vec()),
-        SecretKey::Random(),
-        SecretKey::Random(),
-        BigInt<32>{},
-        blind.GetBigInt(),
+        proof_nonce,
+        e.GetBigInt(),
         message.Serialized()
     );
     

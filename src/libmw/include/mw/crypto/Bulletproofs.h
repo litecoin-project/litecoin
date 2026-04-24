@@ -18,18 +18,15 @@ public:
     static RangeProof::CPtr Generate(
         const uint64_t amount,
         const SecretKey& key,
-        const SecretKey& sharedNonce,
-        const SecretKey& privateNonce,
-        const BigInt<32>& sharedMessage,
-        const BigInt<32>& privateMessage,
+        const SecretKey& nonce,
+        const BigInt<32>& message,
         const std::vector<uint8_t>& extraData
     );
 
-    static std::pair<BigInt<32>, BigInt<32>> Rewind(
+    static BigInt<32> Rewind(
         const Commitment& commitment,
         const RangeProof& rangeProof,
         const std::vector<uint8_t>& extraData,
-        const SecretKey& sharedNonce,
-        const SecretKey& privateNonce
+        const SecretKey& nonce
     );
 };

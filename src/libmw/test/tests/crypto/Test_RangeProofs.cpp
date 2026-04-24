@@ -131,15 +131,13 @@ BOOST_AUTO_TEST_CASE(RangeProofs)
     const uint64_t value = 12345678;
     BlindingFactor blind = BlindingFactor::FromHex("0000000000000000000000000000000000000000000000000000000000000001");
     Commitment commit = Commitment::Blinded(blind, value);
-    SecretKey sharedNonce = SecretKey::FromHex("5021e7378095d5dc0dc59d7886a4f65c126db9580a1dde3fedc4fe6dc7734cd5");
-    SecretKey privateNonce = SecretKey::FromHex("f42ba7b1e657a397e608958d36c49e0edc249b4f02180bf62464560d5ba51afe");
-    BigInt<32> shared_message = BigInt<32>::FromHex("c2ca9d0aa93184f598f595147cd6c786f2bafb7000112233445566778899aabb");
-    BigInt<32> private_message = BigInt<32>::FromHex("fffffffffffffffffffffffffffffffebaaedce6af48a03bbfd25e8cd0364142");
+    SecretKey nonce = SecretKey::FromHex("5021e7378095d5dc0dc59d7886a4f65c126db9580a1dde3fedc4fe6dc7734cd5");
+    BigInt<32> message = BigInt<32>::FromHex("c2ca9d0aa93184f598f595147cd6c786f2bafb7000112233445566778899aabb");
     std::vector<uint8_t> extraData = ParseHex("d21cf3d38aa9a7de357949164d8134a7686a7b107c279f50735d487874ffc56fe0b62b759baf6ecde5a73dd6932634f97501");
 
     secp256k1_scalar alpha;
     secp256k1_scalar rho;
-    secp256k1_scalar_chacha20(&alpha, &rho, sharedNonce.data(), 0);
+    secp256k1_scalar_chacha20(&alpha, &rho, nonce.data(), 0);
 
     std::vector<uint8_t> alpha_out(32);
     secp256k1_scalar_get_b32(alpha_out.data(), &alpha);
@@ -147,22 +145,19 @@ BOOST_AUTO_TEST_CASE(RangeProofs)
     std::vector<uint8_t> rho_out(32);
     secp256k1_scalar_get_b32(rho_out.data(), &rho);
 
-    // Create a RangeProof via Bulletproofs::Generate. Use the same value for privateNonce and rewindNonce.
+    // Create a RangeProof via Bulletproofs::Generate.
     RangeProof::CPtr pRangeProof = Bulletproofs::Generate(
         value,
         SecretKey(blind.vec()),
-        sharedNonce,
-        privateNonce,
-        shared_message,
-        private_message,
+        nonce,
+        message,
         extraData
     );
 
-    // Try rewinding it via Bulletproofs::Rewind using the *correct* rewindNonce. Make sure it returns a valid RewoundProof.
-    std::pair<BigInt<32>, BigInt<32>> bp_messages = Bulletproofs::Rewind(commit, *pRangeProof, extraData, sharedNonce, privateNonce);
+    // Try rewinding it via Bulletproofs::Rewind using the *correct* rewind nonce.
+    BigInt<32> bp_message = Bulletproofs::Rewind(commit, *pRangeProof, extraData, nonce);
 
-    BOOST_CHECK(bp_messages.first == shared_message);
-    BOOST_CHECK(bp_messages.second == private_message);
+    BOOST_CHECK(bp_message == message);
 
     // Make sure BatchVerify returns true.
     std::vector<ProofData> rangeProofs;
