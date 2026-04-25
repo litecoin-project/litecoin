@@ -25,14 +25,14 @@ BOOST_AUTO_TEST_CASE(BlockBuilder)
     ///////////////////////
     test::Tx block1_tx1 = test::Tx::CreatePegIn(1000);
     auto block1 = miner.MineBlock(150, { block1_tx1 });
-    cached_view->ApplyBlock(block1.GetBlock());
+    cached_view->ApplyBlock(block1.GetBlock(), false);
 
     ///////////////////////
     // Mine Block 2
     ///////////////////////
     test::Tx block2_tx1 = test::Tx::CreatePegIn(500);
     auto block2 = miner.MineBlock(151, {block2_tx1});
-    cached_view->ApplyBlock(block2.GetBlock());
+    cached_view->ApplyBlock(block2.GetBlock(), false);
 
     ///////////////////////
     // Flush View

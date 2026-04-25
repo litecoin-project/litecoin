@@ -4,6 +4,7 @@
 
 #include <consensus/tx_verify.h>
 
+#include <chainparams.h>
 #include <consensus/consensus.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
@@ -168,6 +169,8 @@ int64_t GetTransactionSigOpCost(const CTransaction& tx, const CCoinsViewCache& i
 
 bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, const CCoinsViewCache& inputs, int nSpendHeight, CAmount& txfee)
 {
+    const auto& consensus_params = ::Params().GetConsensus();
+
     // are the actual inputs available?
     if (!inputs.HaveInputs(tx)) {
         return state.Invalid(TxValidationResult::TX_MISSING_INPUTS, "bad-txns-inputs-missingorspent",
@@ -218,6 +221,13 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, 
             if (!inputs.GetMWEBCoin(input.GetOutputID(), utxo)) {
                 return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-inputs-missing",
                     strprintf("%s: MWEB inputs missing", __func__));
+            }
+
+            for (const uint256& frozen_output_id : consensus_params.frozen_mweb_output_ids) {
+                if (uint256(input.GetOutputID().vec()) == frozen_output_id) {
+                    return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-frozen-mweb-output",
+                        strprintf("%s: spends frozen MWEB output %s", __func__, input.GetOutputID().ToHex()));
+                }
             }
 
             if (utxo.GetReceiverPubKey() != input.GetOutputPubKey() || utxo.GetCommitment() != input.GetCommitment()) {
