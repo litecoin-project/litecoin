@@ -1707,23 +1707,12 @@ CAmount CWallet::GetCredit(const CTransaction& tx, const boost::optional<MWEB::W
             throw std::runtime_error(std::string(__func__) + ": value out of range");
     }
 
-    bool has_my_inputs = false;
-    for (const CTxInput& txin : tx.GetInputs()) {
+    for (const PegOutCoin& pegout : tx.mweb_tx.GetPegOuts()) {
         LOCK(cs_wallet);
-        if (IsMine(txin)) {
-            has_my_inputs = true;
-            break;
-        }
-    }
-
-    if (!has_my_inputs) {
-        for (const PegOutCoin& pegout : tx.mweb_tx.GetPegOuts()) {
-            LOCK(cs_wallet);
-            if (!(IsMine(DestinationAddr(pegout.GetScriptPubKey())) & filter)) {
-                nCredit += pegout.GetAmount();
-                if (!MoneyRange(nCredit))
-                    throw std::runtime_error(std::string(__func__) + ": value out of range");
-            }
+        if (IsMine(DestinationAddr(pegout.GetScriptPubKey())) & filter) {
+            nCredit += pegout.GetAmount();
+            if (!MoneyRange(nCredit))
+                throw std::runtime_error(std::string(__func__) + ": value out of range");
         }
     }
 
