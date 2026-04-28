@@ -64,6 +64,48 @@ static std::vector<uint256> GetFrozenMWEBOutputIDs()
     };
 }
 
+static CBlock CreateSignetGenesisBlock()
+{
+    const char* pszTimestamp = "Litecoin Signet 27/Apr/2026 - A predictable test network for Litecoin";
+    const CScript genesisOutputScript = CScript() << ParseHex("040184710fa689ad5023690c80f3a49c8f13f8d45b8c857fbcbc8bc4a8e4d3eb4b10f4d4604fa08dce601aaf0f470216fe1b51850b4acf21b179c45070ac7b03a9") << OP_CHECKSIG;
+    return CreateGenesisBlock(pszTimestamp, genesisOutputScript, 1777248000, 1603, 0x1f00ffff, 1, 50 * COIN);
+}
+
+static const std::vector<uint8_t>& DefaultSignetChallenge()
+{
+    static const std::vector<uint8_t> challenge = ParseHex("51");
+    return challenge;
+}
+
+static std::vector<uint8_t> GetSignetChallenge(const ArgsManager& args)
+{
+    if (!args.IsArgSet("-signetchallenge")) return DefaultSignetChallenge();
+
+    const auto challenges = args.GetArgs("-signetchallenge");
+    if (challenges.size() != 1) {
+        throw std::runtime_error("-signetchallenge cannot be multiple values.");
+    }
+
+    const std::string& challenge = challenges[0];
+    if (!IsHex(challenge)) {
+        throw std::runtime_error(strprintf("Invalid -signetchallenge '%s'. Must be hex.", challenge));
+    }
+
+    std::vector<uint8_t> parsed_challenge = ParseHex(challenge);
+    if (parsed_challenge.empty()) {
+        throw std::runtime_error("Invalid -signetchallenge. Challenge may not be empty.");
+    }
+
+    return parsed_challenge;
+}
+
+static uint256 DeriveSignetMessageStartHash(const std::vector<uint8_t>& challenge)
+{
+    CHashWriter h(SER_DISK, 0);
+    h << challenge;
+    return h.GetHash();
+}
+
 /**
  * Main network
  */
@@ -283,6 +325,90 @@ public:
     }
 };
 
+class CSigNetParams : public CChainParams {
+public:
+    explicit CSigNetParams(const ArgsManager& args) {
+        strNetworkID = CBaseChainParams::SIGNET;
+        consensus.signet_blocks = true;
+        consensus.signet_challenge = GetSignetChallenge(args);
+        consensus.nSubsidyHalvingInterval = 840000;
+        consensus.BIP16Height = 1;
+        consensus.BIP34Height = 1;
+        consensus.BIP34Hash = uint256();
+        consensus.BIP65Height = 1;
+        consensus.BIP66Height = 1;
+        consensus.CSVHeight = 1;
+        consensus.SegwitHeight = 1;
+        consensus.MinBIP9WarningHeight = 0;
+        consensus.powLimit = uint256S("0000ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+        consensus.nPowTargetTimespan = 3.5 * 24 * 60 * 60;
+        consensus.nPowTargetSpacing = 2.5 * 60;
+        consensus.fPowAllowMinDifficultyBlocks = false;
+        consensus.fPowNoRetargeting = false;
+        consensus.nRuleChangeActivationThreshold = 1512;
+        consensus.nMinerConfirmationWindow = 2016;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].bit = 28;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nStartTime = Consensus::BIP9Deployment::NEVER_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TESTDUMMY].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].bit = 2;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+        consensus.vDeployments[Consensus::DEPLOYMENT_TAPROOT].nTimeout = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].bit = 4;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartHeight = 0;
+        consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nTimeoutHeight = Consensus::BIP9Deployment::NO_TIMEOUT;
+
+        consensus.nMinimumChainWork = uint256{};
+        consensus.defaultAssumeValid = uint256{};
+
+        const uint256 signet_message_start = DeriveSignetMessageStartHash(consensus.signet_challenge);
+        for (size_t i = 0; i < CMessageHeader::MESSAGE_START_SIZE; ++i) {
+            pchMessageStart[i] = signet_message_start.begin()[i];
+        }
+        nDefaultPort = 39335;
+        nPruneAfterHeight = 1000;
+        m_assumed_blockchain_size = 0;
+        m_assumed_chain_state_size = 0;
+
+        genesis = CreateSignetGenesisBlock();
+        consensus.hashGenesisBlock = genesis.GetHash();
+        assert(consensus.hashGenesisBlock == uint256S("0x41b5ad040995f9deab05f0a61c0e992164f6e689a8ea32a4b7450bd313210a43"));
+        assert(genesis.hashMerkleRoot == uint256S("0x99d360668018416a453d5c2bba870f1846a4f5969b7e80ecaf3aa444a825d8dd"));
+
+        vFixedSeeds.clear();
+        vSeeds.clear();
+
+        base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,111);
+        base58Prefixes[SCRIPT_ADDRESS] = std::vector<unsigned char>(1,196);
+        base58Prefixes[SCRIPT_ADDRESS2] = std::vector<unsigned char>(1,58);
+        base58Prefixes[SECRET_KEY] =     std::vector<unsigned char>(1,239);
+        base58Prefixes[EXT_PUBLIC_KEY] = {0x04, 0x35, 0x87, 0xCF};
+        base58Prefixes[EXT_SECRET_KEY] = {0x04, 0x35, 0x83, 0x94};
+
+        bech32_hrp = "tltc";
+        mweb_hrp = "tmweb";
+
+        fDefaultConsistencyChecks = false;
+        fRequireStandard = false;
+        m_is_test_chain = true;
+        m_is_mockable_chain = false;
+
+        checkpointData = {
+            {
+                {0, uint256S("41b5ad040995f9deab05f0a61c0e992164f6e689a8ea32a4b7450bd313210a43")},
+            }
+        };
+
+        chainTxData = ChainTxData{
+            0,
+            0,
+            0,
+        };
+    }
+};
+
 /**
  * Regression test
  */
@@ -448,7 +574,7 @@ std::unique_ptr<const CChainParams> CreateChainParams(const ArgsManager& args, c
     } else if (chain == CBaseChainParams::TESTNET) {
         return std::unique_ptr<CChainParams>(new CTestNetParams());
     } else if (chain == CBaseChainParams::SIGNET) {
-        return std::unique_ptr<CChainParams>(new CTestNetParams()); // TODO: Support SigNet
+        return std::unique_ptr<CChainParams>(new CSigNetParams(args));
     } else if (chain == CBaseChainParams::REGTEST) {
         return std::unique_ptr<CChainParams>(new CRegTestParams(args));
     }

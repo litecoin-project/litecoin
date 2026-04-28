@@ -2017,6 +2017,10 @@ bool AppInitMain(const util::Ref& context, NodeContext& node, interfaces::BlockA
     }
 
     connOptions.vSeedNodes = args.GetArgs("-seednode");
+    if (args.GetChainName() == CBaseChainParams::SIGNET) {
+        const auto signet_seed_nodes = args.GetArgs("-signetseednode");
+        connOptions.vSeedNodes.insert(connOptions.vSeedNodes.end(), signet_seed_nodes.begin(), signet_seed_nodes.end());
+    }
 
     // Initiate outbound connections unless connect=0
     connOptions.m_use_addrman_outgoing = !args.IsArgSet("-connect");
