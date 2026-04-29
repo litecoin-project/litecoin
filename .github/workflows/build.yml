@@ -367,4 +367,9 @@ jobs:
           fi
 
           tag="v${LITECOIN_CORE_VERSION}"
-          gh release create "${tag}" "${assets[@]}" --target "$GITHUB_SHA" --title "Litecoin Core ${LITECOIN_CORE_VERSION}" --notes "Automated build artifacts from ${GITHUB_SHA}."
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release edit "${tag}" --target "$GITHUB_SHA" --title "Litecoin Core ${LITECOIN_CORE_VERSION}" --notes "Automated build artifacts from ${GITHUB_SHA}."
+            gh release upload "${tag}" "${assets[@]}" --clobber
+          else
+            gh release create "${tag}" "${assets[@]}" --target "$GITHUB_SHA" --title "Litecoin Core ${LITECOIN_CORE_VERSION}" --notes "Automated build artifacts from ${GITHUB_SHA}."
+          fi
