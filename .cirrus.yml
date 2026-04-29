@@ -38,6 +38,32 @@ global_task_template: &GLOBAL_TASK_TEMPLATE
   ci_script:
     - ./ci/test_run_all.sh
 
+task:
+  name: 'Gitian Linux  [deterministic build]'
+  timeout_in: 240m
+  container:
+    image: ubuntu:bionic
+    cpu: 4
+    memory: 16G
+    kvm: true
+  env:
+    GITIAN_WORK_DIR: "/tmp/gitian-ci"
+  gitian_cache:
+    folder: "/tmp/gitian-ci"
+  setup_script:
+    - apt-get update
+    - apt-get install --no-install-recommends --no-upgrade -y ca-certificates git lsb-release python3 sudo
+    - export GITIAN_REPO_DIR="${PWD}"
+    - mkdir -p "${GITIAN_WORK_DIR}"
+    - cd "${GITIAN_WORK_DIR}"
+    - ln -sfn "${GITIAN_REPO_DIR}" litecoin
+    - python3 litecoin/contrib/gitian-build.py --setup --kvm
+  gitian_script:
+    - cd "${GITIAN_WORK_DIR}"
+    - python3 litecoin/contrib/gitian-build.py --build --detach-sign --no-commit --os l --kvm --jobs 4 --memory 4096 --url "${CIRRUS_REPO_CLONE_URL}" --commit ci "${CIRRUS_CHANGE_IN_REPO}"
+  binaries_artifacts:
+    path: "/tmp/gitian-ci/litecoin-binaries/**/*"
+
 #task:
 #  name: "Windows"
 #  windows_container:
