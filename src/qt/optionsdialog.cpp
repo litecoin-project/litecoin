@@ -19,6 +19,8 @@
 #include <netbase.h>
 #include <txdb.h> // for -dbcache defaults
 
+#include <limits>
+
 #include <QDataWidgetMapper>
 #include <QDir>
 #include <QIntValidator>
