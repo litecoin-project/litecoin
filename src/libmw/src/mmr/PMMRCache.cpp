@@ -29,7 +29,7 @@ Leaf PMMRCache::GetLeaf(const LeafIndex& leafIdx) const
     }
 
     const uint64_t cacheIdx = leafIdx.Get() - m_firstLeaf.Get();
-    if (cacheIdx > m_leaves.size()) {
+    if (cacheIdx >= m_leaves.size()) {
         throw std::out_of_range("Attempting to access non-existent leaf");
     }
 
