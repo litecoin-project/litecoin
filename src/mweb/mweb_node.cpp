@@ -207,7 +207,7 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
         // For the HogEx transaction, the fee must be equal to the total fee of the extension block.
         CAmount hogex_fee = hogex_input_amount - pHogEx->GetValueOut();
         if (!MoneyRange(hogex_fee) || hogex_fee != *mweb_fee) {
-            return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-txns-mweb-fee-mismatch", "HogEx fee does not match MWEB fee."); // TODO: This can be CONSENSUS
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-mweb-fee-mismatch", "HogEx fee does not match MWEB fee.");
         }
 
         // Verify that the value of the first HogEx output matches the expected new value of the MWEB.
@@ -219,7 +219,7 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
         }
 
         if (!MoneyRange(*mweb_amount) || *mweb_amount != pHogEx->vout.front().nValue) {
-            return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-amount-mismatch", "HogEx amount does not match expected MWEB amount"); // TODO: This can be CONSENSUS
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "mweb-amount-mismatch", "HogEx amount does not match expected MWEB amount");
         }
 
         const bool allow_historical_metadata_mismatch =
