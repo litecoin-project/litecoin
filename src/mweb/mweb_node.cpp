@@ -36,6 +36,13 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
         if (!block.mweb_block.IsNull()) {
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "unexpected-mweb-data", "MWEB not activated, but extension block found");
         }
+        
+        // The HogEx marker is not committed by the canonical merkle root, so before activation it is mutated data, just like an extension block.
+        for (const CTransactionRef& pTx : block.vtx) {
+            if (pTx->IsHogEx()) {
+                return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "unexpected-mweb-data", "MWEB not activated, but HogEx marker found");
+            }
+        }
 
         return true;
     } else if (block.mweb_block.IsNull()) {
