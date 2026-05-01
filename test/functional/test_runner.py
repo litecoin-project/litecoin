@@ -249,6 +249,7 @@ BASE_SCRIPTS = [
     'mweb_mining.py',
     'mweb_reorg.py',
     'mweb_dbcrash.py',
+    'mweb_duplicate_pegin.py',
     'mweb_p2p.py',
     'mweb_pre_activation_hogex_marker.py',
     'mweb_pegout_all.py',
