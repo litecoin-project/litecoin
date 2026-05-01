@@ -754,21 +754,25 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
         uint64_t nSizeCheck = it->GetTxSize();
         CAmount nFeesCheck = it->GetModifiedFee();
         int64_t nSigOpCheck = it->GetSigOpCost();
+        uint64_t nMWEBWeightCheck = it->GetMWEBWeight();
 
         for (txiter ancestorIt : setAncestors) {
             nSizeCheck += ancestorIt->GetTxSize();
             nFeesCheck += ancestorIt->GetModifiedFee();
             nSigOpCheck += ancestorIt->GetSigOpCost();
+            nMWEBWeightCheck += ancestorIt->GetMWEBWeight();
         }
 
         assert(it->GetCountWithAncestors() == nCountCheck);
         assert(it->GetSizeWithAncestors() == nSizeCheck);
         assert(it->GetSigOpCostWithAncestors() == nSigOpCheck);
         assert(it->GetModFeesWithAncestors() == nFeesCheck);
+        assert(it->GetMWEBWeightWithAncestors() == nMWEBWeightCheck);
 
         // Check children against mapNextTx
         CTxMemPoolEntry::Children setChildrenCheck;
         uint64_t child_sizes = 0;
+        uint64_t child_mweb_weights = 0;
         for (const CTxOutput& output : it->GetTx().GetOutputs()) {
             auto iter = mapNextTx.find(output.GetIndex());
             if (iter != mapNextTx.end()) {
@@ -776,6 +780,7 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
                 assert(childit != mapTx.end()); // mapNextTx points to in-mempool transactions
                 if (setChildrenCheck.insert(*childit).second) {
                     child_sizes += childit->GetTxSize();
+                    child_mweb_weights += childit->GetMWEBWeight();
                 }
             }
         }
@@ -784,6 +789,7 @@ void CTxMemPool::check(const CCoinsViewCache *pcoins) const
         // Also check to make sure size is greater than sum with immediate children.
         // just a sanity check, not definitive that this calc is correct...
         assert(it->GetSizeWithDescendants() >= child_sizes + it->GetTxSize());
+        assert(it->GetMWEBWeightWithDescendants() >= child_mweb_weights + it->GetMWEBWeight());
 
         if (fDependsWait)
             waitingOnDependants.push_back(&(*it));
