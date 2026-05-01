@@ -254,17 +254,31 @@ bool BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
 
     CTransactionRef pTx = iter->GetSharedTx();
     if (!pTx->IsMWEBOnly()) {
+        CAmount hogex_fee = 0;
+        int64_t hogex_sigops = 0;
+
         if (pTx->HasMWEBTx()) {
+            const auto tx_fee = pTx->mweb_tx.GetFee();
+            if (!tx_fee || *tx_fee > iter->GetFee()) {
+                LogPrintf("Invalid MWEB fee amount\n");
+                return false;
+            }
+
+            hogex_fee = *tx_fee;
+            hogex_sigops = MWEB::Miner::GetHogExSigOpCost(*pTx);
+            if (hogex_sigops > iter->GetSigOpCost()) {
+                LogPrintf("Invalid MWEB sigop cost\n");
+                return false;
+            }
+
             CMutableTransaction mutable_tx(*pTx);
             mutable_tx.mweb_tx.SetNull();
             pTx = MakeTransactionRef(std::move(mutable_tx));
         }
 
         pblocktemplate->block.vtx.emplace_back(pTx);
-        // MWEB: Should probably recalculate fee (for vTxFees) and sigopcost (for vTxSigOpsCost) without MWEB data?
-        // Then we could use actual fee and sigop cost for hogex.
-        pblocktemplate->vTxFees.push_back(iter->GetFee());
-        pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost());
+        pblocktemplate->vTxFees.push_back(iter->GetFee() - hogex_fee);
+        pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost() - hogex_sigops);
         ++nBlockTx;
     }
 
