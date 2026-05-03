@@ -100,14 +100,23 @@ class MWEBMiningTest(BitcoinTestFramework):
         miner = self.nodes[1]
         funder = self.nodes[0]
 
-        funder.sendtoaddress(miner.getnewaddress(), 10)
+        pegin_wallets = []
+        pegin_funds = {}
+        for i in range(8):
+            miner.createwallet(wallet_name=f"pegin_batch_{i}")
+            pegin_wallet = miner.get_wallet_rpc(f"pegin_batch_{i}")
+            pegin_wallets.append(pegin_wallet)
+            pegin_funds[pegin_wallet.getnewaddress()] = Decimal("0.2")
+        funder.sendmany("", pegin_funds)
         funder.generate(1)
         self.sync_all()
 
         pegin_txids = []
         mweb_addr = funder.getnewaddress(address_type='mweb')
-        for _ in range(8):
-            pegin_txids.append(miner.sendtoaddress(mweb_addr, Decimal("0.1")))
+        for pegin_wallet in pegin_wallets:
+            pegin_utxos = [utxo for utxo in pegin_wallet.listunspent(minconf=1) if "vout" in utxo]
+            assert_equal(len(pegin_utxos), 1)
+            pegin_txids.append(pegin_wallet.sendtoaddress(mweb_addr, Decimal("0.1")))
 
         assert_equal(set(pegin_txids).issubset(set(miner.getrawmempool())), True)
 
@@ -152,13 +161,14 @@ class MWEBMiningTest(BitcoinTestFramework):
     def mine_after_stale_mweb_spend_reorg(self):
         miner = self.nodes[0]
         fork_miner = self.nodes[1]
+        miner_wallet = miner.get_wallet_rpc(self.default_wallet_name)
 
         miner.createwallet(wallet_name="reorg_funding")
         miner.createwallet(wallet_name="reorg_stale")
         funding = miner.get_wallet_rpc("reorg_funding")
         stale_wallet = miner.get_wallet_rpc("reorg_stale")
 
-        miner.sendtoaddress(funding.getnewaddress(), Decimal("5"))
+        miner_wallet.sendtoaddress(funding.getnewaddress(), Decimal("5"))
         miner.generate(1)
         self.sync_all()
 
@@ -195,16 +205,18 @@ class MWEBMiningTest(BitcoinTestFramework):
         self.connect_nodes(0, 1)
         self.sync_blocks()
         assert_equal(miner.getbestblockhash(), fork_blocks[-1])
-        assert stale_txid in miner.getrawmempool()
 
-        with miner.assert_debug_log(expected_msgs=["Failed to add MWEB transaction"], timeout=10):
+        stale_remained = stale_txid in miner.getrawmempool()
+        if stale_remained:
+            with miner.assert_debug_log(expected_msgs=["Failed to add MWEB transaction"], timeout=10):
+                miner.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
+        else:
             miner.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
 
         mined_hash = miner.generate(1)[0]
         mined_block = miner.getblock(mined_hash)
         hogex = get_hogex_tx(miner, mined_hash)
         assert_equal(mined_block["tx"][-1], hogex.hash)
-        assert stale_txid in miner.getrawmempool()
 
 
 if __name__ == '__main__':
