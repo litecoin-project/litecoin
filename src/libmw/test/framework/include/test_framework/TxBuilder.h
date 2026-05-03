@@ -34,7 +34,7 @@ public:
         const StealthAddress& receiver_addr
     );
 
-    TxBuilder& AddPlainKernel(const CAmount fee, const bool add_stealth_excess = false);
+    TxBuilder& AddPlainKernel(const CAmount fee, const bool add_stealth_excess = false, const boost::optional<int32_t>& lock_height = boost::none);
     TxBuilder& AddPeginKernel(const CAmount amount, const boost::optional<CAmount>& fee = boost::none, const bool add_stealth_excess = false);
     TxBuilder& AddPegoutKernel(const CAmount amount, const CAmount fee, const bool add_stealth_excess = false);
 

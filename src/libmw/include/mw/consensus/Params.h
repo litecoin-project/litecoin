@@ -12,6 +12,9 @@ MW_NAMESPACE
 /// </summary>
 static constexpr size_t BYTES_PER_WEIGHT = 42; // For any 'extra' data added to inputs, outputs, or kernels
 
+// Kernel lock heights in MWEB blocks are enforced only after this height to avoid rejecting historical blocks.
+static constexpr int32_t KERNEL_LOCK_HEIGHT_GRANDFATHER_HEIGHT = 3'110'000;
+
 static constexpr size_t BASE_KERNEL_WEIGHT = 2;
 static constexpr size_t STEALTH_EXCESS_WEIGHT = 1;
 static constexpr size_t KERNEL_WITH_STEALTH_WEIGHT = BASE_KERNEL_WEIGHT + STEALTH_EXCESS_WEIGHT;

@@ -1,5 +1,6 @@
 #include <mw/models/block/Block.h>
 
+#include <mw/consensus/Params.h>
 #include <mw/consensus/StealthSumValidator.h>
 #include <mw/mmr/MMR.h>
 
@@ -10,6 +11,10 @@ void mw::Block::Validate() const
     }
 
     m_body.Validate();
+
+    if (GetHeight() > mw::KERNEL_LOCK_HEIGHT_GRANDFATHER_HEIGHT && m_body.GetLockHeight() > GetHeight()) {
+        ThrowValidation(EConsensusError::LOCK_HEIGHT);
+    }
 
     StealthSumValidator::Validate(m_pHeader->GetStealthOffset(), m_body);
 

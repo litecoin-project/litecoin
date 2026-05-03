@@ -21,6 +21,7 @@ enum class EConsensusError
     UTXO_MISSING,
     UTXO_MISMATCH,
     NOT_SORTED,
+    LOCK_HEIGHT,
     BAD_STATE
 };
 
@@ -71,6 +72,8 @@ private:
                 return "UTXO_MISMATCH";
             case EConsensusError::NOT_SORTED:
                 return "NOT_SORTED";
+            case EConsensusError::LOCK_HEIGHT:
+                return "LOCK_HEIGHT";
             case EConsensusError::BAD_STATE:
                 return "BAD_STATE";
         }

@@ -57,7 +57,7 @@ TxBuilder& TxBuilder::AddOutput(
     return *this;
 }
 
-TxBuilder& TxBuilder::AddPlainKernel(const CAmount fee, const bool add_stealth_excess)
+TxBuilder& TxBuilder::AddPlainKernel(const CAmount fee, const bool add_stealth_excess, const boost::optional<int32_t>& lock_height)
 {
     BlindingFactor kernel_excess = BlindingFactor::Random();
     m_kernelOffset.Sub(kernel_excess);
@@ -75,7 +75,7 @@ TxBuilder& TxBuilder::AddPlainKernel(const CAmount fee, const bool add_stealth_e
         fee,
         boost::none,
         std::vector<PegOutCoin>{},
-        boost::none
+        lock_height
     );
 
     m_kernels.push_back(std::move(kernel));
