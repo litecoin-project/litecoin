@@ -75,6 +75,10 @@ MSG_MWEB_TX = MSG_WITNESS_TX | MSG_MWEB_FLAG
 MSG_MWEB_HEADER = 8 | MSG_MWEB_FLAG
 MSG_MWEB_LEAFSET = 9 | MSG_MWEB_FLAG
 
+MWEB_UTXO_FORMAT_FULL = 0
+MWEB_UTXO_FORMAT_HASH_ONLY = 1
+MWEB_UTXO_FORMAT_COMPACT = 2
+
 FILTER_TYPE_BASIC = 0
 
 WITNESS_SCALE_FACTOR = 4
@@ -925,7 +929,7 @@ class P2PHeaderAndShortIDs:
         self.prefilled_txn = deser_vector(f, PrefilledTransaction)
         self.prefilled_txn_length = len(self.prefilled_txn)
         
-        if len(self.prefilled_txn) > 0 and self.prefilled_txn[-1].tx.hogex:
+        if f.tell() < len(f.getbuffer()):
             self.mweb_block = deser_mweb_block(f)
                 
     # When using version 2 compact blocks, we must serialize with_witness.
@@ -2191,6 +2195,36 @@ class MWEBCompactOutput:
     def __repr__(self):
         return "MWEBCompactOutput(commitment=%s)" % (repr(self.commitment))
 
+class MWEBNetUTXO:
+    __slots__ = ("leaf_index", "output", "output_format")
+
+    def __init__(self, output_format=MWEB_UTXO_FORMAT_HASH_ONLY):
+        self.leaf_index = 0
+        self.output = None
+        self.output_format = output_format
+
+    def deserialize(self, f):
+        self.leaf_index = deser_compact_size(f)
+        if self.output_format == MWEB_UTXO_FORMAT_FULL:
+            self.output = MWEBOutput()
+            self.output.deserialize(f)
+        elif self.output_format == MWEB_UTXO_FORMAT_HASH_ONLY:
+            self.output = Hash.deserialize(f)
+        elif self.output_format == MWEB_UTXO_FORMAT_COMPACT:
+            self.output = MWEBCompactOutput()
+            self.output.deserialize(f)
+        else:
+            raise ValueError("Unsupported MWEB UTXO serialization format %d" % self.output_format)
+
+    def serialize(self):
+        r = ser_compact_size(self.leaf_index)
+        r += self.output.serialize()
+        return r
+
+    def __repr__(self):
+        return "MWEBNetUTXO(leaf_index=%d, output=%s)" % (self.leaf_index, repr(self.output))
+
+
 class MWEBKernel:
     __slots__ = ("features", "fee", "pegin", "pegouts", "lock_height",
                 "stealth_excess", "extradata", "excess", "signature", "hash")
@@ -2496,15 +2530,15 @@ class msg_getmwebutxos:
 
     def deserialize(self, f):
         self.block_hash = Hash.deserialize(f)
-        self.start_index = deser_varint(f)
-        self.num_requested = (struct.unpack("<B", f.read(1))[0] << 8) + struct.unpack("<B", f.read(1))[0]
+        self.start_index = deser_compact_size(f)
+        self.num_requested = struct.unpack("<H", f.read(2))[0]
         self.output_format = struct.unpack("B", f.read(1))[0]
 
     def serialize(self):
         r = b""
         r += self.block_hash.serialize()
-        r += ser_varint(self.start_index)
-        r += struct.pack("B", self.num_requested >> 8) + struct.pack("B", self.num_requested & 0xFF)
+        r += ser_compact_size(self.start_index)
+        r += struct.pack("<H", self.num_requested)
         r += struct.pack("B", self.output_format)
         return r
 
@@ -2526,22 +2560,22 @@ class msg_mwebutxos:
 
     def deserialize(self, f):
         self.block_hash = Hash.deserialize(f)
-        self.start_index = deser_varint(f)
+        self.start_index = deser_compact_size(f)
         self.output_format = struct.unpack("B", f.read(1))[0]
 
-        if self.output_format == 0:
-            self.utxos = deser_vector(f, Hash)
-        elif self.output_format == 1:
-            self.utxos = deser_vector(f, MWEBOutput)
-        else:
-            self.utxos = deser_vector(f, MWEBCompactOutput)
+        utxos_len = deser_compact_size(f)
+        self.utxos = []
+        for _ in range(utxos_len):
+            utxo = MWEBNetUTXO(self.output_format)
+            utxo.deserialize(f)
+            self.utxos.append(utxo)
 
         self.proof_hashes = deser_vector(f, Hash)
 
     def serialize(self):
         r = b""
         r += self.block_hash.serialize()
-        r += ser_varint(self.start_index)
+        r += ser_compact_size(self.start_index)
         r += struct.pack("B", self.output_format)
         r += ser_vector(self.utxos)
         r += ser_vector(self.proof_hashes)
