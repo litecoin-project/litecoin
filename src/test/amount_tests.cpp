@@ -8,6 +8,8 @@
 
 #include <boost/test/unit_test.hpp>
 
+#include <limits>
+
 BOOST_FIXTURE_TEST_SUITE(amount_tests, BasicTestingSetup)
 
 BOOST_AUTO_TEST_CASE(MoneyRangeTest)
@@ -84,6 +86,13 @@ BOOST_AUTO_TEST_CASE(GetFeeTest)
     BOOST_CHECK(CFeeRate(CAmount(27), 789, 0) == CFeeRate(34));
     // Maximum size in bytes, should not crash
     CFeeRate(MAX_MONEY, std::numeric_limits<size_t>::max() >> 1, std::numeric_limits<size_t>::max() >> 1).GetFeePerK();
+
+    // Maximum MWEB weight, should saturate instead of overflowing
+    const uint64_t oversized_mweb_weight = uint64_t(std::numeric_limits<CAmount>::max() / 100) + 1;
+    CFeeRate max_mweb_fee_rate(MAX_MONEY, 1000, oversized_mweb_weight);
+    BOOST_CHECK_EQUAL(max_mweb_fee_rate.GetMWEBFee(oversized_mweb_weight), std::numeric_limits<CAmount>::max());
+    BOOST_CHECK_EQUAL(CFeeRate(CAmount(1000)).GetTotalFee(1000, 2), CAmount(1200));
+    BOOST_CHECK_EQUAL(CFeeRate(CAmount(1000)).GetTotalFee(1000, oversized_mweb_weight), std::numeric_limits<CAmount>::max());
 }
 
 BOOST_AUTO_TEST_CASE(BinaryOperatorTest)

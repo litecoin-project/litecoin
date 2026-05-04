@@ -7,7 +7,21 @@
 
 #include <tinyformat.h>
 
-static const CAmount BASE_MWEB_FEE = 100;
+#include <limits>
+
+namespace {
+static constexpr CAmount BASE_MWEB_FEE = 100;
+
+CAmount GetMWEBFeeForWeight(uint64_t mweb_weight)
+{
+    assert(mweb_weight <= uint64_t(std::numeric_limits<int64_t>::max()));
+    if (mweb_weight > uint64_t(std::numeric_limits<CAmount>::max() / BASE_MWEB_FEE)) {
+        return std::numeric_limits<CAmount>::max();
+    }
+
+    return CAmount(mweb_weight) * BASE_MWEB_FEE;
+}
+} // namespace
 
 CFeeRate::CFeeRate(const CAmount& nFeePaid, size_t nBytes_, uint64_t mweb_weight)
     : m_nFeePaid(nFeePaid), m_nBytes(nBytes_), m_weight(mweb_weight)
@@ -15,7 +29,7 @@ CFeeRate::CFeeRate(const CAmount& nFeePaid, size_t nBytes_, uint64_t mweb_weight
     assert(nBytes_ <= uint64_t(std::numeric_limits<int64_t>::max()));
     assert(mweb_weight <= uint64_t(std::numeric_limits<int64_t>::max()));
 
-    CAmount mweb_fee = CAmount(mweb_weight) * BASE_MWEB_FEE;
+    const CAmount mweb_fee = GetMWEBFeeForWeight(mweb_weight);
     if (mweb_fee > 0 && nFeePaid < mweb_fee) {
         nSatoshisPerK = 0;
     } else {
@@ -49,19 +63,25 @@ CAmount CFeeRate::GetFee(size_t nBytes_) const
 CAmount CFeeRate::GetMWEBFee(uint64_t mweb_weight) const
 {
     assert(mweb_weight <= uint64_t(std::numeric_limits<int64_t>::max()));
-    return CAmount(mweb_weight) * BASE_MWEB_FEE;
+    return GetMWEBFeeForWeight(mweb_weight);
 }
 
 CAmount CFeeRate::GetTotalFee(size_t nBytes, uint64_t mweb_weight) const
 {
-    return GetFee(nBytes) + GetMWEBFee(mweb_weight);
+    const CAmount byte_fee = GetFee(nBytes);
+    const CAmount mweb_fee = GetMWEBFee(mweb_weight);
+    if (byte_fee > 0 && mweb_fee > std::numeric_limits<CAmount>::max() - byte_fee) {
+        return std::numeric_limits<CAmount>::max();
+    }
+
+    return byte_fee + mweb_fee;
 }
 
 bool CFeeRate::MeetsFeePerK(const CAmount& min_fee_per_k) const
 {
     // (mweb_weight * BASE_MWEB_FEE) litoshis are required as fee for MWEB transactions.
     // Anything beyond that can be used to calculate nSatoshisPerK.
-    CAmount mweb_fee = CAmount(m_weight) * BASE_MWEB_FEE;
+    const CAmount mweb_fee = GetMWEBFee(m_weight);
     if (m_weight > 0 && m_nFeePaid < mweb_fee) {
         return false;
     }
