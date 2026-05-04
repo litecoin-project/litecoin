@@ -8,7 +8,7 @@ test::Tx test::Tx::CreatePegIn(const CAmount amount, const CAmount fee)
 {
     return test::TxBuilder()
         .AddPeginKernel(amount, fee)
-        .AddOutput(amount, SecretKey::Random(), StealthAddress::Random())
+        .AddOutput(amount)
         .Build();
 }
 
