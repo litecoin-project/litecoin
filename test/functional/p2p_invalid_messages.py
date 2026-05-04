@@ -31,6 +31,9 @@ from test_framework.util import (
 )
 
 VALID_DATA_LIMIT = MAX_PROTOCOL_MESSAGE_LENGTH - 5  # Account for the 5-byte length prefix
+# Keep this stress case near its original total traffic as MAX_PROTOCOL_MESSAGE_LENGTH changes.
+RESOURCE_EXHAUSTION_BYTES = 80 * 4 * 1000 * 1000
+RESOURCE_EXHAUSTION_MESSAGES = max(1, RESOURCE_EXHAUSTION_BYTES // MAX_PROTOCOL_MESSAGE_LENGTH)
 
 
 class msg_unrecognized:
@@ -122,7 +125,9 @@ class InvalidMessagesTest(BitcoinTestFramework):
     def test_size(self):
         self.log.info("Test message with oversized payload disconnects peer")
         conn = self.nodes[0].add_p2p_connection(P2PDataStore())
-        with self.nodes[0].assert_debug_log(['HEADER ERROR - SIZE (badmsg, 4000001 bytes)']):
+        with self.nodes[0].assert_debug_log([
+            'HEADER ERROR - SIZE (badmsg, {} bytes)'.format(MAX_PROTOCOL_MESSAGE_LENGTH + 1)
+        ]):
             msg = msg_unrecognized(str_data="d" * (VALID_DATA_LIMIT + 1))
             msg = conn.build_message(msg)
             conn.send_raw_message(msg)
@@ -247,8 +252,10 @@ class InvalidMessagesTest(BitcoinTestFramework):
         msg_at_size = msg_unrecognized(str_data="b" * VALID_DATA_LIMIT)
         assert len(msg_at_size.serialize()) == MAX_PROTOCOL_MESSAGE_LENGTH
 
-        self.log.info("(a) Send 80 messages, each of maximum valid data size (4MB)")
-        for _ in range(80):
+        self.log.info("(a) Send {} messages, each of maximum valid data size ({}MB)".format(
+            RESOURCE_EXHAUSTION_MESSAGES,
+            MAX_PROTOCOL_MESSAGE_LENGTH // 1000 // 1000))
+        for _ in range(RESOURCE_EXHAUSTION_MESSAGES):
             conn.send_message(msg_at_size)
 
         # Check that, even though the node is being hammered by nonsense from one
