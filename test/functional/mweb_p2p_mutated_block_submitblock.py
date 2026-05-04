@@ -137,8 +137,8 @@ class MWEBP2PMutatedBlockSubmitBlockTest(BitcoinTestFramework):
             )
 
         def spend_frozen_output_id(mutated_inputs):
-            assert mutated_inputs[0].output_id != Hash.from_hex(FROZEN_MWEB_OUTPUT_ID)
-            mutated_inputs[0].output_id = Hash.from_hex(FROZEN_MWEB_OUTPUT_ID)
+            assert mutated_inputs[0].output_id != Hash.from_rev_hex(FROZEN_MWEB_OUTPUT_ID)
+            mutated_inputs[0].output_id = Hash.from_rev_hex(FROZEN_MWEB_OUTPUT_ID)
 
         self.log.info("Send mutated parents and their child to node0 over P2P")
         self.send_mutated_parent_and_child(node0, peer, valid_parent, valid_child, "commitment rebinding", swap_commitments, "mweb-connect-failed")
