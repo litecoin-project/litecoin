@@ -251,7 +251,11 @@ BOOST_AUTO_TEST_CASE(BlockValidator_Test_KernelSorting)
     kernels[0] = kernels[1];
     kernels[1] = tmp;
 
-    BOOST_REQUIRE(kernels[0].GetSupplyChange() < kernels[1].GetSupplyChange());
+    const auto first_supply_change = kernels[0].GetSupplyChange();
+    const auto second_supply_change = kernels[1].GetSupplyChange();
+    BOOST_REQUIRE(first_supply_change.has_value());
+    BOOST_REQUIRE(second_supply_change.has_value());
+    BOOST_REQUIRE(*first_supply_change < *second_supply_change);
     mw::Block::CPtr pUnsortedBlock = mw::MutBlock(pBlock)
         .SetKernels(std::move(kernels))
         .Build();

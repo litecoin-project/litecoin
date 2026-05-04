@@ -26,14 +26,14 @@ struct Block {
     Block(const mw::Block::CPtr& block)
         : m_block(block) {}
 
-    CAmount GetTotalFee() const noexcept
+    boost::optional<CAmount> GetTotalFee() const noexcept
     {
-        return IsNull() ? 0 : m_block->GetTotalFee();
+        return IsNull() ? boost::optional<CAmount>(0) : m_block->GetTotalFee();
     }
 
-    CAmount GetSupplyChange() const noexcept
+    boost::optional<CAmount> GetSupplyChange() const noexcept
     {
-        return IsNull() ? 0 : m_block->GetSupplyChange();
+        return IsNull() ? boost::optional<CAmount>(0) : m_block->GetSupplyChange();
     }
 
     mw::Hash GetHash() const noexcept
@@ -190,9 +190,9 @@ struct Tx {
         return IsNull() ? 0 : m_transaction->CalcWeight();
     }
 
-    CAmount GetFee() const noexcept
+    boost::optional<CAmount> GetFee() const noexcept
     {
-        return IsNull() ? 0 : CAmount(m_transaction->GetTotalFee());
+        return IsNull() ? boost::optional<CAmount>(0) : m_transaction->GetTotalFee();
     }
 
     int32_t GetLockHeight() const noexcept

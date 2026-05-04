@@ -741,8 +741,14 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
 
             os.rmdir(cache_path('wallets'))  # Remove empty wallets dir
             for entry in os.listdir(cache_path()):
-                if entry not in ['chainstate', 'blocks']:  # Only keep chainstate and blocks folder
-                    os.remove(cache_path(entry))
+                # Keep the persistent chain data directories. Remove everything
+                # else, regardless of whether it is a file or directory.
+                if entry not in ['chainstate', 'blocks', 'indexes']:
+                    path = cache_path(entry)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path)
+                    else:
+                        os.remove(path)
 
         for i in range(self.num_nodes):
             self.log.debug("Copy cache directory {} to node {}".format(cache_node_dir, i))

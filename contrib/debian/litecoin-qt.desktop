@@ -1,0 +1,17 @@
+[Desktop Entry]
+Version=1.0
+Name=Litecoin Core
+Comment=Connect to the Litecoin P2P Network
+Comment[de]=Verbindung mit dem Litecoin Peer-to-Peer-Netzwerk herstellen
+Comment[es]=Conectar a la red P2P de Litecoin
+Comment[fr]=Se connecter au réseau pair à pair Litecoin
+GenericName=Cryptocurrency Wallet
+Exec=litecoin-qt %u
+Terminal=false
+Type=Application
+Icon=litecoin128
+MimeType=x-scheme-handler/litecoin;
+Categories=Office;Finance;Network;
+Keywords=litecoin;crypto;cryptocurrency;wallet;blockchain;
+StartupNotify=true
+StartupWMClass=Litecoin-qt

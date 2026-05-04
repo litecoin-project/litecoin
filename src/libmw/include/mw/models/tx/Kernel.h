@@ -2,6 +2,7 @@
 
 #include <mw/common/Macros.h>
 #include <mw/common/Traits.h>
+#include <mw/consensus/Amount.h>
 #include <mw/crypto/Hasher.h>
 #include <mw/models/crypto/BlindingFactor.h>
 #include <mw/models/crypto/Commitment.h>
@@ -105,17 +106,46 @@ public:
     CAmount GetPegIn() const noexcept { return m_pegin.value_or(0); }
     const std::vector<PegOutCoin>& GetPegOuts() const noexcept { return m_pegouts; }
 
-    CAmount GetPegOutAmount() const noexcept
+    boost::optional<CAmount> GetPegOutAmount() const noexcept
     {
-        return std::accumulate(
-            m_pegouts.cbegin(), m_pegouts.cend(), (CAmount)0,
-            [](CAmount sum, const PegOutCoin& pegout) { return sum + pegout.GetAmount(); }
-        );
+        CAmount total = 0;
+        for (const PegOutCoin& pegout : m_pegouts) {
+            if (!AmountUtil::IsValidMoney(pegout.GetAmount())) {
+                return boost::none;
+            }
+
+            const auto next_total = AmountUtil::TrySafeAdd(total, pegout.GetAmount());
+            if (!next_total || !AmountUtil::IsValidMoney(*next_total)) {
+                return boost::none;
+            }
+
+            total = *next_total;
+        }
+
+        return total;
     }
 
-    CAmount GetSupplyChange() const noexcept
+    boost::optional<CAmount> GetSupplyChange() const noexcept
     {
-        return (m_pegin.value_or(0) - m_fee.value_or(0)) - GetPegOutAmount();
+        const CAmount pegin = m_pegin.value_or(0);
+        const CAmount fee = m_fee.value_or(0);
+        const auto pegout_amount = GetPegOutAmount();
+
+        if (!AmountUtil::IsValidMoney(pegin) || !AmountUtil::IsValidMoney(fee) || !pegout_amount) {
+            return boost::none;
+        }
+
+        const auto supply_after_fee = AmountUtil::TrySafeSubtract(pegin, fee);
+        if (!supply_after_fee) {
+            return boost::none;
+        }
+
+        const auto supply_change = AmountUtil::TrySafeSubtract(*supply_after_fee, *pegout_amount);
+        if (!supply_change || !AmountUtil::IsValidAmountRange(*supply_change)) {
+            return boost::none;
+        }
+
+        return *supply_change;
     }
 
     //
@@ -221,8 +251,22 @@ static const struct
 {
     bool operator()(const Kernel& a, const Kernel& b) const
     {
-        CAmount a_pegin = a.GetSupplyChange();
-        CAmount b_pegin = b.GetSupplyChange();
-        return (a_pegin > b_pegin) || (a_pegin == b_pegin && a.GetHash() < b.GetHash());
+        const auto a_supply_change = a.GetSupplyChange();
+        const auto b_supply_change = b.GetSupplyChange();
+
+        if (a_supply_change && b_supply_change) {
+            return (*a_supply_change > *b_supply_change)
+                || (*a_supply_change == *b_supply_change && a.GetHash() < b.GetHash());
+        }
+
+        if (a_supply_change) {
+            return true;
+        }
+
+        if (b_supply_change) {
+            return false;
+        }
+
+        return a.GetHash() < b.GetHash();
     }
 } KernelSort;

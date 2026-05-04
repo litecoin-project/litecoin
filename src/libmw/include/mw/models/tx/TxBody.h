@@ -88,10 +88,10 @@ public:
     }
 
     std::vector<PegInCoin> GetPegIns() const noexcept;
-    CAmount GetPegInAmount() const noexcept;
+    boost::optional<CAmount> GetPegInAmount() const noexcept;
     std::vector<PegOutCoin> GetPegOuts() const noexcept;
-    CAmount GetTotalFee() const noexcept;
-    CAmount GetSupplyChange() const noexcept;
+    boost::optional<CAmount> GetTotalFee() const noexcept;
+    boost::optional<CAmount> GetSupplyChange() const noexcept;
     int32_t GetLockHeight() const noexcept;
 
     //

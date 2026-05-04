@@ -27,7 +27,7 @@ BOOST_AUTO_TEST_CASE(MineChain)
     test::Tx block1_tx1 = test::Tx::CreatePegIn(1000);
     auto block1 = miner.MineBlock(150, { block1_tx1 });
     BOOST_REQUIRE(BlockValidator::ValidateBlock(block1.GetBlock(), {block1_tx1.GetPegInCoin()}, {}));
-    pCachedView->ApplyBlock(block1.GetBlock());
+    pCachedView->ApplyBlock(block1.GetBlock(), false);
 
     const auto& block1_tx1_output1 = block1_tx1.GetOutputs()[0];
     BOOST_REQUIRE(pDBView->GetUTXO(block1_tx1_output1.GetOutputID()) == nullptr);
@@ -39,7 +39,7 @@ BOOST_AUTO_TEST_CASE(MineChain)
     test::Tx block2_tx1 = test::Tx::CreatePegIn(500);
     auto block2 = miner.MineBlock(151, { block2_tx1 });
     BOOST_REQUIRE(BlockValidator::ValidateBlock(block2.GetBlock(), {block2_tx1.GetPegInCoin()}, {}));
-    pCachedView->ApplyBlock(block2.GetBlock());
+    pCachedView->ApplyBlock(block2.GetBlock(), false);
 
     const auto& block2_tx1_output1 = block2_tx1.GetOutputs()[0];
     BOOST_REQUIRE(pDBView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);

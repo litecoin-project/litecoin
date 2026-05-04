@@ -34,7 +34,7 @@ UTXO::CPtr CoinsViewCache::GetUTXO(const mw::Hash& output_id) const noexcept
     return pUTXO;
 }
 
-mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock)
+mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock, const bool allow_historical_metadata_mismatch)
 {
     assert(pBlock != nullptr);
 
@@ -56,7 +56,20 @@ mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock)
     std::vector<UTXO> coinsSpent;
     std::for_each(
         pBlock->GetInputs().cbegin(), pBlock->GetInputs().cend(),
-        [this, &coinsSpent](const Input& input) {
+        [this, &coinsSpent, allow_historical_metadata_mismatch](const Input& input) {
+            // Block validation must rebind serialized input metadata to the real spent UTXO.
+            UTXO::CPtr pUTXO = GetUTXO(input.GetOutputID());
+            if (pUTXO == nullptr) {
+                ThrowValidation(EConsensusError::UTXO_MISSING);
+            }
+
+            if (!allow_historical_metadata_mismatch
+                && (pUTXO->GetCommitment() != input.GetCommitment()
+                    || pUTXO->GetReceiverPubKey() != input.GetOutputPubKey()))
+            {
+                ThrowValidation(EConsensusError::UTXO_MISMATCH);
+            }
+
             UTXO spentUTXO = SpendUTXO(input.GetOutputID());
             coinsSpent.push_back(std::move(spentUTXO));
         }

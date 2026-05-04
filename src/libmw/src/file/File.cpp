@@ -1,11 +1,68 @@
 #include <mw/file/File.h>
 #include <mw/common/Logger.h>
+#include <fs.h>
+#include <util/system.h>
+
+#include <cerrno>
 
 #if defined(_WIN32)
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <unistd.h>
 #endif
+
+namespace
+{
+void CommitParentDirectory(const FilePath& path)
+{
+#if defined(_WIN32)
+    HANDLE hDirectory = CreateFileW(
+        path.ToBoost().wstring().c_str(),
+        FILE_READ_ATTRIBUTES,
+        FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+        nullptr,
+        OPEN_EXISTING,
+        FILE_FLAG_BACKUP_SEMANTICS,
+        nullptr
+    );
+    if (hDirectory == INVALID_HANDLE_VALUE) {
+        ThrowFile_F("Failed to open directory for syncing: {}", path);
+    }
+
+    if (FlushFileBuffers(hDirectory) == 0) {
+        const DWORD error = GetLastError();
+        CloseHandle(hDirectory);
+        if (error != ERROR_ACCESS_DENIED && error != ERROR_INVALID_FUNCTION) {
+            ThrowFile_F("Failed to sync directory: {}", path);
+        }
+        return;
+    }
+
+    CloseHandle(hDirectory);
+#else
+    int flags = O_RDONLY;
+#ifdef O_CLOEXEC
+    flags |= O_CLOEXEC;
+#endif
+#ifdef O_DIRECTORY
+    flags |= O_DIRECTORY;
+#endif
+
+    const int fd = open(path.ToString().c_str(), flags);
+    if (fd < 0) {
+        ThrowFile_F("Failed to open directory for syncing: {}", path);
+    }
+
+    if (fsync(fd) != 0 && errno != EINVAL) {
+        close(fd);
+        ThrowFile_F("Failed to sync directory: {}", path);
+    }
+
+    close(fd);
+#endif
+}
+}
 
 void File::Create()
 {
@@ -112,8 +169,12 @@ void File::Write(const std::vector<uint8_t>& bytes)
 
 void File::Write(const size_t startIndex, const std::vector<uint8_t>& bytes, const bool truncate)
 {
+    if (!Exists()) {
+        Create();
+    }
+    
     if (!bytes.empty()) {
-        std::fstream file(m_path.m_path, std::ios::out | std::ios::binary | std::ios::app);
+        std::fstream file(m_path.m_path, std::ios::in | std::ios::out | std::ios::binary);
         if (!file.is_open()) {
             ThrowFile_F("Failed to write to file: {}", m_path);
         }
@@ -138,6 +199,25 @@ void File::WriteBytes(const std::unordered_map<uint64_t, uint8_t>& bytes)
     }
 
     file.close();
+}
+
+void File::Commit() const
+{
+    FILE* file = fsbridge::fopen(m_path.ToBoost(), "rb+");
+    if (file == nullptr) {
+        ThrowFile_F("Failed to open {} for syncing", *this);
+    }
+
+    if (!FileCommit(file)) {
+        fclose(file);
+        ThrowFile_F("Failed to sync {}", *this);
+    }
+
+    fclose(file);
+
+    if (m_path.m_path.has_parent_path()) {
+        CommitParentDirectory(m_path.GetParent());
+    }
 }
 
 size_t File::GetSize() const
