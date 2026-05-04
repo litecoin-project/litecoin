@@ -233,6 +233,15 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
             !consensus_params.mweb_input_metadata_grandfather_blockhash.IsNull()
             && block.GetHash() == consensus_params.mweb_input_metadata_grandfather_blockhash;
 
+        try {
+            blockundo.mwundo = mweb_view.ApplyBlock(block.mweb_block.m_block, allow_historical_metadata_mismatch);
+        } catch (const std::exception& e) {
+            // ApplyBlock reconciles the serialized MWEB body against the
+            // header/state commitments. Some failures here can be caused by
+            // mutating MWEB body data without changing the canonical block hash.
+            return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-connect-failed", strprintf("MWEB::Node::ConnectBlock(): Failed to connect MWEB block: %s", e.what()));
+        }
+
         for (const auto& input : block.mweb_block.m_block->GetInputs()) {
             // Verify that none of the MWEB inputs are spending frozen MWEB outputs.
             for (const uint256& frozen_output_id : consensus_params.frozen_mweb_output_ids) {
@@ -241,15 +250,6 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
                         strprintf("MWEB::Node::ConnectBlock(): Frozen MWEB output spent: %s", input.GetOutputID().ToHex()));
                 }
             }
-        }
-
-        try {
-            blockundo.mwundo = mweb_view.ApplyBlock(block.mweb_block.m_block, allow_historical_metadata_mismatch);
-        } catch (const std::exception& e) {
-            // ApplyBlock reconciles the serialized MWEB body against the
-            // header/state commitments. Some failures here can be caused by
-            // mutating MWEB body data without changing the canonical block hash.
-            return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-connect-failed", strprintf("MWEB::Node::ConnectBlock(): Failed to connect MWEB block: %s", e.what()));
         }
     }
 
