@@ -2180,13 +2180,13 @@ bool CChainState::ConnectBlock(const CBlock& block, BlockValidationState& state,
 
     CBlockUndo blockundo;
 
-    // Precomputed transaction data pointers must not be invalidated
-    // until after `control` has run the script checks (potentially
-    // in multiple threads). Preallocate the vector size so a new allocation
-    // doesn't invalidate pointers into the vector, and keep txsdata in scope
-    // for as long as `control`.
-    CCheckQueueControl<CScriptCheck> control(fScriptChecks && g_parallel_script_checks ? &scriptcheckqueue : nullptr);
+    // CScriptCheck objects may hold pointers into txsdata while running in the
+    // script-check queue. txsdata must therefore outlive the CCheckQueueControl
+    // object, whose destructor waits for queued checks to finish on early returns.
+    // Declare txsdata before control so destruction happens in the safe order.
     std::vector<PrecomputedTransactionData> txsdata(block.vtx.size());
+
+    CCheckQueueControl<CScriptCheck> control(fScriptChecks && g_parallel_script_checks ? &scriptcheckqueue : nullptr);
 
     std::vector<int> prevheights;
     CAmount nFees = 0;
