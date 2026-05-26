@@ -6,6 +6,7 @@
 
 import time
 
+from test_framework.blocktools import NORMAL_GBT_REQUEST_PARAMS
 from test_framework.messages import COIN, MAX_BLOCK_BASE_SIZE
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error, create_confirmed_utxos, create_lots_of_big_transactions, gen_return_txouts
@@ -146,10 +147,10 @@ class PrioritiseTransactionTest(BitcoinTestFramework):
         # getblocktemplate to (eventually) return a new block.
         mock_time = int(time.time())
         self.nodes[0].setmocktime(mock_time)
-        template = self.nodes[0].getblocktemplate({'rules': ['mweb', 'segwit']})
+        template = self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
         self.nodes[0].prioritisetransaction(txid=tx_id, fee_delta=-int(self.relayfee*COIN))
         self.nodes[0].setmocktime(mock_time+10)
-        new_template = self.nodes[0].getblocktemplate({'rules': ['mweb', 'segwit']})
+        new_template = self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
 
         assert template != new_template
 

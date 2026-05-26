@@ -38,7 +38,7 @@ def assert_template(node, block, expect, rehash=True):
     rsp = node.getblocktemplate(template_request={
         'data': block.serialize().hex(),
         'mode': 'proposal',
-        'rules': ['mweb', 'segwit'],
+        **NORMAL_GBT_REQUEST_PARAMS,
     })
     assert_equal(rsp, expect)
 

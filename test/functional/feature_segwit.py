@@ -14,7 +14,11 @@ from test_framework.address import (
     script_to_p2sh_p2wsh,
     script_to_p2wsh,
 )
-from test_framework.blocktools import witness_script, send_to_witness
+from test_framework.blocktools import (
+    NORMAL_GBT_REQUEST_PARAMS,
+    send_to_witness,
+    witness_script,
+)
 from test_framework.messages import COIN, COutPoint, CTransaction, CTxIn, CTxOut, FromHex, sha256, ToHex
 from test_framework.script import CScript, OP_HASH160, OP_CHECKSIG, OP_0, hash160, OP_EQUAL, OP_DUP, OP_EQUALVERIFY, OP_1, OP_2, OP_CHECKMULTISIG, OP_TRUE, OP_DROP
 from test_framework.test_framework import BitcoinTestFramework
@@ -103,7 +107,7 @@ class SegWitTest(BitcoinTestFramework):
 
         self.log.info("Verify sigops are counted in GBT with pre-BIP141 rules before the fork")
         txid = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), 1)
-        tmpl = self.nodes[0].getblocktemplate({'rules': ['mweb', 'segwit']})
+        tmpl = self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
         assert tmpl['sizelimit'] == 1000000
         assert 'weightlimit' not in tmpl
         assert tmpl['sigoplimit'] == 20000
@@ -211,7 +215,7 @@ class SegWitTest(BitcoinTestFramework):
 
         self.log.info("Verify sigops are counted in GBT with BIP141 rules after the fork")
         txid = self.nodes[0].sendtoaddress(self.nodes[0].getnewaddress(), 1)
-        tmpl = self.nodes[0].getblocktemplate({'rules': ['mweb', 'segwit']})
+        tmpl = self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
         assert tmpl['sizelimit'] >= 3999577  # actual maximum size is lower due to minimum mandatory non-witness data
         assert tmpl['weightlimit'] == 4000000
         assert tmpl['sigoplimit'] == 80000
@@ -268,7 +272,7 @@ class SegWitTest(BitcoinTestFramework):
         assert txid3 in self.nodes[0].getrawmempool()
 
         # Check that getblocktemplate includes all transactions.
-        template = self.nodes[0].getblocktemplate({"rules": ["mweb", "segwit"]})
+        template = self.nodes[0].getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
         template_txids = [t['txid'] for t in template['transactions']]
         assert txid1 in template_txids
         assert txid2 in template_txids
