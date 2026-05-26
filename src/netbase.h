@@ -58,8 +58,8 @@ bool ConnectThroughProxy(const proxyType &proxy, const std::string& strDest, int
 std::string NetworkErrorString(int err);
 /** Close socket and set hSocket to INVALID_SOCKET */
 bool CloseSocket(SOCKET& hSocket);
-/** Disable or enable blocking-mode for a socket */
-bool SetSocketNonBlocking(const SOCKET& hSocket, bool fNonBlocking);
+/** Enable non-blocking mode for a socket */
+bool SetSocketNonBlocking(const SOCKET& hSocket);
 /** Set the TCP_NODELAY flag on a socket */
 bool SetSocketNoDelay(const SOCKET& hSocket);
 /**
