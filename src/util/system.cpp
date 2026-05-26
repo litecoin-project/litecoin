@@ -471,6 +471,15 @@ std::string ArgsManager::GetArg(const std::string& strArg, const std::string& st
     return value.isNull() ? strDefault : value.isFalse() ? "0" : value.isTrue() ? "1" : value.get_str();
 }
 
+fs::path ArgsManager::GetPathArg(std::string arg, const fs::path& default_value) const
+{
+    if (IsArgNegated(arg)) return fs::path{};
+    const std::string path_str = GetArg(arg, "");
+    if (path_str.empty()) return default_value;
+    const fs::path result = fs::path(path_str).lexically_normal();
+    return result.has_filename() ? result : result.parent_path();
+}
+
 int64_t ArgsManager::GetArg(const std::string& strArg, int64_t nDefault) const
 {
     const util::SettingsValue value = GetSetting(strArg);

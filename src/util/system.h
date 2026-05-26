@@ -271,6 +271,17 @@ public:
     std::string GetArg(const std::string& strArg, const std::string& strDefault) const;
 
     /**
+     * Return path argument or default value
+     *
+     * @param arg Argument to get a path from (e.g., "-datadir", "-blocksdir" or "-walletdir")
+     * @param default_value Optional default value to return instead of the empty path.
+     * @return normalized path if argument is set, with redundant "." and ".."
+     * path components and trailing separators removed. If argument is empty or
+     * not set, default_value is returned unchanged.
+     */
+    fs::path GetPathArg(std::string arg, const fs::path& default_value = fs::path{}) const;
+
+    /**
      * Return integer argument or default value
      *
      * @param strArg Argument to get (e.g. "-foo")
