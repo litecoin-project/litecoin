@@ -1203,7 +1203,7 @@ static RPCHelpMan pruneblockchain()
     while (block->pprev && (block->pprev->nStatus & BLOCK_HAVE_DATA)) {
         block = block->pprev;
     }
-    return uint64_t(block->nHeight);
+    return int64_t(block->nHeight - 1);
 },
     };
 }
