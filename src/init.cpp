@@ -115,7 +115,7 @@ static const char* BITCOIN_PID_FILENAME = "litecoind.pid";
 
 static fs::path GetPidFile(const ArgsManager& args)
 {
-    return AbsPathForConfigVal(fs::path(args.GetArg("-pid", BITCOIN_PID_FILENAME)));
+    return AbsPathForConfigVal(args.GetPathArg("-pid", BITCOIN_PID_FILENAME));
 }
 
 NODISCARD static bool CreatePidFile(const ArgsManager& args)
@@ -880,7 +880,7 @@ void InitLogging(const ArgsManager& args)
     LoggerAPI::Initialize([](const std::string& logstr) { LogPrintf("%s",logstr.c_str()); });
 
     LogInstance().m_print_to_file = !args.IsArgNegated("-debuglogfile");
-    LogInstance().m_file_path = AbsPathForConfigVal(args.GetArg("-debuglogfile", DEFAULT_DEBUGLOGFILE));
+    LogInstance().m_file_path = AbsPathForConfigVal(args.GetPathArg("-debuglogfile", DEFAULT_DEBUGLOGFILE));
     LogInstance().m_print_to_console = args.GetBoolArg("-printtoconsole", !args.GetBoolArg("-daemon", false));
     LogInstance().m_log_timestamps = args.GetBoolArg("-logtimestamps", DEFAULT_LOGTIMESTAMPS);
     LogInstance().m_log_time_micros = args.GetBoolArg("-logtimemicros", DEFAULT_LOGTIMEMICROS);
@@ -1518,10 +1518,7 @@ bool AppInitMain(const util::Ref& context, NodeContext& node, interfaces::BlockA
 
     // Read asmap file if configured
     if (args.IsArgSet("-asmap")) {
-        fs::path asmap_path = fs::path(args.GetArg("-asmap", ""));
-        if (asmap_path.empty()) {
-            asmap_path = DEFAULT_ASMAP_FILENAME;
-        }
+        fs::path asmap_path = args.GetPathArg("-asmap", DEFAULT_ASMAP_FILENAME);
         if (!asmap_path.is_absolute()) {
             asmap_path = GetDataDir() / asmap_path;
         }
