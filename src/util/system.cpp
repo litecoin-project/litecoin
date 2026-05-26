@@ -736,7 +736,7 @@ const fs::path &GetDataDir(bool fNetSpecific)
     // this function
     if (!path.empty()) return path;
 
-    std::string datadir = gArgs.GetArg("-datadir", "");
+    const fs::path datadir = gArgs.GetPathArg("-datadir");
     if (!datadir.empty()) {
         path = fs::system_complete(datadir);
         if (!fs::is_directory(path)) {
@@ -760,7 +760,7 @@ const fs::path &GetDataDir(bool fNetSpecific)
 
 bool CheckDataDirOption()
 {
-    std::string datadir = gArgs.GetArg("-datadir", "");
+    const fs::path datadir = gArgs.GetPathArg("-datadir");
     return datadir.empty() || fs::is_directory(fs::system_complete(datadir));
 }
 
