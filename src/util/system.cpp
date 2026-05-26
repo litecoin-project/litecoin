@@ -711,7 +711,7 @@ const fs::path &GetBlocksDir()
     if (!path.empty()) return path;
 
     if (gArgs.IsArgSet("-blocksdir")) {
-        path = fs::system_complete(gArgs.GetArg("-blocksdir", ""));
+        path = fs::system_complete(gArgs.GetPathArg("-blocksdir"));
         if (!fs::is_directory(path)) {
             path = "";
             return path;
