@@ -86,6 +86,11 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve
     util::ThreadRename("test");
     fs::create_directories(m_path_root);
     gArgs.ForceSetArg("-datadir", m_path_root.string());
+
+    // Avoid non-loopback network traffic during tests.
+    gArgs.ForceSetArg("-dnsseed", "0"); // DNS queries are usually forwarded to upstream DNS servers.
+    gArgs.ForceSetArg("-upnp", "0"); // UPnP sends packets to the router.
+
     ClearDatadirCache();
     {
         SetupServerArgs(m_node);
