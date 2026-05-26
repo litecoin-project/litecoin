@@ -640,7 +640,7 @@ static UniValue CallRPC(BaseRequestHandler* rh, const std::string& strMethod, co
         if (failedToGetAuthCookie) {
             throw std::runtime_error(strprintf(
                 "Could not locate RPC credentials. No authentication cookie could be found, and RPC password is not set.  See -rpcpassword and -stdinrpcpass.  Configuration file: (%s)",
-                GetConfigFile(gArgs.GetArg("-conf", BITCOIN_CONF_FILENAME)).string()));
+                GetConfigFile(gArgs.GetPathArg("-conf", BITCOIN_CONF_FILENAME)).string()));
         } else {
             throw std::runtime_error("Authorization failed: Incorrect rpcuser or rpcpassword");
         }

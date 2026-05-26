@@ -1305,7 +1305,7 @@ bool AppInitMain(const util::Ref& context, NodeContext& node, interfaces::BlockA
     LogPrintf("Using data directory %s\n", GetDataDir().string());
 
     // Only log conf file usage message if conf file actually exists.
-    fs::path config_file_path = GetConfigFile(args.GetArg("-conf", BITCOIN_CONF_FILENAME));
+    fs::path config_file_path = GetConfigFile(args.GetPathArg("-conf", BITCOIN_CONF_FILENAME));
     if (fs::exists(config_file_path)) {
         LogPrintf("Config file: %s\n", config_file_path.string());
     } else if (args.IsArgSet("-conf")) {

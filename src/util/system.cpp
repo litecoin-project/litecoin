@@ -773,9 +773,9 @@ void ClearDatadirCache()
     g_blocks_path_cache_net_specific = fs::path();
 }
 
-fs::path GetConfigFile(const std::string& confPath)
+fs::path GetConfigFile(const fs::path& configuration_file_path)
 {
-    return AbsPathForConfigVal(fs::path(confPath), false);
+    return AbsPathForConfigVal(configuration_file_path, false);
 }
 
 static bool GetConfigOptions(std::istream& stream, const std::string& filepath, std::string& error, std::vector<std::pair<std::string, std::string>>& options, std::list<SectionInfo>& sections)
@@ -860,12 +860,12 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
         m_config_sections.clear();
     }
 
-    const std::string confPath = GetArg("-conf", BITCOIN_CONF_FILENAME);
+    const fs::path confPath = GetPathArg("-conf", BITCOIN_CONF_FILENAME);
     fsbridge::ifstream stream(GetConfigFile(confPath));
 
     // ok to not have a config file
     if (stream.good()) {
-        if (!ReadConfigStream(stream, confPath, error, ignore_invalid_keys)) {
+        if (!ReadConfigStream(stream, confPath.string(), error, ignore_invalid_keys)) {
             return false;
         }
         // `-includeconf` cannot be included in the command line arguments except
@@ -903,7 +903,7 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
             const size_t default_includes = add_includes({});
 
             for (const std::string& conf_file_name : conf_file_names) {
-                fsbridge::ifstream conf_file_stream(GetConfigFile(conf_file_name));
+                fsbridge::ifstream conf_file_stream(GetConfigFile(fs::path(conf_file_name)));
                 if (conf_file_stream.good()) {
                     if (!ReadConfigStream(conf_file_stream, conf_file_name, error, ignore_invalid_keys)) {
                         return false;
