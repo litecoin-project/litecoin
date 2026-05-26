@@ -85,7 +85,6 @@ bool IsHexNumber(const std::string& str)
 
 std::vector<unsigned char> ParseHex(const char* psz)
 {
-    // convert hex dump to vector
     std::vector<unsigned char> vch;
     while (true)
     {
