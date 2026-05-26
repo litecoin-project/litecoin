@@ -394,12 +394,12 @@ bool ArgsManager::InitSettings(std::string& error)
 
 bool ArgsManager::GetSettingsPath(fs::path* filepath, bool temp) const
 {
-    if (IsArgNegated("-settings")) {
+    const fs::path settings = GetPathArg("-settings", BITCOIN_SETTINGS_FILENAME);
+    if (settings.empty()) {
         return false;
     }
     if (filepath) {
-        std::string settings = GetArg("-settings", BITCOIN_SETTINGS_FILENAME);
-        *filepath = fs::absolute(temp ? settings + ".tmp" : settings, GetDataDir(/* net_specific= */ true));
+        *filepath = fs::absolute(temp ? fs::path(settings.string() + ".tmp") : settings, GetDataDir(/* net_specific= */ true));
     }
     return true;
 }
