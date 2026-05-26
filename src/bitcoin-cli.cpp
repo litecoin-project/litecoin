@@ -349,8 +349,6 @@ private:
         const double milliseconds{round(1000 * seconds)};
         return milliseconds > 999999 ? "-" : ToString(milliseconds);
     }
-    const int64_t m_time_now{GetSystemTimeInSeconds()};
-
 public:
     static constexpr int ID_PEERINFO = 0;
     static constexpr int ID_NETWORKINFO = 1;
@@ -379,6 +377,7 @@ public:
         if (networkinfo["version"].get_int() < 209900) {
             throw std::runtime_error("-netinfo requires litecoind server to be running v0.21.0 and up");
         }
+        const int64_t time_now{GetSystemTimeInSeconds()};
 
         // Count peer connection totals, and if DetailsRequested(), store peer data in a vector of structs.
         for (const UniValue& peer : batch[ID_PEERINFO]["result"].getValues()) {
@@ -408,7 +407,7 @@ public:
                 const double min_ping{peer["minping"].isNull() ? -1 : peer["minping"].get_real()};
                 const double ping{peer["pingtime"].isNull() ? -1 : peer["pingtime"].get_real()};
                 const std::string addr{peer["addr"].get_str()};
-                const std::string age{conn_time == 0 ? "" : ToString((m_time_now - conn_time) / 60)};
+                const std::string age{conn_time == 0 ? "" : ToString((time_now - conn_time) / 60)};
                 const std::string sub_version{peer["subver"].get_str()};
                 m_peers.push_back({addr, sub_version, network, age, min_ping, ping, last_blck, last_recv, last_send, last_trxn, peer_id, mapped_as, version, is_block_relay, is_outbound});
                 m_max_addr_length = std::max(addr.length() + 1, m_max_addr_length);
@@ -436,10 +435,10 @@ public:
                     peer.network,
                     PingTimeToString(peer.min_ping),
                     PingTimeToString(peer.ping),
-                    peer.last_send == 0 ? "" : ToString(m_time_now - peer.last_send),
-                    peer.last_recv == 0 ? "" : ToString(m_time_now - peer.last_recv),
-                    peer.last_trxn == 0 ? "" : ToString((m_time_now - peer.last_trxn) / 60),
-                    peer.last_blck == 0 ? "" : ToString((m_time_now - peer.last_blck) / 60),
+                    peer.last_send == 0 ? "" : ToString(time_now - peer.last_send),
+                    peer.last_recv == 0 ? "" : ToString(time_now - peer.last_recv),
+                    peer.last_trxn == 0 ? "" : ToString((time_now - peer.last_trxn) / 60),
+                    peer.last_blck == 0 ? "" : ToString((time_now - peer.last_blck) / 60),
                     m_max_age_length, // variable spacing
                     peer.age,
                     m_is_asmap_on ? 7 : 0, // variable spacing
