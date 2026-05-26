@@ -1279,10 +1279,10 @@ static RPCHelpMan gettxout()
                         {RPCResult::Type::STR_AMOUNT, "value", "The transaction value in " + CURRENCY_UNIT},
                         {RPCResult::Type::OBJ, "scriptPubKey", "",
                             {
-                                {RPCResult::Type::STR_HEX, "asm", ""},
-                                {RPCResult::Type::STR_HEX, "hex", ""},
+                                {RPCResult::Type::STR, "asm", "The asm"},
+                                {RPCResult::Type::STR_HEX, "hex", "The hex"},
                                 {RPCResult::Type::NUM, "reqSigs", "Number of required signatures"},
-                                {RPCResult::Type::STR_HEX, "type", "The type, eg pubkeyhash"},
+                                {RPCResult::Type::STR, "type", "The type, eg pubkeyhash"},
                                 {RPCResult::Type::ARR, "addresses", "array of litecoin addresses",
                                     {{RPCResult::Type::STR, "address", "litecoin address"}}},
                             }},
