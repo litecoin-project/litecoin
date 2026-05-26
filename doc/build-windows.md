@@ -81,10 +81,6 @@ The first step is to install the mingw-w64 cross-compilation tool chain:
 
     sudo apt install g++-mingw-w64-x86-64
 
-Ubuntu Bionic 18.04 <sup>[1](#footnote1)</sup>:
-
-    sudo update-alternatives --config x86_64-w64-mingw32-g++ # Set the default mingw32 g++ compiler option to posix.
-
 Once the toolchain is installed the build steps are common:
 
 Note that for WSL the Litecoin Core source path MUST be somewhere in the default mount file system, for
@@ -125,13 +121,3 @@ way. This will install to `c:\workspace\litecoin`, for example:
 You can also create an installer using:
 
     make deploy
-
-Footnotes
----------
-
-<a name="footnote1">1</a>: Starting from Ubuntu Xenial 16.04, both the 32 and 64 bit Mingw-w64 packages install two different
-compiler options to allow a choice between either posix or win32 threads. The default option is win32 threads which is the more
-efficient since it will result in binary code that links directly with the Windows kernel32.lib. Unfortunately, the headers
-required to support win32 threads conflict with some of the classes in the C++11 standard library, in particular std::mutex.
-It's not possible to build the Litecoin Core code using the win32 version of the Mingw-w64 cross compilers (at least not without
-modifying headers in the Litecoin Core source code).
