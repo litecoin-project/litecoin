@@ -265,8 +265,13 @@ class TestNode():
                 # This might happen when the RPC server is in warmup, but shut down before the call to getblockcount
                 # succeeds. Try again to properly raise the FailedToStartError
                 pass
+            except ConnectionAbortedError:
+                # Windows can raise this while litecoind shuts down during startup.
+                pass
             except OSError as e:
-                if e.errno == errno.ETIMEDOUT:
+                if e.errno == errno.ECONNABORTED:
+                    pass  # Treat identical to ConnectionResetError
+                elif e.errno == errno.ETIMEDOUT:
                     pass  # Treat identical to ConnectionResetError
                 elif e.errno == errno.ECONNREFUSED:
                     pass  # Port not yet open?
