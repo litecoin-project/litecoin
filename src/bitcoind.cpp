@@ -18,6 +18,7 @@
 #include <shutdown.h>
 #include <util/ref.h>
 #include <util/strencodings.h>
+#include <util/syserror.h>
 #include <util/system.h>
 #include <util/threadnames.h>
 #include <util/translation.h>
@@ -124,7 +125,7 @@ static bool AppInit(int argc, char* argv[])
 
             // Daemonize
             if (daemon(1, 0)) { // don't chdir (1), do close FDs (0)
-                return InitError(Untranslated(strprintf("daemon() failed: %s\n", strerror(errno))));
+                return InitError(Untranslated(strprintf("daemon() failed: %s\n", SysErrorString(errno))));
             }
 #if defined(MAC_OSX)
 #pragma GCC diagnostic pop

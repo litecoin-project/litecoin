@@ -55,6 +55,7 @@
 #include <util/check.h>
 #include <util/moneystr.h>
 #include <util/string.h>
+#include <util/syserror.h>
 #include <util/system.h>
 #include <util/threadnames.h>
 #include <util/translation.h>
@@ -128,7 +129,7 @@ NODISCARD static bool CreatePidFile(const ArgsManager& args)
 #endif
         return true;
     } else {
-        return InitError(strprintf(_("Unable to create the PID file '%s': %s"), GetPidFile(args).string(), std::strerror(errno)));
+        return InitError(strprintf(_("Unable to create the PID file '%s': %s"), GetPidFile(args).string(), SysErrorString(errno)));
     }
 }
 
