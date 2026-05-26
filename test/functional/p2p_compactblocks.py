@@ -546,9 +546,11 @@ class CompactBlocksTest(BitcoinTestFramework):
 
         # We should receive a getdata request
         test_node.wait_for_getdata([block.sha256], timeout=10)
-        assert test_node.last_message["getdata"].inv[0].type == MSG_BLOCK or \
-               test_node.last_message["getdata"].inv[0].type == MSG_BLOCK | MSG_WITNESS_FLAG or \
-               test_node.last_message["getdata"].inv[0].type == MSG_BLOCK | MSG_WITNESS_FLAG | MSG_MWEB_FLAG
+        assert test_node.last_message["getdata"].inv[0].type in (
+            MSG_BLOCK,
+            MSG_BLOCK | MSG_WITNESS_FLAG,
+            MSG_BLOCK | MSG_WITNESS_FLAG | MSG_MWEB_FLAG,
+        )
 
         # Deliver the block
         if version >= 2:

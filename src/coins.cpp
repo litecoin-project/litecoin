@@ -190,9 +190,9 @@ bool CCoinsViewCache::HaveCoinInCache(const OutputIndex& index) const {
 }
 
 uint256 CCoinsViewCache::GetBestBlock() const {
-    if (hashBlock.IsNull())
-        hashBlock = base->GetBestBlock();
-    return hashBlock;
+    if (m_block_hash.IsNull())
+        m_block_hash = base->GetBestBlock();
+    return m_block_hash;
 }
 
 
@@ -202,7 +202,7 @@ void CCoinsViewCache::SetBackend(CCoinsView& viewIn) {
 }
 
 void CCoinsViewCache::SetBestBlock(const uint256 &hashBlockIn) {
-    hashBlock = hashBlockIn;
+    m_block_hash = hashBlockIn;
 }
 
 bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn, const mw::CoinsViewCache::Ptr& derivedView) {
@@ -261,12 +261,12 @@ bool CCoinsViewCache::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlockIn
     // MWEB: Flushes mweb coins
     derivedView->Flush(nullptr);
 
-    hashBlock = hashBlockIn;
+    m_block_hash = hashBlockIn;
     return true;
 }
 
 bool CCoinsViewCache::Flush() {
-    bool fOk = base->BatchWrite(cacheCoins, hashBlock, mweb_view);
+    bool fOk = base->BatchWrite(cacheCoins, m_block_hash, mweb_view);
     cacheCoins.clear();
     cachedCoinsUsage = 0;
     return fOk;

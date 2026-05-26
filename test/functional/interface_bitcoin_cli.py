@@ -48,11 +48,11 @@ class TestBitcoinCli(BitcoinTestFramework):
 
         self.log.info("Test -stdinrpcpass option")
         assert_equal(BLOCKS, self.nodes[0].cli('-rpcuser={}'.format(user), '-stdinrpcpass', input=password).getblockcount())
-        assert_raises_process_error(1, 'Incorrect rpcuser or rpcpassword', self.nodes[0].cli('-rpcuser={}'.format(user), '-stdinrpcpass', input='foo').echo)
+        assert_raises_process_error(1, 'Incorrect rpcuser or rpcpassword were specified', self.nodes[0].cli('-rpcuser={}'.format(user), '-stdinrpcpass', input='foo').echo)
 
         self.log.info("Test -stdin and -stdinrpcpass")
         assert_equal(['foo', 'bar'], self.nodes[0].cli('-rpcuser={}'.format(user), '-stdin', '-stdinrpcpass', input=password + '\nfoo\nbar').echo())
-        assert_raises_process_error(1, 'Incorrect rpcuser or rpcpassword', self.nodes[0].cli('-rpcuser={}'.format(user), '-stdin', '-stdinrpcpass', input='foo').echo)
+        assert_raises_process_error(1, 'Incorrect rpcuser or rpcpassword were specified', self.nodes[0].cli('-rpcuser={}'.format(user), '-stdin', '-stdinrpcpass', input='foo').echo)
 
         self.log.info("Test connecting to a non-existing server")
         assert_raises_process_error(1, "Could not connect to the server", self.nodes[0].cli('-rpcport=1').echo)
@@ -81,7 +81,10 @@ class TestBitcoinCli(BitcoinTestFramework):
         assert_raises_process_error(1, "Invalid port provided in -rpcport: 65536", self.nodes[0].cli("-rpcport=65536").echo)
 
         self.log.info("Test connecting with non-existing RPC cookie file")
-        assert_raises_process_error(1, "Could not locate RPC credentials", self.nodes[0].cli('-rpccookiefile=does-not-exist', '-rpcpassword=').echo)
+        assert_raises_process_error(1, "Failed to read cookie file and no rpcpassword was specified.", self.nodes[0].cli('-rpccookiefile=does-not-exist', '-rpcpassword=').echo)
+
+        self.log.info("Test connecting with invalid cookie file")
+        assert_raises_process_error(1, "Cookie file credentials were invalid and no rpcpassword was specified.", self.nodes[0].cli(f'-rpccookiefile={self.nodes[0].bitcoinconf}').echo)
 
         self.log.info("Test -getinfo with arguments fails")
         assert_raises_process_error(1, "-getinfo takes no arguments", self.nodes[0].cli('-getinfo').help)
@@ -256,6 +259,18 @@ class TestBitcoinCli(BitcoinTestFramework):
         else:
             self.log.info("*** Wallet not compiled; cli getwalletinfo and -getinfo wallet tests skipped")
             self.nodes[0].generate(25)  # maintain block parity with the wallet_compiled conditional branch
+
+        self.log.info("Test -rpcid option sets custom JSON-RPC request ID")
+        with self.nodes[0].assert_debug_log(expected_msgs=["ThreadRPCServer method=getblockcount", "id=myrpcid"]):
+            self.nodes[0].cli("-rpcid=myrpcid").getblockcount()
+
+        self.log.info("Test default request logs default id=1")
+        with self.nodes[0].assert_debug_log(expected_msgs=["ThreadRPCServer method=getblockcount", "id=1"]):
+            self.nodes[0].cli.getblockcount()
+
+        self.log.info("Test request ids with unsafe characters are sanitized in the log")
+        with self.nodes[0].assert_debug_log(expected_msgs=["ThreadRPCServer method=getblockcount", "id=abcdef"]):
+            self.nodes[0].cli("-rpcid=abc<\n>def").getblockcount()
 
         self.log.info("Test -version with node stopped")
         self.stop_node(0)

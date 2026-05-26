@@ -3966,7 +3966,7 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
     if (msg_type == NetMsgType::PONG) {
         const auto ping_end = time_received;
         uint64_t nonce = 0;
-        size_t nAvail = vRecv.in_avail();
+        size_t nAvail = vRecv.size();
         bool bPingFinished = false;
         std::string sProblem;
 

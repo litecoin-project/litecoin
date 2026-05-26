@@ -86,7 +86,7 @@ code.
   - Compile-time constant names are all uppercase, and use `_` to separate words.
   - Enumerator constants may be `snake_case`, `PascalCase` or `ALL_CAPS`.
     This is a more tolerant policy than the [C++ Core
-    Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#Renum-caps),
+    Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#renum-caps),
     which recommend using `snake_case`. Please use what seems appropriate.
   - Class names, function names, and method names are UpperCamelCase
     (PascalCase). Do not prefix class names with `C`.
@@ -547,7 +547,7 @@ Guidelines](https://isocpp.github.io/CppCoreGuidelines/).
 Common misconceptions are clarified in those sections:
 
 - Passing (non-)fundamental types in the [C++ Core
-  Guideline](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#Rf-conventional).
+  Guidelines](https://isocpp.github.io/CppCoreGuidelines/CppCoreGuidelines#rf-conventional).
 
 - Assertions should not have side-effects.
 
@@ -583,7 +583,7 @@ C++ data structures
 - Do not compare an iterator from one data structure with an iterator of
   another data structure (even if of the same type).
 
-  - *Rationale*: Behavior is undefined. In C++ parlor this means "may reformat
+  - *Rationale*: Behavior is undefined. In C++ parlance this means "may reformat
     the universe", in practice this has resulted in at least one hard-to-debug crash bug.
 
 - Watch out for out-of-bounds vector access. `&vch[vch.size()]` is illegal,

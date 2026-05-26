@@ -236,9 +236,8 @@ namespace BCLog {
     }
 }
 
-void BCLog::Logger::LogPrintStr(const std::string& str)
+void BCLog::Logger::LogPrintStrInLock(const std::string& str)
 {
-    StdLockGuard scoped_lock(m_cs);
     std::string str_prefixed = LogEscapeMessage(str);
 
     if (m_log_threadnames && m_started_new_line) {
@@ -280,8 +279,16 @@ void BCLog::Logger::LogPrintStr(const std::string& str)
     }
 }
 
+void BCLog::Logger::LogPrintStr(const std::string& str)
+{
+    StdLockGuard scoped_lock(m_cs);
+    LogPrintStrInLock(str);
+}
+
 void BCLog::Logger::ShrinkDebugFile()
 {
+    StdLockGuard scoped_lock(m_cs);
+
     // Amount of debug.log to save at end when shrinking (must fit in memory)
     constexpr size_t RECENT_DEBUG_HISTORY_SIZE = 10 * 1000000;
 
@@ -303,7 +310,7 @@ void BCLog::Logger::ShrinkDebugFile()
         // Restart the file with some of the end
         std::vector<char> vch(RECENT_DEBUG_HISTORY_SIZE, 0);
         if (fseek(file, -((long)vch.size()), SEEK_END)) {
-            LogPrintf("Failed to shrink debug log file: fseek(...) failed\n");
+            LogPrintStrInLock("Failed to shrink debug log file: fseek(...) failed\n");
             fclose(file);
             return;
         }

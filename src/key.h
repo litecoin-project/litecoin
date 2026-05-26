@@ -15,6 +15,8 @@
 #include <stdexcept>
 #include <vector>
 
+struct secp256k1_context_struct;
+typedef struct secp256k1_context_struct secp256k1_context;
 
 /**
  * secure_allocator is defined in allocators.h
@@ -172,5 +174,8 @@ void ECC_Stop();
 
 /** Check that required EC support is available at runtime. */
 bool ECC_InitSanityCheck();
+
+/** Access the secp256k1 context used for signing and MuSig2 nonce generation. */
+secp256k1_context* GetSecp256k1SignContext();
 
 #endif // BITCOIN_KEY_H

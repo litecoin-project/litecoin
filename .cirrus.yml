@@ -38,6 +38,27 @@ global_task_template: &GLOBAL_TASK_TEMPLATE
   ci_script:
     - ./ci/test_run_all.sh
 
+task:
+  name: 'Release Assist  [Gitian signature verification]'
+  skip: $RELEASE_VERSION == ""
+  container:
+    image: ubuntu:22.04
+  env:
+    MIN_GITIAN_BUILDERS: "3"
+    GITIAN_SIGS_REF: "master"
+    GITIAN_VERIFY_TARGETS: "linux win-unsigned osx-unsigned"
+  install_script:
+    - apt-get update
+    - apt-get install --no-install-recommends --no-upgrade -y ca-certificates git gnupg python3 ruby
+  verify_gitian_sigs_script:
+    - git clone --depth 1 --branch "v${RELEASE_VERSION}" "${CIRRUS_REPO_CLONE_URL}" /tmp/litecoin-release
+    - git clone --depth 1 --branch "${GITIAN_SIGS_REF}" https://github.com/litecoin-project/gitian.sigs.ltc.git /tmp/gitian.sigs.ltc
+    - git clone --depth 1 https://github.com/devrandom/gitian-builder.git /tmp/gitian-builder
+    - gpg --import contrib/gitian-keys/*.pgp
+    - TARGET_ARGS=""; for target in ${GITIAN_VERIFY_TARGETS}; do TARGET_ARGS="${TARGET_ARGS} --target ${target}"; done; python3 contrib/release/gitian-verify.py --version "${RELEASE_VERSION}" --min-builders "${MIN_GITIAN_BUILDERS}" --repo-dir /tmp/litecoin-release --sigs-dir /tmp/gitian.sigs.ltc --gitian-builder-dir /tmp/gitian-builder ${TARGET_ARGS}
+  release_assist_artifacts:
+    path: "release-assist-output/**/*"
+
 #task:
 #  name: "Windows"
 #  windows_container:

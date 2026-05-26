@@ -6,7 +6,7 @@
 import struct
 
 from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE, ADDRESS_BCRT1_P2WSH_OP_TRUE
-from test_framework.blocktools import create_block, create_coinbase, add_witness_commitment
+from test_framework.blocktools import create_block, add_witness_commitment
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.messages import CTransaction, hash256, FromHex
 from test_framework.netutil import test_ipv6_local
@@ -54,9 +54,9 @@ class ZMQSubscriber:
         label = chr(body[32])
         mempool_sequence = None if len(body) != 32+1+8 else struct.unpack("<Q", body[32+1:])[0]
         if mempool_sequence is not None:
-            assert label == "A" or label == "R"
+            assert label in ("A", "R")
         else:
-            assert label == "D" or label == "C"
+            assert label in ("D", "C")
         return (hash, label, mempool_sequence)
 
 
@@ -355,7 +355,7 @@ class ZMQTest (BitcoinTestFramework):
             raw_tx = self.nodes[0].getrawtransaction(orig_txid)
             bump_info = self.nodes[0].bumpfee(orig_txid)
             # Mine the pre-bump tx
-            block = create_block(int(self.nodes[0].getbestblockhash(), 16), create_coinbase(self.nodes[0].getblockcount()+1), version=0x20000000)
+            block = create_block(int(self.nodes[0].getbestblockhash(), 16), height=self.nodes[0].getblockcount() + 1, version=0x20000000)
             tx = FromHex(CTransaction(), raw_tx)
             block.vtx.append(tx)
             for txid in more_tx:
@@ -433,7 +433,7 @@ class ZMQTest (BitcoinTestFramework):
         while zmq_mem_seq is None:
                 (hash_str, label, zmq_mem_seq) = seq.receive_sequence()
 
-        assert label == "A" or label == "R"
+        assert label in ("A", "R")
         assert hash_str is not None
 
         # 2) We need to "seed" our view of the mempool

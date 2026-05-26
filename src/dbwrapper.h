@@ -60,22 +60,27 @@ public:
     /**
      * @param[in] _parent   CDBWrapper that this batch is to be submitted to
      */
-    explicit CDBBatch(const CDBWrapper &_parent) : parent(_parent), ssKey(SER_DISK, CLIENT_VERSION), ssValue(SER_DISK, CLIENT_VERSION), size_estimate(0) { };
+    explicit CDBBatch(const CDBWrapper &_parent) : parent(_parent), ssKey(SER_DISK, CLIENT_VERSION), ssValue(SER_DISK, CLIENT_VERSION), size_estimate(0)
+    {
+        ssKey.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
+        ssValue.reserve(DBWRAPPER_PREALLOC_VALUE_SIZE);
+    };
 
     void Clear()
     {
         batch.Clear();
         size_estimate = 0;
+        assert(ssKey.empty());
+        assert(ssValue.empty());
     }
 
     template <typename K, typename V>
     void Write(const K& key, const V& value)
     {
-        ssKey.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
+        ScopedDataStreamUsage scoped_key{ssKey}, scoped_value{ssValue};
         ssKey << key;
         leveldb::Slice slKey(ssKey.data(), ssKey.size());
 
-        ssValue.reserve(DBWRAPPER_PREALLOC_VALUE_SIZE);
         ssValue << value;
         ssValue.Xor(dbwrapper_private::GetObfuscateKey(parent));
         leveldb::Slice slValue(ssValue.data(), ssValue.size());
@@ -89,14 +94,12 @@ public:
         // - byte[]: value
         // The formula below assumes the key and value are both less than 16k.
         size_estimate += 3 + (slKey.size() > 127) + slKey.size() + (slValue.size() > 127) + slValue.size();
-        ssKey.clear();
-        ssValue.clear();
     }
 
     template <typename K>
     void Erase(const K& key)
     {
-        ssKey.reserve(DBWRAPPER_PREALLOC_KEY_SIZE);
+        ScopedDataStreamUsage scoped_key{ssKey};
         ssKey << key;
         leveldb::Slice slKey(ssKey.data(), ssKey.size());
 
@@ -107,7 +110,6 @@ public:
         // - byte[]: key
         // The formula below assumes the key is less than 16kB.
         size_estimate += 2 + (slKey.size() > 127) + slKey.size();
-        ssKey.clear();
     }
 
     size_t SizeEstimate() const { return size_estimate; }

@@ -590,7 +590,7 @@ public:
      * changing the chain tip. It's necessary to keep both mutexes locked until
      * the mempool is consistent with the new chain tip and fully populated.
      */
-    mutable RecursiveMutex cs;
+    mutable RecursiveMutex cs ACQUIRED_AFTER(::cs_main);
     indexed_transaction_set mapTx GUARDED_BY(cs);
 
     using txiter = indexed_transaction_set::nth_index<0>::type::const_iterator;

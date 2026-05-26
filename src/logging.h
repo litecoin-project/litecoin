@@ -83,6 +83,9 @@ namespace BCLog {
         /** Slots that connect to the print signal */
         std::list<std::function<void(const std::string&)>> m_print_callbacks GUARDED_BY(m_cs) {};
 
+        /** Send a string to the log output. The logger mutex must already be held. */
+        void LogPrintStrInLock(const std::string& str) EXCLUSIVE_LOCKS_REQUIRED(m_cs);
+
     public:
         bool m_print_to_console = false;
         bool m_print_to_file = false;

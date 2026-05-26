@@ -94,7 +94,7 @@ class ToolWalletTest(BitcoinTestFramework):
         #
         # self.log.debug('Setting wallet file permissions to 400 (read-only)')
         # os.chmod(self.wallet_path, stat.S_IRUSR)
-        # assert self.wallet_permissions() in ['400', '666'] # Sanity check. 666 because Appveyor.
+        # assert self.wallet_permissions() in ['400', '666'] # Sanity check. 666 on Windows.
         # shasum_before = self.wallet_shasum()
         timestamp_before = self.wallet_timestamp()
         self.log.debug('Wallet file timestamp before calling info: {}'.format(timestamp_before))
@@ -131,7 +131,7 @@ class ToolWalletTest(BitcoinTestFramework):
         self.log_wallet_timestamp_comparison(timestamp_before, timestamp_after)
         self.log.debug('Setting wallet file permissions back to 600 (read/write)')
         os.chmod(self.wallet_path, stat.S_IRUSR | stat.S_IWUSR)
-        assert self.wallet_permissions() in ['600', '666']  # Sanity check. 666 because Appveyor.
+        assert self.wallet_permissions() in ['600', '666']  # Sanity check. 666 on Windows.
         #
         # TODO: Wallet tool info should not write to the wallet file.
         # The following lines should be uncommented and the tests still succeed:

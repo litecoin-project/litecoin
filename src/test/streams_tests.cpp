@@ -9,6 +9,24 @@
 
 BOOST_FIXTURE_TEST_SUITE(streams_tests, BasicTestingSetup)
 
+BOOST_AUTO_TEST_CASE(streams_scoped_data_stream_usage)
+{
+    CDataStream stream(SER_NETWORK, INIT_PROTO_VERSION);
+    {
+        ScopedDataStreamUsage usage{stream};
+        stream << uint8_t{42};
+        BOOST_CHECK_GT(stream.size(), 0U);
+    }
+    BOOST_CHECK(stream.empty());
+
+    {
+        ScopedDataStreamUsage usage{stream};
+        stream << uint16_t{42};
+        BOOST_CHECK_GT(stream.size(), 0U);
+    }
+    BOOST_CHECK(stream.empty());
+}
+
 BOOST_AUTO_TEST_CASE(streams_vector_writer)
 {
     unsigned char a(1);
@@ -65,6 +83,25 @@ BOOST_AUTO_TEST_CASE(streams_vector_writer)
     CVectorWriter(SER_NETWORK, INIT_PROTO_VERSION, vch, 2, a, bytes, b);
     BOOST_CHECK((vch == std::vector<unsigned char>{{8, 8, 1, 3, 4, 5, 6, 2}}));
     vch.clear();
+}
+
+BOOST_AUTO_TEST_CASE(streams_span_writer)
+{
+    unsigned char a(1);
+    unsigned char b(2);
+    unsigned char bytes[] = {3, 4, 5, 6};
+    std::vector<unsigned char> vch(8);
+
+    SpanWriter writer{MakeSpan(vch)};
+    writer << a << b;
+    BOOST_CHECK((vch == std::vector<unsigned char>{{1, 2, 0, 0, 0, 0, 0, 0}}));
+
+    SpanWriter{MakeSpan(vch).subspan(2), a, bytes, b};
+    BOOST_CHECK((vch == std::vector<unsigned char>{{1, 2, 1, 3, 4, 5, 6, 2}}));
+
+    std::vector<unsigned char> small(1);
+    BOOST_CHECK_THROW(SpanWriter(MakeSpan(small), a, b), std::ios_base::failure);
+    BOOST_CHECK_THROW(SpanWriter(MakeSpan(small)) << a << b, std::ios_base::failure);
 }
 
 BOOST_AUTO_TEST_CASE(streams_vector_reader)

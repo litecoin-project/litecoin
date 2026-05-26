@@ -586,9 +586,7 @@ class NetworkThread(threading.Thread):
 
         NetworkThread.listeners = {}
         NetworkThread.protos = {}
-        if sys.platform == 'win32':
-            asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-        NetworkThread.network_event_loop = asyncio.new_event_loop()
+        NetworkThread.network_event_loop = asyncio.SelectorEventLoop() if sys.platform == 'win32' else asyncio.new_event_loop()
 
     def run(self):
         """Start the network thread."""

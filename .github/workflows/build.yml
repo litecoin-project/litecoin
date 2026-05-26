@@ -1,0 +1,375 @@
+name: Build
+
+on:
+  push:
+    branches:
+      - "**"
+  pull_request:
+    branches:
+      - "**"
+  workflow_dispatch:
+
+concurrency:
+  group: build-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  linux:
+    name: Linux build and tests
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout repository
+        id: checkout_primary
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fallback checkout with retries
+        if: steps.checkout_primary.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .git
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          for i in $(seq 1 10); do
+            if git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin "${GITHUB_SHA}"; then
+              git checkout --force FETCH_HEAD
+              git reset --hard FETCH_HEAD
+              exit 0
+            fi
+            sleep $((i * 10))
+          done
+          exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            automake \
+            bsdmainutils \
+            build-essential \
+            curl \
+            libdb++-dev \
+            libboost-chrono-dev \
+            libboost-filesystem-dev \
+            libboost-program-options-dev \
+            libboost-system-dev \
+            libboost-test-dev \
+            libboost-thread-dev \
+            libevent-dev \
+            libfmt-dev \
+            libtool \
+            pkg-config \
+            python3-pip
+
+      - name: Install Python dependencies
+        run: |
+          python3 -m pip install --upgrade pip
+          python3 -m pip install blake3 litecoin-scrypt
+
+      - name: Build OpenSSL dependency
+        run: |
+          make -C depends NO_QT=1 NO_ZMQ=1 NO_WALLET=1 openssl
+          mkdir -p depends/x86_64-pc-linux-gnu
+          tar -xzf "$(find depends/built/x86_64-pc-linux-gnu/openssl -name 'openssl-*.tar.gz' | head -n1)" -C depends/x86_64-pc-linux-gnu
+
+      - name: Autogen
+        run: ./autogen.sh
+
+      - name: Configure
+        run: |
+          PKG_CONFIG_PATH="${PWD}/depends/x86_64-pc-linux-gnu/lib/pkgconfig" \
+          CPPFLAGS="-I${PWD}/depends/x86_64-pc-linux-gnu/include" \
+          LDFLAGS="-L${PWD}/depends/x86_64-pc-linux-gnu/lib" \
+          ./configure \
+            --disable-wallet \
+            --without-gui \
+            --disable-zmq \
+            --disable-bench \
+            --disable-man \
+            --disable-shared \
+            --enable-tests
+
+      - name: Build
+        run: |
+          make -C src -j2 litecoind litecoin-cli litecoin-tx test/test_litecoin
+
+      - name: Run unit tests
+        run: src/test/test_litecoin --catch_system_errors=no
+
+      - name: Run functional smoke tests
+        run: test/functional/test_runner.py feature_help.py interface_rpc.py
+
+      - name: Set version variables
+        id: version
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read_define_numeric() {
+            local key="$1"
+            grep -E "^define\(${key},[[:space:]]*[0-9]+\)" configure.ac | sed -E "s/^define\(${key},[[:space:]]*([0-9]+)\)$/\1/" | head -n1
+          }
+
+          major="$(read_define_numeric "_CLIENT_VERSION_MAJOR")"
+          minor="$(read_define_numeric "_CLIENT_VERSION_MINOR")"
+          revision="$(read_define_numeric "_CLIENT_VERSION_REVISION")"
+          build="$(read_define_numeric "_CLIENT_VERSION_BUILD")"
+          rc="$(read_define_numeric "_CLIENT_VERSION_RC")"
+
+          version="${major}.${minor}.${revision}"
+          if [ "${build}" != "0" ]; then
+            version="${version}.${build}"
+          fi
+          if [ "${rc}" != "0" ]; then
+            version="${version}rc${rc}"
+          fi
+
+          echo "LITECOIN_CORE_VERSION=${version}" >> "$GITHUB_ENV"
+          echo "version=${version}" >> "$GITHUB_OUTPUT"
+
+      - name: Package Linux binaries
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist_dir="litecoin-${LITECOIN_CORE_VERSION}"
+          archive="litecoin-${LITECOIN_CORE_VERSION}-x86_64-linux-gnu.tar.gz"
+
+          mkdir -p "artifacts/${dist_dir}/bin"
+          cp src/litecoind "artifacts/${dist_dir}/bin/"
+          cp src/litecoin-cli "artifacts/${dist_dir}/bin/"
+          cp src/litecoin-tx "artifacts/${dist_dir}/bin/"
+          cp COPYING "artifacts/${dist_dir}/"
+
+          (
+            cd artifacts
+            tar -czf "${archive}" "${dist_dir}"
+            sha256sum "${archive}" > SHA256SUMS
+          )
+
+      - name: Upload Linux artifacts
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: litecoin-${{ env.LITECOIN_CORE_VERSION }}-x86_64-linux-gnu
+          if-no-files-found: error
+          path: |
+            artifacts/litecoin-${{ env.LITECOIN_CORE_VERSION }}-x86_64-linux-gnu.tar.gz
+            artifacts/SHA256SUMS
+
+  windows:
+    name: Windows cross-build
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout repository
+        id: checkout_primary
+        continue-on-error: true
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd
+        with:
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Fallback checkout with retries
+        if: steps.checkout_primary.outcome == 'failure'
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf .git
+          git init .
+          git remote add origin "https://github.com/${GITHUB_REPOSITORY}.git"
+          for i in $(seq 1 10); do
+            if git -c protocol.version=2 fetch --no-tags --prune --depth=1 origin "${GITHUB_SHA}"; then
+              git checkout --force FETCH_HEAD
+              git reset --hard FETCH_HEAD
+              exit 0
+            fi
+            sleep $((i * 10))
+          done
+          exit 1
+
+      - name: Set up Python
+        uses: actions/setup-python@a309ff8b426b58ec0e2a45f0f869d46889d02405
+        with:
+          python-version: "3.11"
+
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            automake \
+            bsdmainutils \
+            build-essential \
+            curl \
+            g++-mingw-w64-x86-64 \
+            libtool \
+            pkg-config \
+            python3 \
+            zip
+
+      - name: Configure mingw toolchain
+        run: |
+          sudo update-alternatives --set x86_64-w64-mingw32-g++ /usr/bin/x86_64-w64-mingw32-g++-posix
+          sudo update-alternatives --set x86_64-w64-mingw32-gcc /usr/bin/x86_64-w64-mingw32-gcc-posix
+
+      - name: Restore depends cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: depends
+          key: win64-${{ hashFiles('depends/packages/**') }}
+
+      - name: Build depends
+        run: |
+          make -C depends download-win NO_QT=1
+          make -C depends HOST=x86_64-w64-mingw32 NO_QT=1 -j2 PYTHON=python3
+
+      - name: Save depends cache
+        if: github.event_name == 'push' && github.ref_name == 'master'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          path: depends
+          key: win64-${{ hashFiles('depends/packages/**') }}
+
+      - name: Autogen
+        run: ./autogen.sh
+
+      - name: Configure
+        run: |
+          CONFIG_SITE="${PWD}/depends/x86_64-w64-mingw32/share/config.site" \
+          ./configure \
+            --prefix=/ \
+            --host=x86_64-w64-mingw32 \
+            --without-gui \
+            --disable-bench \
+            --disable-tests
+
+      - name: Build
+        run: make -j2
+
+      - name: Set version variables
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          read_define_numeric() {
+            local key="$1"
+            grep -E "^define\(${key},[[:space:]]*[0-9]+\)" configure.ac | sed -E "s/^define\(${key},[[:space:]]*([0-9]+)\)$/\1/" | head -n1
+          }
+
+          major="$(read_define_numeric "_CLIENT_VERSION_MAJOR")"
+          minor="$(read_define_numeric "_CLIENT_VERSION_MINOR")"
+          revision="$(read_define_numeric "_CLIENT_VERSION_REVISION")"
+          build="$(read_define_numeric "_CLIENT_VERSION_BUILD")"
+          rc="$(read_define_numeric "_CLIENT_VERSION_RC")"
+
+          version="${major}.${minor}.${revision}"
+          if [ "${build}" != "0" ]; then
+            version="${version}.${build}"
+          fi
+          if [ "${rc}" != "0" ]; then
+            version="${version}rc${rc}"
+          fi
+
+          echo "LITECOIN_CORE_VERSION=${version}" >> "$GITHUB_ENV"
+
+      - name: Package Windows binaries
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        shell: bash
+        run: |
+          set -euo pipefail
+          dist_dir="litecoin-${LITECOIN_CORE_VERSION}"
+          archive="litecoin-${LITECOIN_CORE_VERSION}-win64.zip"
+
+          mkdir -p "artifacts/${dist_dir}/bin"
+          cp src/litecoind.exe "artifacts/${dist_dir}/bin/"
+          cp src/litecoin-cli.exe "artifacts/${dist_dir}/bin/"
+          cp src/litecoin-tx.exe "artifacts/${dist_dir}/bin/"
+          cp COPYING "artifacts/${dist_dir}/"
+
+          (
+            cd artifacts
+            zip -r "${archive}" "${dist_dir}"
+            sha256sum "${archive}" > SHA256SUMS
+          )
+
+      - name: Upload artifacts
+        if: github.ref == 'refs/heads/master' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch')
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: litecoin-${{ env.LITECOIN_CORE_VERSION }}-win64
+          if-no-files-found: error
+          path: |
+            artifacts/litecoin-${{ env.LITECOIN_CORE_VERSION }}-win64.zip
+            artifacts/SHA256SUMS
+
+  release:
+    name: GitHub release
+    runs-on: ubuntu-22.04
+    needs:
+      - linux
+      - windows
+    if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/master'
+    permissions:
+      actions: read
+      contents: write
+
+    steps:
+      - name: Download artifacts
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: gh run download "$GITHUB_RUN_ID" --dir release-artifacts
+
+      - name: Create release
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          LITECOIN_CORE_VERSION: ${{ needs.linux.outputs.version }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p release-assets
+          find release-artifacts -type f \( -name "*.tar.gz" -o -name "*.zip" \) -exec cp {} release-assets/ \;
+
+          shopt -s nullglob
+          (
+            cd release-assets
+            archives=(*.tar.gz *.zip)
+            if [ "${#archives[@]}" -eq 0 ]; then
+              exit 1
+            fi
+            sha256sum "${archives[@]}" > SHA256SUMS
+          )
+
+          assets=(release-assets/*)
+          if [ "${#assets[@]}" -eq 0 ]; then
+            exit 1
+          fi
+
+          tag="v${LITECOIN_CORE_VERSION}"
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists. Refusing to modify existing release assets." >&2
+            exit 1
+          fi
+
+          gh release create "${tag}" "${assets[@]}" --target "$GITHUB_SHA" --title "Litecoin Core ${LITECOIN_CORE_VERSION}" --notes "Automated build artifacts from ${GITHUB_SHA}."

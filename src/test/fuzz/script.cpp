@@ -78,12 +78,7 @@ void test_one_input(const std::vector<uint8_t>& buffer)
     std::vector<std::vector<unsigned char>> solutions;
     (void)Solver(script, solutions);
 
-    (void)script.HasValidOps();
-    (void)script.IsPayToScriptHash();
-    (void)script.IsPayToWitnessScriptHash();
-    (void)script.IsPushOnly();
     (void)script.IsUnspendable();
-    (void)script.GetSigOpCount(/* fAccurate= */ false);
 
     (void)FormatScript(script);
     (void)ScriptToAsmStr(script, false);

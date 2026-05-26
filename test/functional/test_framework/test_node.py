@@ -250,11 +250,11 @@ class TestNode():
                     # overhead is trivial, and the added guarantees are worth
                     # the minimal performance cost.
                 self.log.debug("RPC successfully started")
+                self.rpc_connected = True
+                self.url = rpc.url
                 if self.use_cli:
                     return
                 self.rpc = rpc
-                self.rpc_connected = True
-                self.url = self.rpc.url
                 return
             except JSONRPCException as e:  # Initialization phase
                 # -28 RPC in warmup
@@ -642,16 +642,16 @@ class TestNodeCLI():
                 results.append(dict(error=e))
         return results
 
-    def send_cli(self, command=None, *args, **kwargs):
+    def send_cli(self, rpc_command=None, *args, **kwargs):
         """Run litecoin-cli command. Deserializes returned string as python object."""
         pos_args = [arg_to_cli(arg) for arg in args]
-        named_args = [str(key) + "=" + arg_to_cli(value) for (key, value) in kwargs.items()]
+        named_args = [str(key) + "=" + arg_to_cli(value) for (key, value) in kwargs.items() if value is not None]
         assert not (pos_args and named_args), "Cannot use positional arguments and named arguments in the same litecoin-cli call"
         p_args = [self.binary, "-datadir=" + self.datadir] + self.options
         if named_args:
             p_args += ["-named"]
-        if command is not None:
-            p_args += [command]
+        if rpc_command is not None:
+            p_args += [rpc_command]
         p_args += pos_args + named_args
         self.log.debug("Running litecoin-cli {}".format(p_args[2:]))
         process = subprocess.Popen(p_args, stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, universal_newlines=True)

@@ -13,7 +13,6 @@ from test_framework.util import (
 class NamedArgumentTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
-        self.supports_cli = False
 
     def run_test(self):
         node = self.nodes[0]
@@ -25,11 +24,11 @@ class NamedArgumentTest(BitcoinTestFramework):
         h = node.getblockhash(height=0)
         node.getblock(blockhash=h)
 
-        assert_equal(node.echo(), [])
-        assert_equal(node.echo(arg0=0,arg9=9), [0] + [None]*8 + [9])
-        assert_equal(node.echo(arg1=1), [None, 1])
-        assert_equal(node.echo(arg9=None), [None]*10)
-        assert_equal(node.echo(arg0=0,arg3=3,arg9=9), [0] + [None]*2 + [3] + [None]*5 + [9])
+        assert_equal(node.echojson(), [])
+        assert_equal(node.echojson(arg0=0, arg9=9), [0] + [None] * 8 + [9])
+        assert_equal(node.echojson(arg1=1), [None, 1])
+        assert_equal(node.echojson(arg9=None), [] if self.options.usecli else [None] * 10)
+        assert_equal(node.echojson(arg0=0, arg3=3, arg9=9), [0] + [None] * 2 + [3] + [None] * 5 + [9])
 
 if __name__ == '__main__':
     NamedArgumentTest().main()

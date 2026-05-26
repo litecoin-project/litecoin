@@ -345,6 +345,11 @@ bool ECC_InitSanityCheck() {
     return key.VerifyPubKey(pubkey);
 }
 
+secp256k1_context* GetSecp256k1SignContext()
+{
+    return secp256k1_context_sign;
+}
+
 void ECC_Start() {
     assert(secp256k1_context_sign == nullptr);
 

@@ -28,6 +28,7 @@
 import errno
 import http.client
 import random
+import subprocess
 import time
 
 from test_framework.messages import (
@@ -51,7 +52,6 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         self.num_nodes = 4
         self.setup_clean_chain = False
         self.rpc_timeout = 480
-        self.supports_cli = False
 
         # Set -maxmempool=0 to turn off mempool memory sharing with dbcache
         # Set -rpcservertimeout=900 to reduce socket disconnects in this
@@ -85,7 +85,7 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
         after 60 seconds. Returns the utxo hash of the given node."""
 
         time_start = time.time()
-        while time.time() - time_start < 120:
+        while time.time() - time_start < 120 * self.options.timeout_factor:
             try:
                 # Any of these RPC calls could throw due to node crash
                 self.start_node(node_index)
@@ -118,6 +118,9 @@ class ChainstateWriteCrashTest(BitcoinTestFramework):
             return True
         except (http.client.CannotSendRequest, http.client.RemoteDisconnected) as e:
             self.log.debug("node %d submitblock raised exception: %s", node_index, e)
+            return False
+        except subprocess.CalledProcessError as e:
+            self.log.debug("node %d submitblock raised CalledProcessError: %s", node_index, e)
             return False
         except OSError as e:
             self.log.debug("node %d submitblock raised OSError exception: errno=%s", node_index, e.errno)

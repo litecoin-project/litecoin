@@ -76,9 +76,13 @@ static const CBlockIndex* NextSyncBlock(const CBlockIndex* pindex_prev) EXCLUSIV
         return ::ChainActive().Genesis();
     }
 
-    const CBlockIndex* pindex = ::ChainActive().Next(pindex_prev);
-    if (pindex) {
+    if (const auto* pindex{::ChainActive().Next(pindex_prev)}) {
         return pindex;
+    }
+
+    // If there is no next block, we might be synced.
+    if (pindex_prev == ::ChainActive().Tip()) {
+        return nullptr;
     }
 
     return ::ChainActive().Next(::ChainActive().FindFork(pindex_prev));

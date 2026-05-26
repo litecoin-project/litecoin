@@ -13,7 +13,6 @@ import urllib.parse
 class HTTPBasicsTest (BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 3
-        self.supports_cli = False
 
     def setup_network(self):
         self.setup_nodes()

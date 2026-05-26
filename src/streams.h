@@ -126,6 +126,38 @@ private:
     size_t nPos;
 };
 
+/** Minimal stream for writing to an existing span of bytes. */
+class SpanWriter
+{
+private:
+    Span<unsigned char> m_dest;
+
+public:
+    explicit SpanWriter(Span<unsigned char> dest) : m_dest{dest} {}
+
+    template <typename... Args>
+    SpanWriter(Span<unsigned char> dest, Args&&... args) : SpanWriter{dest}
+    {
+        ::SerializeMany(*this, std::forward<Args>(args)...);
+    }
+
+    void write(const char* pch, size_t nSize)
+    {
+        if (nSize > m_dest.size()) {
+            throw std::ios_base::failure("SpanWriter::write(): exceeded buffer size");
+        }
+        memcpy(m_dest.data(), reinterpret_cast<const unsigned char*>(pch), nSize);
+        m_dest = m_dest.subspan(nSize);
+    }
+
+    template<typename T>
+    SpanWriter& operator<<(const T& obj)
+    {
+        ::Serialize(*this, obj);
+        return *this;
+    }
+};
+
 /** Minimal stream for reading from an existing vector by reference
  */
 class VectorReader
@@ -367,12 +399,6 @@ public:
             return vch.erase(first, last);
     }
 
-    inline void Compact()
-    {
-        vch.erase(vch.begin(), vch.begin() + nReadPos);
-        nReadPos = 0;
-    }
-
     bool Rewind(size_type n)
     {
         // Rewind by n characters if the buffer hasn't been compacted yet
@@ -388,7 +414,6 @@ public:
     //
     bool eof() const             { return size() == 0; }
     CDataStream* rdbuf()         { return this; }
-    int in_avail() const         { return size(); }
 
     void SetType(int n)          { nType = n; }
     int GetType() const          { return nType; }
@@ -407,8 +432,8 @@ public:
         memcpy(pch, &vch[nReadPos], nSize);
         if (nReadPosNext == vch.size())
         {
-            nReadPos = 0;
-            vch.clear();
+            // If fully consumed, reset to empty state.
+            clear();
             return;
         }
         nReadPos = nReadPosNext;
@@ -425,8 +450,8 @@ public:
         {
             if (nReadPosNext > vch.size())
                 throw std::ios_base::failure("CDataStream::ignore(): end of data");
-            nReadPos = 0;
-            vch.clear();
+            // If all bytes are ignored, reset to empty state.
+            clear();
             return;
         }
         nReadPos = nReadPosNext;
@@ -489,6 +514,20 @@ public:
                 j = 0;
         }
     }
+};
+
+// Require empty scratch streams on entry and reset them on exit.
+class ScopedDataStreamUsage
+{
+    CDataStream& m_stream;
+
+public:
+    explicit ScopedDataStreamUsage(CDataStream& stream) : m_stream{stream} { assert(m_stream.empty()); }
+
+    ScopedDataStreamUsage(const ScopedDataStreamUsage&) = delete;
+    ScopedDataStreamUsage& operator=(const ScopedDataStreamUsage&) = delete;
+
+    ~ScopedDataStreamUsage() { m_stream.clear(); }
 };
 
 template <typename IStream>

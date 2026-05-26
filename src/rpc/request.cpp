@@ -105,20 +105,17 @@ bool GenerateAuthCookie(std::string *cookie_out)
     return true;
 }
 
-bool GetAuthCookie(std::string *cookie_out)
+AuthCookieResult GetAuthCookie(std::string& cookie_out)
 {
     fsbridge::ifstream file;
-    std::string cookie;
     fs::path filepath = GetAuthCookieFile();
     file.open(filepath);
-    if (!file.is_open())
-        return false;
-    std::getline(file, cookie);
+    if (!file.is_open()) {
+        return AuthCookieResult::Error;
+    }
+    std::getline(file, cookie_out);
     file.close();
-
-    if (cookie_out)
-        *cookie_out = cookie;
-    return true;
+    return AuthCookieResult::Ok;
 }
 
 void DeleteAuthCookie()
@@ -167,11 +164,13 @@ void JSONRPCRequest::parse(const UniValue& valRequest)
     if (!valMethod.isStr())
         throw JSONRPCError(RPC_INVALID_REQUEST, "Method must be a string");
     strMethod = valMethod.get_str();
+    const std::string log_id = id.isNull() ? "" : SanitizeString(id.getValStr());
     if (fLogIPs)
-        LogPrint(BCLog::RPC, "ThreadRPCServer method=%s user=%s peeraddr=%s\n", SanitizeString(strMethod),
-            this->authUser, this->peerAddr);
+        LogPrint(BCLog::RPC, "ThreadRPCServer method=%s user=%s peeraddr=%s id=%s\n", SanitizeString(strMethod),
+            this->authUser, this->peerAddr, log_id);
     else
-        LogPrint(BCLog::RPC, "ThreadRPCServer method=%s user=%s\n", SanitizeString(strMethod), this->authUser);
+        LogPrint(BCLog::RPC, "ThreadRPCServer method=%s user=%s id=%s\n", SanitizeString(strMethod), this->authUser,
+            log_id);
 
     // Parse params
     UniValue valParams = find_value(request, "params");

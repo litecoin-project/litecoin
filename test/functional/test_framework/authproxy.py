@@ -44,21 +44,12 @@ import socket
 import time
 import urllib.parse
 
+from .util import JSONRPCException
+
 HTTP_TIMEOUT = 30
 USER_AGENT = "AuthServiceProxy/0.1"
 
 log = logging.getLogger("BitcoinRPC")
-
-class JSONRPCException(Exception):
-    def __init__(self, rpc_error, http_status=None):
-        try:
-            errmsg = '%(message)s (%(code)i)' % rpc_error
-        except (KeyError, TypeError):
-            errmsg = ''
-        super().__init__(errmsg)
-        self.error = rpc_error
-        self.http_status = http_status
-
 
 def EncodeDecimal(o):
     if isinstance(o, decimal.Decimal):

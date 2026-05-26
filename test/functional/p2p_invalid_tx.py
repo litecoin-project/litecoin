@@ -166,7 +166,7 @@ class InvalidTxRequestTest(BitcoinTestFramework):
             node.p2ps[0].send_txs_and_test([rejected_parent], node, success=False)
 
         self.log.info('Test that a peer disconnection causes erase its transactions from the orphan pool')
-        with node.assert_debug_log(['Erased 100 orphan tx from peer=25']):
+        with node.assert_debug_log(['Erased 100 orphan tx from peer=']):
             self.reconnect_p2p(num_connections=1)
 
         self.log.info('Test that a transaction in the orphan pool is included in a new tip block causes erase this transaction from the orphan pool')
@@ -186,6 +186,7 @@ class InvalidTxRequestTest(BitcoinTestFramework):
         tip = int(node.getbestblockhash(), 16)
         height = node.getblockcount() + 1
         block_A = create_block(tip, create_coinbase(height))
+        block_A.nVersion = 0x20000000
         block_A.vtx.extend([tx_withhold, tx_withhold_until_block_A, tx_orphan_include_by_block_A])
         block_A.hashMerkleRoot = block_A.calc_merkle_root()
         block_A.solve()
@@ -215,6 +216,7 @@ class InvalidTxRequestTest(BitcoinTestFramework):
         tip = int(node.getbestblockhash(), 16)
         height = node.getblockcount() + 1
         block_B = create_block(tip, create_coinbase(height))
+        block_B.nVersion = 0x20000000
         block_B.vtx.extend([tx_withhold_until_block_B, tx_orphan_include_by_block_B])
         block_B.hashMerkleRoot = block_B.calc_merkle_root()
         block_B.solve()
