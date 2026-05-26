@@ -43,9 +43,12 @@ class DumptxoutsetTest(BitcoinTestFramework):
             assert_equal(
                 digest, 'f1d6826ce1b9463355e2000d93797939940a9d5d83df3c53e504310dc7c13001')
 
-        # Specifying a path to an existing file will fail.
+        # Specifying a path to an existing or invalid file will fail.
         assert_raises_rpc_error(
             -8, '{} already exists'.format(FILENAME),  node.dumptxoutset, FILENAME)
+        invalid_path = str(Path(node.datadir) / "invalid" / "path")
+        assert_raises_rpc_error(
+            -8, "Couldn't open file {}.incomplete for writing".format(invalid_path), node.dumptxoutset, invalid_path)
 
 if __name__ == '__main__':
     DumptxoutsetTest().main()
