@@ -9,6 +9,7 @@ from test_framework.address import ADDRESS_BCRT1_UNSPENDABLE, ADDRESS_BCRT1_P2WS
 from test_framework.blocktools import create_block, create_coinbase, add_witness_commitment
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.messages import CTransaction, hash256, FromHex
+from test_framework.netutil import test_ipv6_local
 from test_framework.util import (
     assert_equal,
     assert_raises_rpc_error,
@@ -79,6 +80,7 @@ class ZMQTest (BitcoinTestFramework):
             self.test_mempool_sync()
             self.test_reorg()
             self.test_multiple_interfaces()
+            self.test_ipv6()
         finally:
             # Destroy the ZMQ context.
             self.log.debug("Destroying ZMQ context")
@@ -532,6 +534,28 @@ class ZMQTest (BitcoinTestFramework):
         # Should receive the same block hash on both subscribers
         assert_equal(self.nodes[0].getbestblockhash(), subscribers[0]['hashblock'].receive().hex())
         assert_equal(self.nodes[0].getbestblockhash(), subscribers[1]['hashblock'].receive().hex())
+
+    def test_ipv6(self):
+        if not test_ipv6_local():
+            self.log.info("Skipping IPv6 test, because IPv6 is not supported.")
+            return
+
+        self.log.info("Testing IPv6")
+        address = 'tcp://[::1]:28332'
+        socket = self.ctx.socket(zmq.SUB)
+        socket.set(zmq.RCVTIMEO, 60000)
+        socket.setsockopt(zmq.IPV6, 1)
+        hashblock = ZMQSubscriber(socket, b"hashblock")
+
+        self.restart_node(0, ['-zmqpub%s=%s' % (hashblock.topic.decode(), address)])
+        socket.connect(address)
+
+        # Relax so that the subscriber is ready before publishing zmq messages
+        sleep(0.2)
+
+        self.nodes[0].generatetoaddress(1, ADDRESS_BCRT1_UNSPENDABLE)
+
+        assert_equal(self.nodes[0].getbestblockhash(), hashblock.receive().hex())
 
 if __name__ == '__main__':
     ZMQTest().main()
