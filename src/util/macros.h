@@ -8,4 +8,6 @@
 #define PASTE(x, y) x ## y
 #define PASTE2(x, y) PASTE(x, y)
 
+#define UNIQUE_NAME(name) PASTE2(name, __COUNTER__)
+
 #endif // BITCOIN_UTIL_MACROS_H

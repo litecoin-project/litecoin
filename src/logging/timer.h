@@ -94,9 +94,9 @@ private:
 
 
 #define LOG_TIME_MILLIS_WITH_CATEGORY(end_msg, log_category) \
-    BCLog::Timer<std::chrono::milliseconds> PASTE2(logging_timer, __COUNTER__)(__func__, end_msg, log_category)
+    BCLog::Timer<std::chrono::milliseconds> UNIQUE_NAME(logging_timer)(__func__, end_msg, log_category)
 #define LOG_TIME_SECONDS(end_msg) \
-    BCLog::Timer<std::chrono::seconds> PASTE2(logging_timer, __COUNTER__)(__func__, end_msg)
+    BCLog::Timer<std::chrono::seconds> UNIQUE_NAME(logging_timer)(__func__, end_msg)
 
 
 #endif // BITCOIN_LOGGING_TIMER_H
