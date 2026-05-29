@@ -786,6 +786,7 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
     CAmount check_total_fee{0};
     uint64_t innerUsage = 0;
     uint64_t prev_ancestor_count{0};
+    size_t check_mweb_outputs{0};
 
     CCoinsViewCache mempoolDuplicate(const_cast<CCoinsViewCache*>(&active_coins_tip));
 
@@ -803,6 +804,9 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
                 auto it2 = *opt_it2;
                 const CTransaction& tx2 = it2->GetTx();
                 if (input.IsMWEB()) {
+                    const auto parent_output_iter = mapTxOutputs_MWEB.find(input.ToMWEB());
+                    assert(parent_output_iter != mapTxOutputs_MWEB.end());
+                    assert(parent_output_iter->second == &tx2);
                     assert(tx2.mweb_tx.GetOutputIDs().count(input.ToMWEB()) == 1);
                 } else {
                     const CTxIn& txin = input.GetTxIn();
@@ -855,23 +859,33 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         // Check children against mapNextTx
         CTxMemPoolEntry::Children setChildrenCheck;
         uint64_t child_sizes = 0;
+        uint64_t child_mweb_weight = 0;
         for (const GenericOutput& output : it->GetTx().GetOutputs()) {
+            if (output.IsMWEB()) {
+                ++check_mweb_outputs;
+                const auto mweb_output_iter = mapTxOutputs_MWEB.find(output.ToMWEBOutputID());
+                assert(mweb_output_iter != mapTxOutputs_MWEB.end());
+                assert(mweb_output_iter->second == &tx);
+            }
+
             auto iter = mapNextTx.find(output.GetID());
             if (iter != mapNextTx.end()) {
+                assert(iter->second != nullptr);
                 txiter childit = mapTx.find(iter->second->GetHash());
                 assert(childit != mapTx.end()); // mapNextTx points to in-mempool transactions
                 if (setChildrenCheck.insert(*childit).second) {
                     child_sizes += childit->GetTxSize();
+                    child_mweb_weight += childit->GetMWEBWeight();
                 }
             }
         }
-        // MW: TODO - Pegouts?
 
         assert(setChildrenCheck.size() == it->GetMemPoolChildrenConst().size());
         assert(std::equal(setChildrenCheck.begin(), setChildrenCheck.end(), it->GetMemPoolChildrenConst().begin(), comp));
         // Also check to make sure size is greater than sum with immediate children.
         // just a sanity check, not definitive that this calc is correct...
         assert(it->GetSizeWithDescendants() >= child_sizes + it->GetTxSize());
+        assert(it->GetMWEBWeightWithDescendants() >= child_mweb_weight + it->GetMWEBWeight());
 
         TxValidationState dummy_state; // Not used. CheckTxInputs() should always pass
         CAmount txfee = 0;
@@ -882,11 +896,22 @@ void CTxMemPool::check(const CCoinsViewCache& active_coins_tip, int64_t spendhei
         UpdateCoins(tx, mempoolDuplicate, MEMPOOL_HEIGHT);
     }
     for (auto it = mapNextTx.cbegin(); it != mapNextTx.cend(); it++) {
+        assert(it->second != nullptr);
         uint256 hash = it->second->GetHash();
         indexed_transaction_set::const_iterator it2 = mapTx.find(hash);
-        const CTransaction& tx = it2->GetTx();
         assert(it2 != mapTx.end());
+        const CTransaction& tx = it2->GetTx();
         assert(&tx == it->second);
+    }
+    assert(mapTxOutputs_MWEB.size() == check_mweb_outputs);
+    for (auto it = mapTxOutputs_MWEB.cbegin(); it != mapTxOutputs_MWEB.cend(); it++) {
+        assert(it->second != nullptr);
+        const uint256 hash = it->second->GetHash();
+        indexed_transaction_set::const_iterator it2 = mapTx.find(hash);
+        assert(it2 != mapTx.end());
+        const CTransaction& tx = it2->GetTx();
+        assert(&tx == it->second);
+        assert(tx.mweb_tx.GetOutputIDs().count(it->first) == 1);
     }
 
     assert(totalTxSize == checkTotal);
