@@ -8,6 +8,7 @@ from decimal import Decimal
 
 from test_framework.psbt import (
     PSBT,
+    PSBT_IN_MWEB_ADDR_DESCRIPTOR,
     PSBT_IN_MWEB_COMMIT,
     PSBT_IN_MWEB_OUTPUT_PUBKEY,
     PSBT_IN_MWEB_KEY_EXCHANGE_PK,
@@ -56,6 +57,9 @@ class MWEBPsbtTest(LitecoinTestFramework):
 
         parsed = PSBT.from_base64(original_psbt)
         input_map = parsed.i[mweb_input_index].map
+        original_address_descriptor = input_map[PSBT_IN_MWEB_ADDR_DESCRIPTOR]
+        assert original_address_descriptor.startswith(b"mweb(")
+        assert_equal(original_decoded["inputs"][mweb_input_index]["mweb"]["address_descriptor"], original_address_descriptor.decode())
         original_commit = input_map[PSBT_IN_MWEB_COMMIT]
         original_output_pubkey = input_map[PSBT_IN_MWEB_OUTPUT_PUBKEY]
         original_key_exchange_pk = input_map.get(PSBT_IN_MWEB_KEY_EXCHANGE_PK)
@@ -70,6 +74,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
         assert PSBT_IN_MWEB_COMMIT not in stripped_input_map
         assert PSBT_IN_MWEB_OUTPUT_PUBKEY not in stripped_input_map
         assert PSBT_IN_MWEB_KEY_EXCHANGE_PK not in stripped_input_map
+        assert_equal(stripped_input_map[PSBT_IN_MWEB_ADDR_DESCRIPTOR], original_address_descriptor)
 
         self.log.info("utxoupdatepsbt restores MWEB input metadata from chain state")
         updated_psbt = node0.utxoupdatepsbt(stripped_psbt)
@@ -141,6 +146,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
         mweb_inputs = [txin for txin in decoded_psbt["inputs"] if txin.get("mweb")]
         assert_equal(len(mweb_inputs), 1)
         assert "signature" not in mweb_inputs[0]["mweb"]
+        assert mweb_inputs[0]["mweb"]["address_descriptor"].startswith("mweb(")
 
         if expected_output_type == 'mweb':
             recipient_output = self.find_recipient_output(decoded_psbt, recipient, expected_output_type)
@@ -159,6 +165,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
         assert_equal(signed_input["output_id"], unsigned_input["output_id"])
         assert_equal(signed_input["output_commit"], unsigned_input["output_commit"])
         assert_equal(signed_input["output_pubkey"], unsigned_input["output_pubkey"])
+        assert_equal(signed_input["address_descriptor"], unsigned_input["address_descriptor"])
         assert "signature" in signed_input
         assert "amount" in signed_input
 

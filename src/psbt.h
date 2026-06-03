@@ -21,6 +21,7 @@
 #include <bitset>
 #include <map>
 #include <optional>
+#include <string>
 #include <unordered_map>
 
 // Magic bytes
@@ -83,12 +84,10 @@ static constexpr uint8_t PSBT_IN_MWEB_OUTPUT_PUBKEY = 0x92;
 static constexpr uint8_t PSBT_IN_MWEB_INPUT_PUBKEY = 0x93;
 static constexpr uint8_t PSBT_IN_MWEB_FEATURES = 0x94;
 static constexpr uint8_t PSBT_IN_MWEB_INPUT_SIG = 0x95;
-static constexpr uint8_t PSBT_IN_MWEB_ADDRESS_INDEX = 0x96;
+static constexpr uint8_t PSBT_IN_MWEB_ADDR_DESCRIPTOR = 0x96;
 static constexpr uint8_t PSBT_IN_MWEB_AMOUNT = 0x97;
 static constexpr uint8_t PSBT_IN_MWEB_SHARED_SECRET = 0x98;
 static constexpr uint8_t PSBT_IN_MWEB_KEY_EXCHANGE_PK = 0x99;
-static constexpr uint8_t PSBT_IN_MWEB_MASTER_SCAN_KEY_ORIGIN = 0x9A;
-static constexpr uint8_t PSBT_IN_MWEB_MASTER_SPEND_KEY_ORIGIN = 0x9B;
 static constexpr uint8_t PSBT_IN_MWEB_EXTRA_DATA = 0x9C;
 static constexpr uint8_t PSBT_IN_PROPRIETARY = 0xFC;
 
@@ -284,9 +283,6 @@ struct PSBTInput
     std::optional<PublicKey> mweb_key_exchange_pubkey;
     std::vector<uint8_t> mweb_extra_data;
     std::optional<std::string> mweb_address_descriptor;
-    std::optional<uint32_t> mweb_address_index; // MW: TODO - Replace this, mweb_master_scan_key, and mweb_master_spend_key with a single descriptor
-    std::optional<std::pair<PublicKey, KeyOriginInfo>> mweb_master_scan_key;
-    std::optional<std::pair<PublicKey, KeyOriginInfo>> mweb_master_spend_key;
 
     std::map<std::vector<unsigned char>, std::vector<unsigned char>> unknown;
     std::set<PSBTProprietary> m_proprietary;
@@ -495,9 +491,10 @@ struct PSBTInput
                 SerializeToVector(s, CompactSizeWriter(PSBT_IN_MWEB_INPUT_SIG));
                 SerializeToVector(s, *mweb_sig);
             }
-            if (mweb_address_index != std::nullopt) {
-                SerializeToVector(s, CompactSizeWriter(PSBT_IN_MWEB_ADDRESS_INDEX));
-                SerializeToVector(s, *mweb_address_index);
+            if (mweb_address_descriptor != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_IN_MWEB_ADDR_DESCRIPTOR));
+                const std::vector<unsigned char> descriptor_bytes(mweb_address_descriptor->begin(), mweb_address_descriptor->end());
+                s << descriptor_bytes;
             }
             if (mweb_amount != std::nullopt) {
                 SerializeToVector(s, CompactSizeWriter(PSBT_IN_MWEB_AMOUNT));
@@ -1012,19 +1009,39 @@ struct PSBTInput
                     mweb_sig = v;
                     break;
                 }
-                case PSBT_IN_MWEB_ADDRESS_INDEX:
+                case PSBT_IN_MWEB_ADDR_DESCRIPTOR:
                 {
                     if (!key_lookup.emplace(key).second) {
-                        throw std::ios_base::failure("Duplicate Key, MWEB address index is already provided");
+                        throw std::ios_base::failure("Duplicate Key, MWEB address descriptor is already provided");
                     } else if (key.size() != 1) {
-                        throw std::ios_base::failure("MWEB address index is more than one byte type");
+                        throw std::ios_base::failure("MWEB address descriptor is more than one byte type");
                     } else if (m_psbt_version == 0) {
-                        throw std::ios_base::failure("MWEB address index is not allowed in PSBTv0");
+                        throw std::ios_base::failure("MWEB address descriptor is not allowed in PSBTv0");
                     }
 
-                    uint32_t v;
-                    UnserializeFromVector(s, v);
-                    mweb_address_index = v;
+                    std::vector<unsigned char> v;
+                    s >> v;
+
+                    // Backward compatibility for pre-descriptor PSBTs that used
+                    // key 0x96 as a 4-byte MWEB address index.
+                    if (v.size() == sizeof(uint32_t)) {
+                        break;
+                    }
+
+                    bool is_ascii = true;
+                    for (const unsigned char c : v) {
+                        if (c < 0x20 || c > 0x7e) {
+                            is_ascii = false;
+                            break;
+                        }
+                    }
+
+                    std::string descriptor(v.begin(), v.end());
+                    if (!is_ascii || descriptor.rfind("mweb(", 0) != 0) {
+                        throw std::ios_base::failure("MWEB address descriptor must be an ASCII mweb() descriptor");
+                    }
+
+                    mweb_address_descriptor = std::move(descriptor);
                     break;
                 }
                 case PSBT_IN_MWEB_AMOUNT:

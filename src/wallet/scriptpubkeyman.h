@@ -613,6 +613,13 @@ public:
     bool GetKey(const CKeyID &address, CKey& key) const override { return false; }
     bool HaveKey(const CKeyID &address) const override { return false; }
     bool GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const override { return m_spk_man.GetKeyOrigin(keyid, info); }
+    bool GetMWEBMasterScanKey(CKey& out) const override
+    {
+        const SecretKey scan_secret = m_spk_man.GetScanSecret();
+        if (scan_secret.IsNull()) return false;
+        out.Set(scan_secret.vec().begin(), scan_secret.vec().end(), true);
+        return out.IsValid();
+    }
 };
 
 class DescriptorScriptPubKeyMan : public ScriptPubKeyMan

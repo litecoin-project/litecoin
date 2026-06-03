@@ -19,6 +19,7 @@
 #include <util/strencodings.h>
 #include <util/vector.h>
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <string>
@@ -523,6 +524,9 @@ public:
         KeyOriginInfo master_scan_origin;
         if (m_pubkey_args[0]->GetKeyOrigin(-1, master_scan_origin)) {
             out.mweb_master_scan_origin = master_scan_origin;
+            CPubKey master_scan_pk(PublicKey::From(m_master_scan_secret).vec());
+            out.pubkeys.emplace(master_scan_pk.GetID(), master_scan_pk);
+            out.origins.emplace(master_scan_pk.GetID(), std::make_pair<CPubKey, KeyOriginInfo>(std::move(master_scan_pk), KeyOriginInfo(master_scan_origin)));
         }
 
         if (pos == -1) {
@@ -971,6 +975,55 @@ enum class ParseScriptContext {
     return true;
 }
 
+/** Parse a key origin path, being passed a split list of elements (the first element is the fingerprint). */
+[[nodiscard]] bool ParseOriginKeyPath(const std::vector<Span<const char>>& split, HDKeyPath& out, std::string& error)
+{
+    bool parsing_mweb_index = false;
+    for (size_t i = 1; i < split.size(); ++i) {
+        Span<const char> elem = split[i];
+        const std::string elem_str(elem.begin(), elem.end());
+        if (elem_str == "x") {
+            if (parsing_mweb_index || out.mweb_index.has_value()) {
+                error = "MWEB key origin index marker is duplicated";
+                return false;
+            }
+            parsing_mweb_index = true;
+            continue;
+        }
+
+        bool hardened = false;
+        if (elem.size() > 0 && (elem[elem.size() - 1] == '\'' || elem[elem.size() - 1] == 'h')) {
+            elem = elem.first(elem.size() - 1);
+            hardened = true;
+        }
+        uint32_t p;
+        if (!ParseUInt32(std::string(elem.begin(), elem.end()), &p)) {
+            error = strprintf("Key path value '%s' is not a valid uint32", std::string(elem.begin(), elem.end()));
+            return false;
+        } else if (p > 0x7FFFFFFFUL) {
+            error = strprintf("Key path value %u is out of range", p);
+            return false;
+        } else if (parsing_mweb_index && hardened) {
+            error = "MWEB key origin index cannot be hardened";
+            return false;
+        } else if (parsing_mweb_index && out.mweb_index.has_value()) {
+            error = "MWEB key origin index must be the last path element";
+            return false;
+        }
+
+        if (parsing_mweb_index) {
+            out.mweb_index = p;
+        } else {
+            out.path.push_back(p | (((uint32_t)hardened) << 31));
+        }
+    }
+    if (parsing_mweb_index && !out.mweb_index.has_value()) {
+        error = "MWEB key origin index marker must be followed by an index";
+        return false;
+    }
+    return true;
+}
+
 /** Parse a public key that excludes origin information. */
 std::unique_ptr<PubkeyProvider> ParsePubkeyInner(uint32_t key_exp_index, const Span<const char>& sp, ParseScriptContext ctx, FlatSigningProvider& out, std::string& error)
 {
@@ -1071,7 +1124,7 @@ std::unique_ptr<PubkeyProvider> ParsePubkey(uint32_t key_exp_index, const Span<c
     static_assert(sizeof(info.fingerprint) == 4, "Fingerprint must be 4 bytes");
     assert(fpr_bytes.size() == 4);
     std::copy(fpr_bytes.begin(), fpr_bytes.end(), info.fingerprint);
-    if (!ParseKeyPath(slash_split, info.hdkeypath.path, error)) return nullptr;
+    if (!ParseOriginKeyPath(slash_split, info.hdkeypath, error)) return nullptr;
     auto provider = ParsePubkeyInner(key_exp_index, origin_split[1], ctx, out, error);
     if (!provider) return nullptr;
     return std::make_unique<OriginPubkeyProvider>(key_exp_index, std::move(info), std::move(provider));
@@ -1671,6 +1724,12 @@ std::unique_ptr<DescriptorImpl> InferScript(const CScript& script, ParseScriptCo
 
 std::unique_ptr<Descriptor> InferMWEBDescriptor(const StealthAddress& mweb_address, const SigningProvider& provider)
 {
+    auto has_origin = [](const KeyOriginInfo& origin) {
+        return !std::all_of(std::begin(origin.fingerprint), std::end(origin.fingerprint), [](unsigned char c) { return c == 0; }) ||
+               !origin.hdkeypath.path.empty() ||
+               origin.hdkeypath.mweb_index.has_value();
+    };
+
     const CKeyID sub_spend_id = mweb_address.GetSpendPubKey().GetID();
 
     // 1) Fetch the master scan private key.
@@ -1689,19 +1748,24 @@ std::unique_ptr<Descriptor> InferMWEBDescriptor(const StealthAddress& mweb_addre
     // 3) Fetch the master spend public key (and its origin if available).
     CPubKey master_spend_pk;
     KeyOriginInfo spend_master_origin;
-    KeyOriginInfo* p_origin = provider.GetMWEBMasterSpendPubKey(master_spend_pk, &spend_master_origin) ? &spend_master_origin : nullptr;
+    spend_master_origin.clear();
+    const bool have_master_spend_pk = provider.GetMWEBMasterSpendPubKey(master_spend_pk, &spend_master_origin);
+    KeyOriginInfo* p_spend_origin = have_master_spend_pk && has_origin(spend_master_origin) ? &spend_master_origin : nullptr;
 
     // 4) Wrap the scan key in a PubkeyProvider, preserving origin if we have it.
+    KeyOriginInfo scan_origin;
+    scan_origin.clear();
+    const bool have_scan_origin = provider.GetKeyOrigin(master_scan_key.GetPubKey().GetID(), scan_origin) && has_origin(scan_origin);
     std::unique_ptr<PubkeyProvider> scan_inner  = std::make_unique<ConstPubkeyProvider>(0, master_scan_key.GetPubKey(), /*xonly=*/false);
-    std::unique_ptr<PubkeyProvider> scan_prov  = p_origin
-        ? std::make_unique<OriginPubkeyProvider>(0, *p_origin /*scan origin? see below*/, std::move(scan_inner))
+    std::unique_ptr<PubkeyProvider> scan_prov  = have_scan_origin
+        ? std::make_unique<OriginPubkeyProvider>(0, scan_origin, std::move(scan_inner))
         : std::move(scan_inner);
 
     // 5) Prefer the master spend + index form when available.
-    if (index && master_spend_pk.IsValid()) {
+    if (index && have_master_spend_pk && master_spend_pk.IsValid()) {
         std::unique_ptr<PubkeyProvider> spend_inner = std::make_unique<ConstPubkeyProvider>(1, master_spend_pk, /*xonly=*/false);
-        std::unique_ptr<PubkeyProvider> spend_prov = p_origin
-            ? std::make_unique<OriginPubkeyProvider>(1, *p_origin, std::move(spend_inner))
+        std::unique_ptr<PubkeyProvider> spend_prov = p_spend_origin
+            ? std::make_unique<OriginPubkeyProvider>(1, *p_spend_origin, std::move(spend_inner))
             : std::move(spend_inner);
         return std::make_unique<MWEBDescriptor>(std::move(scan_prov), std::move(spend_prov), master_scan_key, MWEBDescriptor::Type::SINGLE_INDEX, index);
     }

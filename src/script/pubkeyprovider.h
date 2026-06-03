@@ -84,6 +84,9 @@ public:
         if (!m_provider->GetPubKey(pos, arg, key, info, read_cache, write_cache)) return false;
         std::copy(std::begin(m_origin.fingerprint), std::end(m_origin.fingerprint), info.fingerprint);
         info.hdkeypath.path.insert(info.hdkeypath.path.begin(), m_origin.hdkeypath.path.begin(), m_origin.hdkeypath.path.end());
+        if (m_origin.hdkeypath.mweb_index.has_value()) {
+            info.hdkeypath.mweb_index = m_origin.hdkeypath.mweb_index;
+        }
         return true;
     }
     bool GetKeyOrigin(int pos, KeyOriginInfo& info) const override
@@ -91,6 +94,9 @@ public:
         if (!m_provider->GetKeyOrigin(pos, info)) return false;
         std::copy(std::begin(m_origin.fingerprint), std::end(m_origin.fingerprint), info.fingerprint);
         info.hdkeypath.path.insert(info.hdkeypath.path.begin(), m_origin.hdkeypath.path.begin(), m_origin.hdkeypath.path.end());
+        if (m_origin.hdkeypath.mweb_index.has_value()) {
+            info.hdkeypath.mweb_index = m_origin.hdkeypath.mweb_index;
+        }
         return true;
     }
     bool IsRange() const override { return m_provider->IsRange(); }

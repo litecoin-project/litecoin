@@ -2486,6 +2486,87 @@ static void MergeMissingMWEBInputData(mw::MutableInput& input, const mw::Mutable
     MergeMissingField(input.shared_secret, source.shared_secret);
 }
 
+struct MWEBAddressDescriptorData
+{
+    StealthAddress address{};
+    std::optional<SecretKey> scan_secret{std::nullopt};
+    std::optional<SecretKey> subaddress_spend_secret{std::nullopt};
+};
+
+static SecretKey DeriveMWEBOutputSpendKey(const SecretKey& subaddress_spend_key, const SecretKey& shared_secret)
+{
+    return SecretKeys::From(subaddress_spend_key)
+        .Mul(Hashed(EHashTag::OUT_KEY, shared_secret))
+        .Total();
+}
+
+static std::optional<std::string> InferMWEBAddressDescriptor(const CWallet& wallet, const mw::Coin& coin)
+{
+    const std::shared_ptr<MWEB::Wallet>& mweb_wallet = wallet.GetMWWallet();
+    if (!mweb_wallet) {
+        return std::nullopt;
+    }
+
+    StealthAddress address;
+    if (!mweb_wallet->GetStealthAddress(coin, address)) {
+        return std::nullopt;
+    }
+
+    const GenericAddress generic_address(address);
+    std::unique_ptr<SigningProvider> provider = wallet.GetSolvingProvider(generic_address);
+    if (!provider) {
+        return std::nullopt;
+    }
+
+    std::unique_ptr<Descriptor> descriptor = InferDescriptor(generic_address, *provider);
+    if (!descriptor || descriptor->GetOutputType() != OutputType::MWEB || descriptor->IsRange()) {
+        return std::nullopt;
+    }
+
+    return descriptor->ToString();
+}
+
+static util::Result<MWEBAddressDescriptorData> ParseMWEBAddressDescriptor(const std::string& descriptor_str)
+{
+    FlatSigningProvider keys;
+    std::string error;
+    std::unique_ptr<Descriptor> descriptor = Parse(descriptor_str, keys, error, /*require_checksum=*/false);
+    if (!descriptor) {
+        return util::Error{Untranslated(strprintf("Invalid MWEB address descriptor: %s", error))};
+    }
+    if (descriptor->GetOutputType() != OutputType::MWEB) {
+        return util::Error{Untranslated("MWEB address descriptor has wrong output type")};
+    }
+    if (descriptor->IsRange()) {
+        return util::Error{Untranslated("MWEB address descriptor must be single-address")};
+    }
+
+    std::vector<GenericAddress> outputs;
+    FlatSigningProvider expanded;
+    if (!descriptor->Expand(0, keys, outputs, expanded) || outputs.size() != 1 || !outputs[0].IsMWEB()) {
+        return util::Error{Untranslated("MWEB address descriptor did not expand to one MWEB address")};
+    }
+
+    MWEBAddressDescriptorData data;
+    data.address = outputs[0].GetMWEBAddress();
+
+    CKey scan_key;
+    if (expanded.GetMWEBMasterScanKey(scan_key) || keys.GetMWEBMasterScanKey(scan_key)) {
+        data.scan_secret = SecretKey(scan_key.begin());
+    }
+
+    FlatSigningProvider private_keys;
+    descriptor->ExpandPrivate(0, keys, private_keys);
+
+    CKey subaddress_spend_key;
+    const CKeyID subaddress_spend_keyid = data.address.GetSpendPubKey().GetID();
+    if (private_keys.GetKey(subaddress_spend_keyid, subaddress_spend_key)) {
+        data.subaddress_spend_secret = SecretKey(subaddress_spend_key.begin());
+    }
+
+    return data;
+}
+
 static std::optional<SecretKey> DeriveMWEBSpendKey(const CWallet& wallet, const mw::Coin& coin, const mw::MutableInput& input)
 {
     if (coin.spend_key.has_value()) {
@@ -2675,11 +2756,25 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
             mw::Coin mweb_coin;
             const bool have_coin = GetCoin(output_id, mweb_coin);
 
+            if (!input.mweb_address_descriptor && have_coin) {
+                input.mweb_address_descriptor = InferMWEBAddressDescriptor(*this, mweb_coin);
+            }
+
+            std::optional<MWEBAddressDescriptorData> descriptor_data;
+            if (input.mweb_address_descriptor) {
+                util::Result<MWEBAddressDescriptorData> parsed_descriptor = ParseMWEBAddressDescriptor(*input.mweb_address_descriptor);
+                if (!parsed_descriptor) {
+                    WalletLogPrintf("FillPSBT: %s\n", util::ErrorString(parsed_descriptor).original);
+                    return TransactionError::INVALID_PSBT;
+                }
+                descriptor_data = std::move(parsed_descriptor.value());
+            }
+
             mw::Keychain::Ptr keychain;
-            if (input.mweb_master_scan_key.has_value()) {
-                keychain = mweb_wallet->GetKeychain(input.mweb_master_scan_key->first.GetID());
-            } else if (mweb_coin.master_scan_key_id.has_value()) {
+            if (mweb_wallet && have_coin && mweb_coin.master_scan_key_id.has_value()) {
                 keychain = mweb_wallet->GetKeychain(mweb_coin.master_scan_key_id.value());
+            } else if (mweb_wallet && descriptor_data && descriptor_data->scan_secret) {
+                keychain = mweb_wallet->GetKeychain(PublicKey::From(*descriptor_data->scan_secret).GetID());
             }
 
             std::optional<SecretKey> shared_secret = input.mweb_shared_secret;
@@ -2687,9 +2782,26 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
                 shared_secret = mweb_coin.shared_secret;
             }
 
-            if (!shared_secret && input.mweb_key_exchange_pubkey.has_value() && keychain) {
-                PublicKey shared_secret_pk = input.mweb_key_exchange_pubkey->Mul(keychain->GetScanSecret());
-                shared_secret = Hashed(EHashTag::DERIVE, shared_secret_pk);
+            if (!shared_secret && input.mweb_key_exchange_pubkey.has_value()) {
+                std::optional<SecretKey> scan_secret;
+                if (keychain) {
+                    scan_secret = keychain->GetScanSecret();
+                } else if (descriptor_data && descriptor_data->scan_secret) {
+                    scan_secret = descriptor_data->scan_secret;
+                }
+                if (scan_secret) {
+                    PublicKey shared_secret_pk = input.mweb_key_exchange_pubkey->Mul(*scan_secret);
+                    shared_secret = Hashed(EHashTag::DERIVE, shared_secret_pk);
+                }
+            }
+
+            if (descriptor_data && descriptor_data->scan_secret && shared_secret && input.mweb_output_pubkey) {
+                const PublicKey subaddress_spend_pubkey = input.mweb_output_pubkey->Div(Hashed(EHashTag::OUT_KEY, *shared_secret));
+                const StealthAddress input_address(subaddress_spend_pubkey.Mul(*descriptor_data->scan_secret), subaddress_spend_pubkey);
+                if (input_address != descriptor_data->address) {
+                    WalletLogPrintf("FillPSBT: MWEB address descriptor does not match input output pubkey\n");
+                    return TransactionError::INVALID_PSBT;
+                }
             }
 
             if (shared_secret) {
@@ -2697,28 +2809,27 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
             }
 
             std::optional<SecretKey> spend_key = have_coin ? mweb_coin.spend_key : std::nullopt;
-            if (!spend_key) {
-                std::optional<uint32_t> address_index = input.mweb_address_index;
-                if (!address_index && have_coin && mweb_coin.address_index != mw::UNKNOWN_INDEX) {
+            if (!spend_key && descriptor_data && descriptor_data->subaddress_spend_secret && shared_secret) {
+                spend_key = DeriveMWEBOutputSpendKey(*descriptor_data->subaddress_spend_secret, *shared_secret);
+            }
+            if (!spend_key && shared_secret && keychain) {
+                std::optional<uint32_t> address_index;
+                if (have_coin && mweb_coin.address_index != mw::UNKNOWN_INDEX && mweb_coin.address_index != mw::CUSTOM_KEY) {
                     address_index = mweb_coin.address_index;
                 }
 
-                if (!address_index && input.mweb_output_pubkey.has_value() && shared_secret.has_value() && keychain) {
+                if (!address_index && descriptor_data) {
+                    address_index = keychain->LookupAddressIndex(descriptor_data->address);
+                }
+
+                if (!address_index && input.mweb_output_pubkey.has_value()) {
                     PublicKey B_i = input.mweb_output_pubkey->Div(Hashed(EHashTag::OUT_KEY, *shared_secret));
                     StealthAddress address(B_i.Mul(keychain->GetScanSecret()), B_i);
                     address_index = keychain->LookupAddressIndex(address);
-                    if (address_index) {
-                        input.mweb_address_index = address_index;
-                    }
                 }
 
-                if (address_index && shared_secret && keychain) {
-                    auto derive_output_key = [](const SecretKey& subaddress_spend_key, const SecretKey& shared_secret) -> SecretKey {
-                        return SecretKeys::From(subaddress_spend_key)
-                            .Mul(Hashed(EHashTag::OUT_KEY, shared_secret))
-                            .Total();
-                    };
-                    spend_key = derive_output_key(keychain->GetSubaddressSpendKey(*address_index), *shared_secret);
+                if (address_index) {
+                    spend_key = DeriveMWEBOutputSpendKey(keychain->GetSubaddressSpendKey(*address_index), *shared_secret);
                 }
             }
 

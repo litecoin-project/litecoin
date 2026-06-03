@@ -81,17 +81,13 @@ Where “None” appears under <keydata>, the key consists of the single
 |-
 | Input Signature || <tt>PSBT_IN_MWEB_INPUT_SIG = 0x95</tt> || None || 64-byte Schnorr signature (+ sighash) over the input excess ||  || 0 || 2
 |-
-| MWEB Address Index || <tt>PSBT_IN_MWEB_ADDRESS_INDEX = 0x96</tt> || None || <u64> index of the stealth subaddress the input was sent to ||  || 0 || 2
+| MWEB Address Descriptor || <tt>PSBT_IN_MWEB_ADDR_DESCRIPTOR = 0x96</tt> || None || ASCII single-address MWEB descriptor for the stealth subaddress the input was sent to ||  || 0 || 2
 |-
 | Explicit Amount || <tt>PSBT_IN_MWEB_AMOUNT = 0x97</tt> || None || 64-bit little-endian amount <code><nowiki>|v|</nowiki></code> (used only when disclosure is required) ||  || 0 || 2
 |-
 | Shared Secret || <tt>PSBT_IN_MWEB_SHARED_SECRET = 0x98</tt> || None || 32-byte Diffie–Hellman shared secret (for Sender → Receiver proofs) ||  || 0 || 2
 |-
 | Key-Exchange PubKey || <tt>PSBT_IN_MWEB_KEY_EXCHANGE_PK = 0x99</tt> || None || 33-byte pubkey used in shared-secret calculation ||  || 0 || 2
-|-
-| Master Scan-Key Origin || <tt>PSBT_IN_MWEB_MASTER_SCAN_KEY_ORIGIN = 0x9A</tt> || None || <tt>(fingerprint<nowiki>||</nowiki>path)</tt> per BIP-32 (scan) ||  || 0 || 2
-|-
-| Master Spend-Key Origin || <tt>PSBT_IN_MWEB_MASTER_SPEND_KEY_ORIGIN = 0x9B</tt> || None || <tt>(fingerprint<nowiki>||</nowiki>path)</tt> per BIP-32 (spend) ||  || 0 || 2
 |-
 | Input Extra Data || <tt>PSBT_IN_MWEB_EXTRA_DATA = 0x9C</tt> || None || Arbitrary data, e.g. sender message ||  || 0 || 2
 |}

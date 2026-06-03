@@ -931,7 +931,7 @@ const RPCResult decodepsbt_inputs{
                 {RPCResult::Type::STR_HEX, "input_pubkey", /*optional=*/true, "The hex-encoded input pubkey"},
                 {RPCResult::Type::NUM, "features", /*optional=*/true, "The MWEB input feature mask"},
                 {RPCResult::Type::STR_HEX, "signature", /*optional=*/true, "The hex-encoded MWEB input signature"},
-                {RPCResult::Type::NUM, "address_idx", /*optional=*/true, "The index of the subaddress the UTXO was sent to"},
+                {RPCResult::Type::STR, "address_descriptor", /*optional=*/true, "A single-address MWEB descriptor for the subaddress the UTXO was sent to"},
                 {RPCResult::Type::NUM, "amount", /*optional=*/true, "The UTXO amount"},
                 {RPCResult::Type::STR_HEX, "shared_secret", /*optional=*/true, "The hex-encoded shared secret"},
                 {RPCResult::Type::STR_HEX, "key_exchange_pk", /*optional=*/true, "The hex-encoded MWEB key exchange public key"},
@@ -1474,8 +1474,8 @@ static RPCHelpMan decodepsbt()
                 mweb_obj.pushKV("signature", input.mweb_sig->ToHex());
             }
 
-            if (input.mweb_address_index.has_value()) {
-                mweb_obj.pushKV("address_idx", static_cast<uint64_t>(*input.mweb_address_index));
+            if (input.mweb_address_descriptor.has_value()) {
+                mweb_obj.pushKV("address_descriptor", *input.mweb_address_descriptor);
             }
 
             if (input.mweb_amount.has_value()) {

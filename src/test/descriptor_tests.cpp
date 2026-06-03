@@ -1308,7 +1308,10 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
         BOOST_REQUIRE(inferred);
         BOOST_CHECK(inferred->GetOutputType() == OutputType::MWEB);
         BOOST_CHECK_EQUAL(inferred->IsRange(), false);
-        BOOST_CHECK(inferred->ToString().find(",42)") != std::string::npos);
+        const std::string inferred_str = inferred->ToString();
+        BOOST_CHECK(inferred_str.find(",42)") != std::string::npos);
+        BOOST_CHECK(inferred_str.find("[" + root_fingerprint + "/0'/100'/0']") != std::string::npos);
+        BOOST_CHECK(inferred_str.find("[" + root_fingerprint + "/0'/100'/1']") != std::string::npos);
 
         std::vector<GenericAddress> inferred_outputs;
         FlatSigningProvider inferred_provider;
@@ -1325,6 +1328,14 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
         CKey inferred_scan_key;
         BOOST_REQUIRE(infer_keys.GetMWEBMasterScanKey(inferred_scan_key));
         single_subaddr_provider.mweb_master_scan_key = inferred_scan_key;
+        const StealthAddress& inferred_address = infer_outputs[0].GetMWEBAddress();
+        const CPubKey inferred_subaddr_spend_pubkey(inferred_address.GetSpendPubKey().vec());
+        KeyOriginInfo inferred_subaddr_origin;
+        std::copy(root_key_id.begin(), root_key_id.begin() + 4, inferred_subaddr_origin.fingerprint);
+        inferred_subaddr_origin.hdkeypath.mweb_index = infer_pos;
+        single_subaddr_provider.origins.emplace(
+            inferred_subaddr_spend_pubkey.GetID(),
+            std::make_pair(inferred_subaddr_spend_pubkey, inferred_subaddr_origin));
 
         auto inferred_subaddr = InferDescriptor(infer_outputs[0], single_subaddr_provider);
         BOOST_REQUIRE(inferred_subaddr);
@@ -1340,6 +1351,20 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
         BOOST_REQUIRE(inferred_subaddr->Expand(0, inferred_subaddr_provider, inferred_subaddr_outputs, inferred_subaddr_provider));
         BOOST_REQUIRE_EQUAL(inferred_subaddr_outputs.size(), 1U);
         BOOST_CHECK(inferred_subaddr_outputs[0] == infer_outputs[0]);
+
+        FlatSigningProvider reparsed_subaddr_keys;
+        std::string reparsed_subaddr_error;
+        auto reparsed_subaddr = Parse(inferred_subaddr_str, reparsed_subaddr_keys, reparsed_subaddr_error);
+        BOOST_REQUIRE_MESSAGE(reparsed_subaddr, reparsed_subaddr_error);
+        std::vector<GenericAddress> reparsed_subaddr_outputs;
+        FlatSigningProvider reparsed_subaddr_provider;
+        BOOST_REQUIRE(reparsed_subaddr->Expand(0, reparsed_subaddr_keys, reparsed_subaddr_outputs, reparsed_subaddr_provider));
+        BOOST_REQUIRE_EQUAL(reparsed_subaddr_outputs.size(), 1U);
+        BOOST_CHECK(reparsed_subaddr_outputs[0] == infer_outputs[0]);
+
+        KeyOriginInfo reparsed_subaddr_origin;
+        BOOST_REQUIRE(reparsed_subaddr_provider.GetKeyOrigin(inferred_subaddr_spend_pubkey.GetID(), reparsed_subaddr_origin));
+        BOOST_CHECK_EQUAL(WriteHDKeypath(reparsed_subaddr_origin.hdkeypath), strprintf("x/%d", infer_pos));
     }
 }
 
