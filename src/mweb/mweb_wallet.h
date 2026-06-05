@@ -25,6 +25,14 @@ namespace MWEB {
 
 class Wallet
 {
+    struct SenderKeyMatch
+    {
+        mw::Keychain::Ptr keychain;
+        CKeyID master_scan_keyid;
+        uint64_t index;
+        SecretKey sender_key;
+    };
+
     wallet::CWallet* m_pWallet;
     std::map<mw::Hash, mw::Coin> m_coins;
     std::map<mw::Hash, mw::Coin> m_staged_coins;
@@ -33,6 +41,7 @@ class Wallet
 public:
     Wallet(wallet::CWallet* pWallet)
         : m_pWallet(pWallet) {}
+    ~Wallet();
 
     bool IsChange(const StealthAddress& address) const;
     bool GetCoin(const mw::Hash& output_id, mw::Coin& coin) const;
@@ -54,6 +63,7 @@ public:
     void LoadToWallet(const mw::Coin& coin);
     void SaveToWallet(const std::vector<mw::Coin>& coins);
     void StageCoins(const std::map<mw::Hash, mw::Coin>& coins_by_output_id);
+    void StageOutputAddresses(const std::map<mw::Hash, StealthAddress>& addresses_by_output_id);
     void SaveStagedCoinsToWallet(const std::set<mw::Hash>& output_ids);
     
     mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_keyid) const;
@@ -64,6 +74,12 @@ public:
 private:
     std::vector<mw::Keychain::Ptr> GetAllKeychains() const;
     mw::Keychain::Ptr GetActiveKeychain() const;
+
+    std::optional<SenderKeyMatch> FindSenderKey(const PublicKey& sender_pubkey);
+    bool AdvanceNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t sender_key_index);
+    bool RewindOutputSentByMe(const mw::Output& output, mw::Coin& coin);
+    bool RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::Coin& coin) const;
+    bool UpgradeCoinSpendKey(mw::Coin& coin) const;
 
     void UpgradeCoins(const mw::Keychain::Ptr& keychain);
 };

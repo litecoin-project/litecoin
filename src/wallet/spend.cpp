@@ -267,6 +267,12 @@ CoinsResult AvailableCoins(const CWallet& wallet,
             }
 
             if (output_id.IsMWEB()) {
+                const bool spendable = (mine & ISMINE_SPENDABLE) != ISMINE_NO;
+                const bool solvable = spendable || (mine & ISMINE_WATCH_ONLY) != ISMINE_NO;
+                if (!spendable && only_spendable) {
+                    continue;
+                }
+
                 mw::Coin mweb_coin;
                 if (!wallet.GetCoin(output_id.ToMWEB(), mweb_coin)) {
                     continue;
@@ -277,7 +283,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
                     continue;
                 }
 
-                MWWalletUTXO mweb_utxo{mweb_coin, nDepth, address, tx_from_me, wtx.GetHash()};
+                MwebWalletUTXO mweb_utxo{mweb_coin, nDepth, address, spendable, solvable, tx_from_me, wtx.GetHash()};
                 result.Add(OutputType::MWEB, mweb_utxo);
             } else {
                 CTxOut txout = wtx.tx->GetOutput(output_id).GetTxOut();
@@ -411,7 +417,7 @@ std::map<CTxDestination, std::vector<GenericWalletUTXO>> ListCoins(const CWallet
                         if (wallet.GetCoin(output_id.ToMWEB(), coin) && coin.IsMine() && coin.HasSpendKey()) {
                             StealthAddress stealth_address;
                             wallet.GetMWWallet()->GetStealthAddress(coin, stealth_address);
-                            result[address].emplace_back(MWWalletUTXO{coin, depth, stealth_address, CachedTxIsFromMe(wallet, *wtx, ISMINE_ALL), wtx->GetHash()});
+                            result[address].emplace_back(MwebWalletUTXO{coin, depth, stealth_address, /*spendable=*/true, /*solvable=*/true, CachedTxIsFromMe(wallet, *wtx, ISMINE_ALL), wtx->GetHash()});
                         }
                     } else {
                         const CTxOut& txout = wtx->tx->vout[output_id.ToOutPoint().n];

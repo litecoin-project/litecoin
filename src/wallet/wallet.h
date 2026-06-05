@@ -898,6 +898,7 @@ public:
     bool ApplyMigrationData(MigrationData& data, bilingual_str& error) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     // MWEB: BEGIN
+    bool CompleteMWEBInputData(CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins = {}) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     bool GetCoin(const mw::Hash& output_id, mw::Coin& coin) const;
 
     CAmount GetValue(const CWalletTx& wtx, const GenericOutputID& output_id) const;

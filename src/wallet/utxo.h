@@ -106,15 +106,17 @@ public:
     }
 };
 
-struct MWWalletUTXO
+struct MwebWalletUTXO
 {
     mw::Coin coin;
     int depth;
     StealthAddress address;
+    bool spendable;
+    bool solvable;
     bool from_me;
     uint256 wtx_hash;
 
-    bool operator<(const MWWalletUTXO& rhs) const
+    bool operator<(const MwebWalletUTXO& rhs) const
     {
         return coin.output_id < rhs.coin.output_id;
     }
@@ -123,14 +125,14 @@ struct MWWalletUTXO
 struct GenericWalletUTXO
 {
     GenericWalletUTXO(const CWalletUTXO& out) : m_output(out) {}
-    GenericWalletUTXO(const MWWalletUTXO& out) : m_output(out) {}
+    GenericWalletUTXO(const MwebWalletUTXO& out) : m_output(out) {}
 
     bool operator<(const GenericWalletUTXO& rhs) const
     {
         return m_output < rhs.m_output;
     }
 
-    bool IsMWEB() const noexcept { return std::holds_alternative<MWWalletUTXO>(m_output); }
+    bool IsMWEB() const noexcept { return std::holds_alternative<MwebWalletUTXO>(m_output); }
 
     CWalletUTXO& GetLTC() noexcept
     {
@@ -138,21 +140,21 @@ struct GenericWalletUTXO
         return std::get<CWalletUTXO>(m_output);
     }
 
-    const MWWalletUTXO& GetMWEB() const noexcept
+    const MwebWalletUTXO& GetMWEB() const noexcept
     {
         assert(IsMWEB());
-        return std::get<MWWalletUTXO>(m_output);
+        return std::get<MwebWalletUTXO>(m_output);
     }
 
     bool IsSpendable() const
     {
-        if (IsMWEB()) return true;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).spendable;
         return std::get<CWalletUTXO>(m_output).spendable;
     }
 
     bool IsSolvable() const
     {
-        if (IsMWEB()) return true;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).solvable;
         return std::get<CWalletUTXO>(m_output).solvable;
     }
 
@@ -165,7 +167,7 @@ struct GenericWalletUTXO
     bool GetDestination(CTxDestination& dest) const
     {
         if (IsMWEB()) {
-            dest = std::get<MWWalletUTXO>(m_output).address;
+            dest = std::get<MwebWalletUTXO>(m_output).address;
             return true;
         } else {
             const CWalletUTXO& out = std::get<CWalletUTXO>(m_output);
@@ -175,7 +177,7 @@ struct GenericWalletUTXO
 
     GenericAddress GetAddress() const
     {
-        if (IsMWEB()) return std::get<MWWalletUTXO>(m_output).address;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).address;
 
         const CWalletUTXO& out = std::get<CWalletUTXO>(m_output);
         return out.txout.scriptPubKey;
@@ -183,7 +185,7 @@ struct GenericWalletUTXO
 
     CAmount GetValue() const
     {
-        if (IsMWEB()) return std::get<MWWalletUTXO>(m_output).coin.amount;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).coin.amount;
 
         const CWalletUTXO& out = std::get<CWalletUTXO>(m_output);
         return out.txout.nValue;
@@ -203,7 +205,7 @@ struct GenericWalletUTXO
 
     CAmount GetEffectiveValue() const
     {
-        if (IsMWEB()) return std::get<MWWalletUTXO>(m_output).coin.amount;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).coin.amount;
         return std::get<CWalletUTXO>(m_output).GetEffectiveValue();
     }
 
@@ -215,31 +217,31 @@ struct GenericWalletUTXO
 
     int GetDepth() const
     {
-        if (IsMWEB()) return std::get<MWWalletUTXO>(m_output).depth;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).depth;
         return std::get<CWalletUTXO>(m_output).depth;
     }
 
     bool IsFromMe() const
     {
-        if (IsMWEB()) return std::get<MWWalletUTXO>(m_output).from_me;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).from_me;
         return std::get<CWalletUTXO>(m_output).from_me;
     }
 
     const uint256& GetTxHash() const
     {
-        if (IsMWEB()) return std::get<MWWalletUTXO>(m_output).wtx_hash;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).wtx_hash;
         return std::get<CWalletUTXO>(m_output).outpoint.hash;
     }
 
     GenericOutputID GetID() const
     {
-        if (IsMWEB()) return std::get<MWWalletUTXO>(m_output).coin.output_id;
+        if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).coin.output_id;
 
         const CWalletUTXO& out = std::get<CWalletUTXO>(m_output);
         return out.outpoint;
     }
 
-    std::variant<CWalletUTXO, MWWalletUTXO> m_output;
+    std::variant<CWalletUTXO, MwebWalletUTXO> m_output;
 };
 
 }

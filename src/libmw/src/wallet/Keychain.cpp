@@ -28,8 +28,8 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
 
     // Check if B_i belongs to wallet
     StealthAddress address(B_i.Mul(m_scanSecret), B_i);
-    auto pMetadata = m_spk_man->GetMetadata(address);
-    if (!pMetadata) {
+    const std::optional<uint32_t> address_index = LookupAddressIndex(address);
+    if (!address_index) {
         return false;
     }
 
@@ -53,9 +53,7 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
         return false;
     }
 
-    // v0.21.2 incorrectly generated MWEB keys from the pre-split keypool for upgraded wallets.
-    // These keys will not have an mweb_index, so we set the address_index as CUSTOM_KEY.
-    coin.address_index = pMetadata->key_origin.hdkeypath.mweb_index.value_or(CUSTOM_KEY);
+    coin.address_index = *address_index;
     coin.blind = std::make_optional(mask.GetRawBlind());
     coin.amount = value;
     coin.output_id = output.GetOutputID();
@@ -78,8 +76,7 @@ std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::Coin& coin)
         return std::nullopt;
     }
 
-    // Watch-only or locked wallets will not have the spend secret.
-    if (!HasSpendSecret() || !coin.HasSharedSecret() || !coin.IsMine()) {
+    if (!coin.HasSharedSecret() || !coin.IsMine()) {
         return std::nullopt;
     }
 
@@ -89,19 +86,21 @@ std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::Coin& coin)
             .Total();
     };
 
-    // An address_index of CUSTOM_KEY means the spend key was not generated from the MWEB keychain.
-    // We should lookup the secret key in the wallet DB, instead of calculating by index.
-    if (coin.address_index == CUSTOM_KEY) {
-        if (!coin.HasAddress()) {
-            return std::nullopt;
-        }
-
+    if (coin.HasAddress()) {
         CKey key;
-        if (!m_spk_man->GetKey(coin.address->B().GetID(), key)) {
-            return std::nullopt;
+        if (m_spk_man->GetKey(coin.address->GetSpendPubKey().GetID(), key)) {
+            return derive_output_key(SecretKey(key.begin()), *coin.shared_secret);
         }
 
-        return derive_output_key(SecretKey(key.begin()), *coin.shared_secret);
+        const auto* desc_spk_man = dynamic_cast<const wallet::DescriptorScriptPubKeyMan*>(m_spk_man);
+        if (desc_spk_man && desc_spk_man->GetMWEBSpendKey(*coin.address, key)) {
+            return derive_output_key(SecretKey(key.begin()), *coin.shared_secret);
+        }
+    }
+
+    // Watch-only or locked wallets will not have the master spend secret.
+    if (!HasSpendSecret() || coin.address_index == CUSTOM_KEY) {
+        return std::nullopt;
     }
 
     return derive_output_key(GetSubaddressSpendKey(coin.address_index), *coin.shared_secret);
@@ -135,11 +134,30 @@ SecretKey Keychain::GetSubaddressSpendKey(const uint32_t index) const
 
 std::optional<uint32_t> Keychain::LookupAddressIndex(const StealthAddress& address) const
 {
+    const auto* desc_spk_man = dynamic_cast<const wallet::DescriptorScriptPubKeyMan*>(m_spk_man);
     auto pMetadata = m_spk_man->GetMetadata(address);
-    if (!pMetadata) {
-        return std::nullopt;
+    if (pMetadata) {
+        if (pMetadata->key_origin.hdkeypath.mweb_index.has_value()) {
+            return pMetadata->key_origin.hdkeypath.mweb_index.value();
+        }
+
+        if (desc_spk_man) {
+            const std::optional<uint32_t> address_index = desc_spk_man->GetMWEBAddressIndex(address);
+            if (address_index) {
+                return address_index;
+            }
+        }
+
+        // v0.21.2 incorrectly generated MWEB keys from the pre-split keypool for upgraded wallets.
+        // These keys will not have an mweb_index, so we set the address_index as CUSTOM_KEY.
+        return CUSTOM_KEY;
     }
-    return pMetadata->key_origin.hdkeypath.mweb_index.value_or(CUSTOM_KEY);
+
+    if (desc_spk_man) {
+        return desc_spk_man->GetMWEBAddressIndex(address);
+    }
+
+    return std::nullopt;
 }
 
 SecretKey Keychain::GetRewindKey() const

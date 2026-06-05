@@ -2317,6 +2317,10 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const 
             throw std::runtime_error(std::string(__func__) + ": Types are inconsistent");
         }
 
+        if (type == OutputType::MWEB && m_wallet_descriptor.next_index < 2) {
+            m_wallet_descriptor.next_index = 2;
+        }
+
         TopUp();
 
         // Get the scriptPubKey from the descriptor
@@ -2350,14 +2354,25 @@ isminetype DescriptorScriptPubKeyMan::IsMine(const GenericAddress& address) cons
     return ISMINE_NO;
 }
 
-bool DescriptorScriptPubKeyMan::HaveMWEBSpendSecret() const
+bool DescriptorScriptPubKeyMan::HaveMWEBSpendSecret(const StealthAddress& address) const
 {
     LOCK(cs_desc_man);
     const auto& out_type = m_wallet_descriptor.descriptor->GetOutputType();
     if (!out_type || *out_type != OutputType::MWEB) {
         return false;
     }
-    return !m_map_keys.empty() || !m_map_crypted_keys.empty();
+
+    if (m_mwebKeychain && m_mwebKeychain->HasSpendSecret()) {
+        return true;
+    }
+
+    const CKeyID subaddress_spend_keyid = address.GetSpendPubKey().GetID();
+    if (m_map_keys.count(subaddress_spend_keyid) > 0 || m_map_crypted_keys.count(subaddress_spend_keyid) > 0) {
+        return true;
+    }
+
+    CKey key;
+    return GetMWEBSpendKey(address, key);
 }
 
 bool DescriptorScriptPubKeyMan::CheckDecryptionKey(const CKeyingMaterial& master_key, bool accept_no_keys)
@@ -2705,6 +2720,33 @@ bool DescriptorScriptPubKeyMan::GetKey(const CKeyID& address, CKey& keyOut) cons
     if (it == keys.end()) return false;
     keyOut = it->second;
     return true;
+}
+
+bool DescriptorScriptPubKeyMan::GetMWEBSpendKey(const StealthAddress& address, CKey& keyOut) const
+{
+    std::unique_ptr<FlatSigningProvider> provider = GetSigningProvider(GenericAddress{address}, /*include_private=*/true);
+    if (!provider) {
+        return false;
+    }
+
+    return provider->GetKey(address.GetSpendPubKey().GetID(), keyOut);
+}
+
+std::optional<uint32_t> DescriptorScriptPubKeyMan::GetMWEBAddressIndex(const StealthAddress& address) const
+{
+    LOCK(cs_desc_man);
+
+    const std::optional<OutputType> desc_addr_type = m_wallet_descriptor.descriptor->GetOutputType();
+    if (!desc_addr_type || *desc_addr_type != OutputType::MWEB || !m_wallet_descriptor.descriptor->IsRange()) {
+        return std::nullopt;
+    }
+
+    const auto it = m_map_addresses.find(GenericAddress{address});
+    if (it == m_map_addresses.end() || it->second < 0) {
+        return std::nullopt;
+    }
+
+    return static_cast<uint32_t>(it->second);
 }
 
 std::optional<int64_t> DescriptorScriptPubKeyMan::GetOldestKeyPoolTime() const

@@ -696,9 +696,11 @@ public:
 
     bool HavePrivateKeys() const override;
 
-    bool HaveMWEBSpendSecret() const;
+    bool HaveMWEBSpendSecret(const StealthAddress& address) const;
 
     bool GetKey(const CKeyID& address, CKey& keyOut) const override;
+    bool GetMWEBSpendKey(const StealthAddress& address, CKey& keyOut) const;
+    std::optional<uint32_t> GetMWEBAddressIndex(const StealthAddress& address) const;
 
     std::optional<int64_t> GetOldestKeyPoolTime() const override;
     unsigned int GetKeyPoolSize() const override;

@@ -40,6 +40,9 @@ class MwebWatchOnlyTest(LitecoinTestFramework):
         assert all(item.get('success') for item in res)
 
         print(watch_wallet.getaddressinfo(watch_mweb_addr))
+        self.log.info('Imported MWEB watch-only descriptor should not match sibling MWEB outputs')
+        assert_equal(watch_wallet.getbalance(), 0)
+        assert_equal(len(watch_wallet.listtransactions()), 0)
 
         # send 1 ltc to our watch-only address
         txid = def_wallet.sendtoaddress(watch_mweb_addr, 1)

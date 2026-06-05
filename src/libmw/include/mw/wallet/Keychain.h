@@ -37,9 +37,9 @@ public:
     bool RewindOutput(const mw::Output& output, mw::Coin& coin) const;
 
     // Calculates the output secret key for the given coin.
-    // If the address index is known, it calculates from the keychain's master spend key.
-    // If not, it attempts to lookup the spend key in the database.
-    // Returns boost::empty when keychain is locked or watch-only.
+    // If the address is known, it first attempts to lookup the subaddress spend key in the wallet DB.
+    // Otherwise, if the address index is known, it calculates from the keychain's master spend key.
+    // Returns std::nullopt when the required private key is unavailable.
     std::optional<SecretKey> CalculateOutputSpendKey(const mw::Coin& coin) const;
 
     // Calculates the StealthAddress at the given index.

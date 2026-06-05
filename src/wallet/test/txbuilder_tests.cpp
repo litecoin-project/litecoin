@@ -3,6 +3,9 @@
 // file COPYING or https://www.opensource.org/licenses/mit-license.php.
 
 #include <key_io.h>
+#include <mw/models/tx/Output.h>
+#include <mw/models/wallet/Coin.h>
+#include <mw/models/wallet/StealthAddress.h>
 #include <validation.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/txbuilder.h>
@@ -120,7 +123,17 @@ public:
     {
         LOCK(m_wallet.cs_wallet);
         auto coins = AvailableCoins(m_wallet).coins;
-        return coins[type];
+        std::vector<GenericWalletUTXO> coins_by_type = coins[type];
+        if (type == OutputType::MWEB) {
+            coins_by_type.erase(
+                std::remove_if(
+                    coins_by_type.begin(), coins_by_type.end(),
+                    [](const GenericWalletUTXO& coin) { return coin.GetMWEB().coin.IsChange(); }
+                ),
+                coins_by_type.end()
+            );
+        }
+        return coins_by_type;
     }
 
     std::vector<GenericWalletUTXO> AvailableLTCCoins()
@@ -139,6 +152,16 @@ public:
     {
         auto dest = m_wallet.GetNewDestination(type, "");
         BOOST_REQUIRE(dest);
+        if (type == OutputType::MWEB) {
+            // Coin::IsChange still treats address_index 0 as change, so don't
+            // hand that descriptor address out as a test recipient.
+            const mw::Keychain::Ptr keychain = ActiveMWEBKeychain();
+            while (std::holds_alternative<StealthAddress>(*dest) &&
+                   keychain->LookupAddressIndex(std::get<StealthAddress>(*dest)) == mw::CHANGE_INDEX) {
+                dest = m_wallet.GetNewDestination(type, "");
+                BOOST_REQUIRE(dest);
+            }
+        }
         return *dest;
     }
 
@@ -149,6 +172,27 @@ public:
         mw::Keychain::Ptr keychain = spk_man->GetMWEBKeychain();
         BOOST_REQUIRE(keychain);
         return keychain;
+    }
+
+    MWEB::Wallet& MWEBWallet() const
+    {
+        return *m_wallet.GetMWWallet();
+    }
+
+    mw::Coin GetMWEBWalletCoin(const mw::Hash& output_id)
+    {
+        LOCK(m_wallet.cs_wallet);
+        mw::Coin coin;
+        BOOST_REQUIRE(m_wallet.GetCoin(output_id, coin));
+        return coin;
+    }
+
+    CTxDestination ExtractDestinationForOutput(const CWalletTx& wtx, const mw::Hash& output_id)
+    {
+        LOCK(m_wallet.cs_wallet);
+        CTxDestination dest;
+        BOOST_REQUIRE(m_wallet.ExtractOutputDestination(wtx, GenericOutputID{output_id}, dest));
+        return dest;
     }
 
     bool SignWithWallet(CMutableTransaction& tx)
@@ -200,9 +244,17 @@ public:
     {
         LOCK(m_wallet.cs_wallet);
         auto coins = AvailableCoins(m_wallet).coins;
+        std::vector<GenericWalletUTXO> mweb_coins = coins[OutputType::MWEB];
+        mweb_coins.erase(
+            std::remove_if(
+                mweb_coins.begin(), mweb_coins.end(),
+                [](const GenericWalletUTXO& coin) { return coin.GetMWEB().coin.IsChange(); }
+            ),
+            mweb_coins.end()
+        );
         auto fn = [](const GenericWalletUTXO& utxo) { return utxo.GetValue(); };
         ExpectAmounts(coins[OutputType::BECH32], fn, ltc, true);
-        ExpectAmounts(coins[OutputType::MWEB], fn, mweb, true);
+        ExpectAmounts(mweb_coins, fn, mweb, true);
     }
 
     GenericWalletUTXO SmallestCoin(const std::vector<GenericWalletUTXO>& coins)
@@ -241,7 +293,7 @@ public:
             BOOST_CHECK(GenericAddress(*mweb_outputs[0].address) == mweb_addr);
             if (mweb_change) BOOST_CHECK(GenericAddress(*mweb_outputs[1].address) == mweb_change);
 
-            ExpectCoins({}, {5 * COIN, 75 * COIN/10});
+            ExpectCoins({}, mweb_change ? std::vector<CAmount>{5 * COIN, 75 * COIN/10} : std::vector<CAmount>{5 * COIN});
         }
 
         {   // LTC to LTC
@@ -255,12 +307,12 @@ public:
             BOOST_CHECK(GenericAddress(mtx.vout[0].scriptPubKey) == ltc_addr);
             if (ltc_change) BOOST_CHECK(GenericAddress(mtx.vout[1].scriptPubKey) == ltc_change);
 
-            ExpectCoins({2 * COIN, 105 * COIN/10}, {5 * COIN, 75 * COIN/10});
+            ExpectCoins({2 * COIN, 105 * COIN/10}, mweb_change ? std::vector<CAmount>{5 * COIN, 75 * COIN/10} : std::vector<CAmount>{5 * COIN});
         }
 
         {   // MWEB to MWEB
             auto mweb_addr = NewDestination(OutputType::MWEB);
-            auto [wtx, mtx] = AddTx({{mweb_addr, 2 * COIN, fSubtractFeeFromAmount}}, {}, mweb_change);
+            auto [wtx, mtx] = AddTx({{mweb_addr, 2 * COIN, fSubtractFeeFromAmount}}, {SmallestCoin(AvailableCoinsByType(OutputType::MWEB))}, mweb_change);
 
             ExpectInputs(*wtx, 0, 1);
             ExpectOutputs(*wtx, 0, 2);
@@ -270,13 +322,13 @@ public:
             BOOST_CHECK(GenericAddress(*mweb_outputs[0].address) == mweb_addr);
             if (mweb_change) BOOST_CHECK(GenericAddress(*mweb_outputs[1].address) == mweb_change);
 
-            ExpectCoins({2 * COIN, 105 * COIN/10}, {2 * COIN, 3 * COIN, 75 * COIN/10});
+            ExpectCoins({2 * COIN, 105 * COIN/10}, mweb_change ? std::vector<CAmount>{2 * COIN, 3 * COIN, 75 * COIN/10} : std::vector<CAmount>{2 * COIN});
         }
 
         {   // Pegout
             LOCK(m_wallet.cs_wallet);
             auto ltc_addr = NewDestination(OutputType::BECH32);
-            auto [wtx, mtx] = AddTx({{ltc_addr, 1 * COIN, fSubtractFeeFromAmount}}, {SmallestCoin(AvailableCoins(m_wallet).coins[OutputType::MWEB])}, mweb_change);
+            auto [wtx, mtx] = AddTx({{ltc_addr, 1 * COIN, fSubtractFeeFromAmount}}, {SmallestCoin(AvailableCoinsByType(OutputType::MWEB))}, mweb_change);
 
             ExpectInputs(*wtx, 0, 1);
             ExpectOutputs(*wtx, 0, 1);
@@ -290,14 +342,13 @@ public:
             BOOST_CHECK(GenericAddress(pegouts[0].GetScriptPubKey()) == ltc_addr);
 
             mineBlocks(PEGOUT_MATURITY);
-            ExpectCoins({1 * COIN, 2 * COIN, 105 * COIN/10}, {1 * COIN, 3 * COIN, 75 * COIN/10});
+            ExpectCoins({1 * COIN, 2 * COIN, 105 * COIN/10}, mweb_change ? std::vector<CAmount>{1 * COIN, 3 * COIN, 75 * COIN/10} : std::vector<CAmount>{});
         }
 
-        {   // Pegin & Pegout
+        if (mweb_change) {   // Pegin & Pegout
             LOCK(m_wallet.cs_wallet);
-            auto coins = AvailableCoins(m_wallet).coins;
             auto ltc_addr = NewDestination(OutputType::BECH32);
-            auto [wtx, mtx] = AddTx({{ltc_addr, 5 * COIN/10, fSubtractFeeFromAmount}}, {SmallestCoin(coins[OutputType::BECH32]), SmallestCoin(coins[OutputType::MWEB])}, mweb_change);
+            auto [wtx, mtx] = AddTx({{ltc_addr, 5 * COIN/10, fSubtractFeeFromAmount}}, {SmallestCoin(AvailableCoinsByType(OutputType::BECH32)), SmallestCoin(AvailableCoinsByType(OutputType::MWEB))}, mweb_change);
 
             ExpectInputs(*wtx, 1, 1);
             ExpectOutputs(*wtx, 1, 1); // LTC pegin output and MWEB change output
@@ -350,7 +401,7 @@ public:
             BOOST_CHECK(GenericAddress(*mweb_outputs[1].address) == mweb_addr2);
             if (mweb_change) BOOST_CHECK(GenericAddress(*mweb_outputs[2].address) == mweb_change);
 
-            ExpectCoins({}, {2 * COIN, 3 * COIN, 75 * COIN/10});
+            ExpectCoins({}, mweb_change ? std::vector<CAmount>{2 * COIN, 3 * COIN, 75 * COIN/10} : std::vector<CAmount>{2 * COIN, 3 * COIN});
         }
 
         {   // LTC to LTC
@@ -369,10 +420,10 @@ public:
             BOOST_CHECK(GenericAddress(mtx.vout[1].scriptPubKey) == ltc_addr2);
             if (ltc_change) BOOST_CHECK(GenericAddress(mtx.vout[2].scriptPubKey) == ltc_change);
 
-            ExpectCoins({2 * COIN, 3 * COIN, 75 * COIN/10}, {2 * COIN, 3 * COIN, 75 * COIN/10});
+            ExpectCoins({2 * COIN, 3 * COIN, 75 * COIN/10}, mweb_change ? std::vector<CAmount>{2 * COIN, 3 * COIN, 75 * COIN/10} : std::vector<CAmount>{2 * COIN, 3 * COIN});
         }
 
-        {   // MWEB to MWEB
+        if (mweb_change) {   // MWEB to MWEB
             auto mweb_addr1 = NewDestination(OutputType::MWEB);
             auto mweb_addr2 = NewDestination(OutputType::MWEB);
             auto [wtx, mtx] = AddTx({
@@ -389,7 +440,7 @@ public:
             BOOST_CHECK(GenericAddress(*mweb_outputs[1].address) == mweb_addr2);
             if (mweb_change) BOOST_CHECK(GenericAddress(*mweb_outputs[2].address) == mweb_change);
 
-            ExpectCoins({2 * COIN, 3 * COIN, 75 * COIN/10}, {2 * COIN, 2 * COIN, 3 * COIN, 3 * COIN, 25 * COIN/10});
+            ExpectCoins({2 * COIN, 3 * COIN, 75 * COIN/10}, mweb_change ? std::vector<CAmount>{2 * COIN, 2 * COIN, 3 * COIN, 3 * COIN, 25 * COIN/10} : std::vector<CAmount>{2 * COIN, 3 * COIN});
         }
 
         // Pegout to multiple recipients currently disallowed
@@ -397,31 +448,6 @@ public:
 };
 
 BOOST_FIXTURE_TEST_SUITE(txbuilder_tests, TxBuilderTestingSetup)
-
-BOOST_AUTO_TEST_CASE(MWEBSenderKeysUseScanDerivedSequence)
-{
-    const mw::Keychain::Ptr keychain = ActiveMWEBKeychain();
-    std::vector<CRecipient> recipients{
-        {NewDestination(OutputType::MWEB), 1 * COIN, false},
-        {NewDestination(OutputType::MWEB), 2 * COIN, false},
-    };
-
-    auto tx_result = BuildTx(recipients, std::nullopt, true);
-    BOOST_REQUIRE(tx_result);
-    BOOST_REQUIRE_GE(tx_result->tx.mweb_tx.outputs.size(), recipients.size());
-
-    std::set<PublicKey> expected_sender_pubkeys;
-    for (size_t i = 0; i < tx_result->tx.mweb_tx.outputs.size(); ++i) {
-        expected_sender_pubkeys.insert(PublicKey::From(keychain->GetSenderKey(i)));
-    }
-
-    for (const mw::MutableOutput& output : tx_result->tx.mweb_tx.outputs) {
-        BOOST_REQUIRE(output.sender_pubkey.has_value());
-        BOOST_CHECK_EQUAL(expected_sender_pubkeys.erase(*output.sender_pubkey), 1U);
-    }
-
-    BOOST_CHECK(expected_sender_pubkeys.empty());
-}
 
 BOOST_AUTO_TEST_CASE(SingleRecipientBasicTest)
 {
@@ -492,6 +518,30 @@ BOOST_AUTO_TEST_CASE(MWEBChangePositionTracksChangeWhenAddressMatchesRecipient)
     BOOST_CHECK(sorted_output_ids[tx_result->change_pos.ToMWEB().idx] == change_output_id);
 }
 
+BOOST_AUTO_TEST_CASE(MWEBSentExternalOutputKeepsRecipientAddress)
+{
+    const StealthAddress recipient_addr = StealthAddress::Random();
+    auto [wtx, mtx] = AddTx({{recipient_addr, 5 * COIN, false}}, {}, std::nullopt);
+
+    const auto recipient_output = std::find_if(
+        mtx.mweb_tx.outputs.cbegin(), mtx.mweb_tx.outputs.cend(),
+        [&](const mw::MutableOutput& output) {
+            return output.address.has_value() && *output.address == recipient_addr;
+        }
+    );
+    BOOST_REQUIRE(recipient_output != mtx.mweb_tx.outputs.cend());
+
+    const std::optional<mw::Hash> output_id = recipient_output->CalcOutputID();
+    BOOST_REQUIRE(output_id.has_value());
+
+    const mw::Coin coin = GetMWEBWalletCoin(*output_id);
+    BOOST_REQUIRE(coin.address.has_value());
+    BOOST_CHECK(*coin.address == recipient_addr);
+
+    const CTxDestination extracted_dest = ExtractDestinationForOutput(*wtx, *output_id);
+    BOOST_CHECK(extracted_dest == CTxDestination{recipient_addr});
+}
+
 BOOST_AUTO_TEST_CASE(WalletSignTransactionFinalizesPureMWEBSpend)
 {
     const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
@@ -544,6 +594,63 @@ BOOST_AUTO_TEST_CASE(MixedPeginSubtractFeeRefreshesPegInAmount)
     BOOST_CHECK_EQUAL(tx.vout.back().nValue, pegin_amount);
     BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == recipient_addr);
     BOOST_CHECK_EQUAL(mweb_coin.GetValue() + pegin_amount, recipient_amount + mweb_fee);
+}
+
+BOOST_AUTO_TEST_CASE(MWEBSenderKeysUseScanDerivedSequence)
+{
+    const mw::Keychain::Ptr keychain = ActiveMWEBKeychain();
+    std::vector<CRecipient> recipients{
+        {NewDestination(OutputType::MWEB), 1 * COIN, false},
+        {NewDestination(OutputType::MWEB), 2 * COIN, false},
+    };
+
+    auto tx_result = BuildTx(recipients, std::nullopt, true);
+    BOOST_REQUIRE(tx_result);
+    BOOST_REQUIRE_GE(tx_result->tx.mweb_tx.outputs.size(), recipients.size());
+
+    std::set<PublicKey> expected_sender_pubkeys;
+    for (size_t i = 0; i < tx_result->tx.mweb_tx.outputs.size(); ++i) {
+        expected_sender_pubkeys.insert(PublicKey::From(keychain->GetSenderKey(i)));
+    }
+
+    for (const mw::MutableOutput& output : tx_result->tx.mweb_tx.outputs) {
+        BOOST_REQUIRE(output.sender_pubkey.has_value());
+        BOOST_CHECK_EQUAL(expected_sender_pubkeys.erase(*output.sender_pubkey), 1U);
+    }
+
+    BOOST_CHECK(expected_sender_pubkeys.empty());
+}
+
+BOOST_AUTO_TEST_CASE(MWEBSenderKeyScanAdvancesNextIndex)
+{
+    const mw::Keychain::Ptr keychain = ActiveMWEBKeychain();
+    static constexpr uint64_t SENDER_INDEX{5};
+    static constexpr CAmount OUTPUT_AMOUNT{12345};
+
+    mw::Output output = mw::Output::Create(
+        nullptr,
+        keychain->GetSenderKey(SENDER_INDEX),
+        keychain->GetRewindKey(),
+        StealthAddress::Random(),
+        OUTPUT_AMOUNT
+    );
+
+    mw::Coin coin;
+    BOOST_CHECK(!MWEBWallet().RewindOutput(output, coin));
+    BOOST_CHECK(!coin.IsMine());
+    BOOST_REQUIRE(coin.sender_key.has_value());
+    BOOST_CHECK(*coin.sender_key == keychain->GetSenderKey(SENDER_INDEX));
+    BOOST_CHECK_EQUAL(coin.amount, OUTPUT_AMOUNT);
+    BOOST_REQUIRE(coin.blind.has_value());
+    BOOST_REQUIRE(coin.shared_secret.has_value());
+
+    mw::Coin stored_coin;
+    BOOST_REQUIRE(MWEBWallet().GetCoin(output.GetOutputID(), stored_coin));
+    BOOST_CHECK(stored_coin == coin);
+
+    util::Result<SecretKey> next_sender_key = MWEBWallet().GenerateSenderKey();
+    BOOST_REQUIRE(next_sender_key);
+    BOOST_CHECK(next_sender_key.value() == keychain->GetSenderKey(SENDER_INDEX + 1));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

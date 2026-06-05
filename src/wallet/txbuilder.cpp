@@ -16,6 +16,7 @@
 #include <wallet/wallet.h>
 
 #include <algorithm>
+#include <map>
 
 namespace wallet {
 
@@ -42,6 +43,22 @@ std::optional<size_t> FindSortedMWEBOutputIndex(const std::vector<mw::MutableOut
     }
 
     return static_cast<size_t>(std::distance(output_ids.cbegin(), output_iter));
+}
+
+std::map<mw::Hash, StealthAddress> GetMWEBOutputAddresses(const mw::MutableTx& tx)
+{
+    std::map<mw::Hash, StealthAddress> addresses;
+    for (const mw::MutableOutput& output : tx.outputs) {
+        if (!output.address.has_value()) {
+            continue;
+        }
+
+        const std::optional<mw::Hash> output_id = output.CalcOutputID();
+        if (output_id.has_value()) {
+            addresses[*output_id] = *output.address;
+        }
+    }
+    return addresses;
 }
 
 } // namespace
@@ -353,7 +370,12 @@ std::optional<util::Error> TxBuilder::AddChangeOutput(const SelectionResult& sel
     if (change_amount > 0) {
         m_change.amount = change_amount;
         if (ChangeBuilder::ChangeBelongsOnMWEB(GetTxType(), m_coin_control.destChange)) {
-            if (!m_change.script_or_address.IsMWEB()) {
+            if (std::holds_alternative<CNoDestination>(m_coin_control.destChange)) {
+                // TODO: Use a reserved MWEB change address once the wallet has a
+                // real MWEB internal/change keypool and can persist change
+                // metadata for non-CHANGE_INDEX outputs.
+                m_change.reserve_dest.reset();
+
                 StealthAddress change_address;
                 if (!m_wallet.GetMWWallet()->GetStealthAddress(mw::CHANGE_INDEX, change_address)) {
                     return util::Error{_("Failed to retrieve change stealth address")};
@@ -557,6 +579,10 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
         return std::nullopt;
     }
 
+    if (!m_wallet.CompleteMWEBInputData(m_tx)) {
+        return util::Error{_("Failed to prepare MWEB inputs for signing")};
+    }
+
     SecretKey rewind_key = SecretKey::Random();
     mw::SenderKeyGenerator generate_sender_key = []() -> util::Result<SecretKey> {
         return SecretKey::Random();
@@ -599,6 +625,7 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
     if (!sign_tx_result->coins_by_output_id.empty()) {
         m_wallet.GetMWWallet()->StageCoins(sign_tx_result->coins_by_output_id);
     }
+    m_wallet.GetMWWallet()->StageOutputAddresses(GetMWEBOutputAddresses(m_tx.mweb_tx));
 
     return std::nullopt;
 }

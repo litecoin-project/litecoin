@@ -1732,7 +1732,7 @@ static bool MWEBHaveSpendSecret(const CWallet& wallet, const mw::Coin& coin) EXC
     const GenericAddress address{*coin.address};
     for (const auto* spk_man : wallet.GetScriptPubKeyMans(address)) {
         const auto* desc_spk_man = dynamic_cast<const DescriptorScriptPubKeyMan*>(spk_man);
-        if (desc_spk_man && desc_spk_man->HaveMWEBSpendSecret()) {
+        if (desc_spk_man && desc_spk_man->HaveMWEBSpendSecret(*coin.address)) {
             return true;
         }
     }
@@ -2623,7 +2623,23 @@ static mw::SenderKeyGenerator GetMWEBSenderKeyGeneratorForSigning(const CWallet&
     };
 }
 
-static bool SignMWEBTransaction(const CWallet& wallet, CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins)
+static std::map<mw::Hash, StealthAddress> GetMWEBOutputAddresses(const mw::MutableTx& tx)
+{
+    std::map<mw::Hash, StealthAddress> addresses;
+    for (const mw::MutableOutput& output : tx.outputs) {
+        if (!output.address.has_value()) {
+            continue;
+        }
+
+        const std::optional<mw::Hash> output_id = output.CalcOutputID();
+        if (output_id.has_value()) {
+            addresses[*output_id] = *output.address;
+        }
+    }
+    return addresses;
+}
+
+bool CWallet::CompleteMWEBInputData(CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins) const
 {
     if (tx.mweb_tx.IsNull() || tx.mweb_tx.IsFinal()) {
         return true;
@@ -2637,17 +2653,40 @@ static bool SignMWEBTransaction(const CWallet& wallet, CMutableTransaction& tx, 
         const auto coin_it = coins.find(input.output_id);
         if (coin_it != coins.end() && coin_it->second.IsMWEB() && !coin_it->second.IsNull()) {
             MergeMissingMWEBInputData(input, mw::MutableInput::FromOutput(coin_it->second.ToMWEB()->GetOutput()));
+        } else {
+            const GenericOutputID input_id{input.output_id};
+            const CWalletTx* wtx = FindWalletTx(input_id);
+            if (wtx != nullptr && wtx->tx->HasOutput(input_id)) {
+                const GenericOutput prev_output = wtx->tx->GetOutput(input_id);
+                if (!prev_output.IsMWEB()) {
+                    return false;
+                }
+                MergeMissingMWEBInputData(input, mw::MutableInput::FromOutput(prev_output.ToMWEBOutput()));
+            }
         }
 
         mw::Coin wallet_coin;
-        if (!wallet.GetCoin(input.output_id, wallet_coin) || !wallet_coin.IsMine()) {
+        if (!GetCoin(input.output_id, wallet_coin) || !wallet_coin.IsMine()) {
             continue;
         }
 
         MergeMissingMWEBInputData(input, mw::MutableInput::FromCoin(wallet_coin));
         if (!input.spend_key.has_value()) {
-            input.spend_key = DeriveMWEBSpendKey(wallet, wallet_coin, input);
+            input.spend_key = DeriveMWEBSpendKey(*this, wallet_coin, input);
         }
+    }
+
+    return true;
+}
+
+static bool SignMWEBTransaction(const CWallet& wallet, CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins)
+{
+    if (!wallet.CompleteMWEBInputData(tx, coins)) {
+        return false;
+    }
+
+    if (tx.mweb_tx.IsNull() || tx.mweb_tx.IsFinal()) {
+        return true;
     }
 
     util::Result<mw::SignTxResult> mweb_result = mw::SignTx(tx, GetMWEBRewindKeyForSigning(wallet), GetMWEBSenderKeyGeneratorForSigning(wallet));
@@ -2659,6 +2698,7 @@ static bool SignMWEBTransaction(const CWallet& wallet, CMutableTransaction& tx, 
     if (!mweb_result->coins_by_output_id.empty()) {
         wallet.GetMWWallet()->StageCoins(mweb_result->coins_by_output_id);
     }
+    wallet.GetMWWallet()->StageOutputAddresses(GetMWEBOutputAddresses(tx.mweb_tx));
 
     return tx.mweb_tx.IsFinal();
 }
@@ -2851,7 +2891,7 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
         }
     }
 
-    if (sign) {
+    if (sign && psbtx.ContainsMWEBComponents()) {
         util::Result<std::map<mw::Hash, mw::Coin>> coins_by_output_id = PSBTSignMWEBTx(psbtx, mweb_spend_keys, GetMWEBRewindKeyForSigning(*this), GetMWEBSenderKeyGeneratorForSigning(*this));
         if (!coins_by_output_id) {
             WalletLogPrintf("FillPSBT: PSBTSignMWEBTx failed, %s\n", util::ErrorString(coins_by_output_id).original);
@@ -2859,6 +2899,10 @@ TransactionError CWallet::FillPSBT(PartiallySignedTransaction& psbtx, bool& comp
         }
 
         if (!coins_by_output_id->empty()) {
+            if (!mweb_wallet) {
+                WalletLogPrintf("FillPSBT: MWEB wallet is unavailable for staged MWEB coins\n");
+                return TransactionError::INVALID_PSBT;
+            }
             mweb_wallet->StageCoins(*coins_by_output_id);
         }
     }
@@ -5049,6 +5093,12 @@ const CWalletTx* CWallet::FindWalletTxByKernelId(const mw::Hash& kernel_id) cons
         }
     }
 
+    for (const auto& [_, wtx] : mapWallet) {
+        if (!wtx.IsPartialMWEB() && wtx.tx->mweb_tx.GetKernelIDs().count(kernel_id) > 0) {
+            return &wtx;
+        }
+    }
+
     return nullptr;
 }
 
@@ -5056,13 +5106,25 @@ const CWalletTx* CWallet::FindWalletTx(const GenericOutputID& output_id) const
 {
     LOCK(cs_wallet);
     if (output_id.IsMWEB()) {
+        const CWalletTx* partial_wtx = nullptr;
         auto output_iter = mapOutputsMWEB.find(output_id.ToMWEB());
         if (output_iter != mapOutputsMWEB.end()) {
             auto tx_iter = mapWallet.find(output_iter->second);
             if (tx_iter != mapWallet.end()) {
-                return &tx_iter->second;
+                if (!tx_iter->second.IsPartialMWEB()) {
+                    return &tx_iter->second;
+                }
+                partial_wtx = &tx_iter->second;
             }
         }
+
+        for (const auto& [_, wtx] : mapWallet) {
+            if (!wtx.IsPartialMWEB() && wtx.tx->HasOutput(output_id)) {
+                return &wtx;
+            }
+        }
+
+        return partial_wtx;
     } else {
         auto tx_iter = mapWallet.find(output_id.ToOutPoint().hash);
         if (tx_iter != mapWallet.end()) {
