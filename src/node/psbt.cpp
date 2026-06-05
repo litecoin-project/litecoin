@@ -13,6 +13,114 @@
 #include <numeric>
 
 namespace node {
+namespace {
+bool MWEBInputComplete(const PSBTInput& input)
+{
+    if (!input.mweb_sig || !input.mweb_features || !input.mweb_output_commit || !input.mweb_output_pubkey) {
+        return false;
+    }
+
+    const uint8_t features = *input.mweb_features;
+    if (features & mw::Input::STEALTH_KEY_FEATURE_BIT && !input.mweb_input_pubkey) {
+        return false;
+    }
+    if (features & mw::Input::EXTRA_DATA_FEATURE_BIT && input.mweb_extra_data.empty()) {
+        return false;
+    }
+
+    return true;
+}
+
+bool MWEBOutputComplete(const PSBTOutput& output)
+{
+    if (!output.mweb_commit || !output.mweb_features || !output.mweb_sender_pubkey || !output.mweb_output_pubkey || !output.mweb_rangeproof || !output.mweb_sig) {
+        return false;
+    }
+
+    const uint8_t features = *output.mweb_features;
+    if (features & mw::OutputMessage::STANDARD_FIELDS_FEATURE_BIT && !output.mweb_standard_fields) {
+        return false;
+    }
+    if (features & mw::OutputMessage::EXTRA_DATA_FEATURE_BIT && output.mweb_extra_data.empty()) {
+        return false;
+    }
+
+    return true;
+}
+
+bool MWEBKernelComplete(const PSBTKernel& kernel)
+{
+    if (!kernel.commit || !kernel.features || !kernel.sig) {
+        return false;
+    }
+
+    const uint8_t features = *kernel.features;
+    if (features & mw::Kernel::FEE_FEATURE_BIT && !kernel.fee) {
+        return false;
+    }
+    if (features & mw::Kernel::PEGIN_FEATURE_BIT && !kernel.pegin_amount) {
+        return false;
+    }
+    if (features & mw::Kernel::PEGOUT_FEATURE_BIT && kernel.pegouts.empty()) {
+        return false;
+    }
+    if (features & mw::Kernel::HEIGHT_LOCK_FEATURE_BIT && !kernel.lock_height) {
+        return false;
+    }
+    if (features & mw::Kernel::STEALTH_EXCESS_FEATURE_BIT && !kernel.stealth_commit) {
+        return false;
+    }
+    if (features & mw::Kernel::EXTRA_DATA_FEATURE_BIT && kernel.extra_data.empty()) {
+        return false;
+    }
+
+    return true;
+}
+
+std::optional<PSBTRole> GetMWEBNextRole(const PartiallySignedTransaction& psbtx)
+{
+    if (!psbtx.ContainsMWEBComponents()) {
+        return std::nullopt;
+    }
+
+    bool has_mweb_tx_component{false};
+    bool has_mweb_kernel{false};
+    for (const PSBTInput& input : psbtx.inputs) {
+        if (!input.IsMWEB()) {
+            continue;
+        }
+        has_mweb_tx_component = true;
+        if (!MWEBInputComplete(input)) {
+            return PSBTRole::SIGNER;
+        }
+    }
+
+    for (const PSBTOutput& output : psbtx.outputs) {
+        if (!output.IsMWEB()) {
+            continue;
+        }
+        has_mweb_tx_component = true;
+        if (!MWEBOutputComplete(output)) {
+            return PSBTRole::SIGNER;
+        }
+    }
+
+    for (const PSBTKernel& kernel : psbtx.kernels) {
+        has_mweb_tx_component = true;
+        has_mweb_kernel = true;
+        if (!MWEBKernelComplete(kernel)) {
+            return PSBTRole::SIGNER;
+        }
+    }
+
+    if (!has_mweb_tx_component || !has_mweb_kernel || !psbtx.mweb_tx_offset || !psbtx.mweb_stealth_offset) {
+        return PSBTRole::SIGNER;
+    }
+
+    return PSBTRole::EXTRACTOR;
+}
+} // namespace
+
 PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
 {
     // Go through each input and build status
@@ -24,11 +132,7 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
 
     result.inputs.resize(psbtx.inputs.size());
 
-    // Determine the next role for the MWEB portion of the transaction
-    CMutableTransaction mutable_tx(psbtx.GetUnsignedTx());
-    if (!mutable_tx.mweb_tx.IsNull()) {
-        result.mweb_next = mutable_tx.mweb_tx.IsFinal() ? PSBTRole::EXTRACTOR : PSBTRole::SIGNER;
-    }
+    const std::optional<PSBTRole> mweb_role = GetMWEBNextRole(psbtx);
 
     const PrecomputedTransactionData txdata = PrecomputePSBTData(psbtx);
 
@@ -36,16 +140,17 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
         PSBTInput& input = psbtx.inputs[i];
         PSBTInputAnalysis& input_analysis = result.inputs[i];
 
-        // We currently only support signing all MWEB transactions at once, so next role for MWEB inputs will match mweb_next
+        // We currently only support signing all MWEB transactions at once, so MWEB inputs share the MWEB component role.
         if (input.IsMWEB()) {
+            assert(mweb_role.has_value());
             if (!input.mweb_amount.has_value() || !MoneyRange(*input.mweb_amount) || !MoneyRange(in_amt + (*input.mweb_amount))) {
                 result.SetInvalid(strprintf("PSBT is not valid. Input %u has invalid value", i));
                 return result;
             }
             in_amt += *input.mweb_amount;
             input_analysis.has_utxo = false;
-            input_analysis.is_final = (result.mweb_next == PSBTRole::EXTRACTOR);
-            input_analysis.next = *result.mweb_next;
+            input_analysis.is_final = (*mweb_role == PSBTRole::EXTRACTOR);
+            input_analysis.next = *mweb_role;
             continue;
         }
 
@@ -114,6 +219,9 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
         PSBTInputAnalysis& input_analysis = result.inputs[i];
         result.next = std::min(result.next, input_analysis.next);
     }
+    if (mweb_role.has_value()) {
+        result.next = std::min(result.next, *mweb_role);
+    }
     assert(result.next > PSBTRole::CREATOR);
 
     if (calc_fee) {
@@ -129,6 +237,27 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
 
         if (!MoneyRange(out_amt)) {
             result.SetInvalid("PSBT is not valid. Output amount invalid");
+            return result;
+        }
+
+        // Include pegin amounts.
+        CAmount pegin_amt = std::accumulate(psbtx.kernels.begin(), psbtx.kernels.end(), CAmount(0),
+            [](CAmount a, const PSBTKernel& b) {
+                if (!MoneyRange(a)) {
+                    return CAmount(-1);
+                }
+                if (b.pegin_amount.has_value()) {
+                    if (!MoneyRange(*b.pegin_amount) || !MoneyRange(a + *b.pegin_amount)) {
+                        return CAmount(-1);
+                    }
+                    a += *b.pegin_amount;
+                }
+                return a;
+            }
+        );
+
+        if (!MoneyRange(pegin_amt) || !MoneyRange(in_amt + pegin_amt)) {
+            result.SetInvalid("PSBT is not valid. Pegin amount invalid");
             return result;
         }
 
@@ -151,7 +280,7 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
         }
 
         // Get the fee
-        CAmount fee = in_amt - (out_amt + pegout_amt);
+        CAmount fee = (in_amt + pegin_amt) - (out_amt + pegout_amt);
         result.fee = fee;
 
         // Estimate the size

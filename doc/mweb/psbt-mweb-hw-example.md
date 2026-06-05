@@ -247,8 +247,8 @@ Use `analyzepsbt` for role status:
 litecoin-cli analyzepsbt "$PSBT"
 ```
 
-The MWEB portion should report `mweb_next: "signer"` until all MWEB input,
-output, kernel, and offset fields are present.
+The PSBT should report `next: "signer"` until all MWEB input, output, kernel,
+and offset fields are present.
 
 ## Step 5: Hand the PSBT to the External Signer
 
@@ -365,7 +365,8 @@ The decoded PSBT should now contain:
   fields, range proof, and signature,
 - kernel excess commitment, stealth commitment, features, and signature.
 
-`analyzepsbt` should report `mweb_next: "extractor"` for the MWEB portion.
+`analyzepsbt` should report `next: "extractor"` once the full PSBT is ready
+for extraction.
 
 ## Step 9: Finalize and Extract
 
@@ -433,11 +434,6 @@ These are the PSBT/MWEB issues found while reviewing the current code:
 - `FinalizePSBT` accumulates `complete &= SignPSBTInput(...)` but then ignores
   that value. For MWEB it relies on `IsComplete()`, which checks field presence
   but not all cryptographic validity.
-- `analyzepsbt` computes `mweb_next`, but the global `next` role is based only
-  on input roles. A PSBT can therefore report an extractor-level `next` even
-  while the MWEB portion still needs a signer.
-- `analyzepsbt` fee calculation does not account for pegin amount when
-  computing the displayed fee, so pegin PSBTs can show incorrect fee data.
 - PSBTv0 gating is inconsistent. MWEB input and output fields reject v0 on
   parse, but some MWEB global fields and serialization paths are not
   consistently v2-only.

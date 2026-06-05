@@ -8,6 +8,8 @@ from decimal import Decimal
 
 from test_framework.psbt import (
     PSBT,
+    PSBT_GLOBAL_MWEB_TX_OFFSET,
+    PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET,
     PSBT_IN_MWEB_ADDR_DESCRIPTOR,
     PSBT_IN_MWEB_COMMIT,
     PSBT_IN_MWEB_OUTPUT_PUBKEY,
@@ -85,6 +87,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
         if had_key_exchange_pk:
             assert_equal(updated_input_map[PSBT_IN_MWEB_KEY_EXCHANGE_PK], original_key_exchange_pk)
 
+        self.test_mweb_components_are_included_in_global_next(node0, node1)
         self.workflow_tests(node0, node1)
 
     def workflow_tests(self, node0, node1):
@@ -103,6 +106,36 @@ class MWEBPsbtTest(LitecoinTestFramework):
             recipients={node0.getnewaddress(address_type='bech32'): Decimal('1.5')},
             expected_output_type='script',
         )
+
+    def test_mweb_components_are_included_in_global_next(self, node0, node1):
+        self.log.info("Global next accounts for MWEB components without MWEB inputs")
+
+        pegin_recipient = node1.getnewaddress(address_type='mweb')
+        ltc_utxo = next(utxo for utxo in node0.listunspent() if "mweb" not in utxo["address"])
+        funded = node0.walletcreatefundedpsbt(
+            [{"txid": ltc_utxo["txid"], "vout": ltc_utxo["vout"]}],
+            {pegin_recipient: Decimal('1')},
+            0,
+            {"add_inputs": False},
+        )
+
+        signed = node0.walletprocesspsbt(funded["psbt"], True, "ALL", True, True)
+        assert signed["complete"]
+        signed_analysis = node0.analyzepsbt(signed["psbt"])
+        assert "mweb_next" not in signed_analysis
+        assert_equal(signed_analysis["next"], "extractor")
+        assert_equal(signed_analysis["fee"], funded["fee"])
+        assert all(input_analysis["next"] == "extractor" for input_analysis in signed_analysis["inputs"])
+
+        parsed = PSBT.from_base64(signed["psbt"])
+        assert PSBT_GLOBAL_MWEB_TX_OFFSET in parsed.g.map
+        assert PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET in parsed.g.map
+        del parsed.g.map[PSBT_GLOBAL_MWEB_TX_OFFSET]
+
+        missing_offset_analysis = node0.analyzepsbt(parsed.to_base64())
+        assert "mweb_next" not in missing_offset_analysis
+        assert_equal(missing_offset_analysis["next"], "signer")
+        assert all(input_analysis["next"] == "extractor" for input_analysis in missing_offset_analysis["inputs"])
 
     def run_workflow_test(self, node0, node1, recipients, expected_output_type):
         recipient, amount = next(iter(recipients.items()))
@@ -193,7 +226,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
             assert_equal(decoded_psbt["kernels"][0]["pegouts"][0]["amount"], self.to_litoshis(amount))
 
     def assert_mweb_analysis(self, analysis, expected_input_role, expected_next, expected_is_final):
-        assert_equal(analysis["mweb_next"], expected_next)
+        assert "mweb_next" not in analysis
         assert_equal(analysis["next"], expected_next)
         assert_equal(len(analysis["inputs"]), 1)
         assert_equal(analysis["inputs"][0]["has_utxo"], False)

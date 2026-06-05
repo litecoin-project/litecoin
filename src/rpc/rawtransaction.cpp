@@ -2111,7 +2111,6 @@ static RPCHelpMan analyzepsbt()
                     {RPCResult::Type::NUM, "estimated_vsize", /*optional=*/true, "Estimated vsize of the final signed transaction"},
                     {RPCResult::Type::STR_AMOUNT, "estimated_feerate", /*optional=*/true, "Estimated feerate of the final signed transaction in " + CURRENCY_UNIT + "/kvB. Shown only if all UTXO slots in the PSBT have been filled"},
                     {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The transaction fee paid. Shown only if all UTXO slots in the PSBT have been filled"},
-                    {RPCResult::Type::STR, "mweb_next", /*optional=*/true, "Role of the next person that the MWEB portion of the psbt needs to go to"},
                     {RPCResult::Type::STR, "next", "Role of the next person that this psbt needs to go to"},
                     {RPCResult::Type::STR, "error", /*optional=*/true, "Error message (if there is one)"},
                 }
@@ -2177,9 +2176,6 @@ static RPCHelpMan analyzepsbt()
     }
     if (psbta.fee != std::nullopt) {
         result.pushKV("fee", ValueFromAmount(*psbta.fee));
-    }
-    if (psbta.mweb_next != std::nullopt) {
-        result.pushKV("mweb_next", PSBTRoleName(*psbta.mweb_next));
     }
     result.pushKV("next", PSBTRoleName(psbta.next));
     if (!psbta.error.empty()) {
