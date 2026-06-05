@@ -33,6 +33,23 @@ void MergeSenderMetadata(mw::Coin& target, const mw::Coin& source)
         target.master_scan_key_id = source.master_scan_key_id;
     }
 }
+
+std::optional<SecretKey> DeriveSharedSecretFromSenderData(const mw::Coin& coin, const StealthAddress& address)
+{
+    if (!coin.sender_key || coin.amount < 0 || !MoneyRange(coin.amount)) {
+        return std::nullopt;
+    }
+
+    const BigInt<16> nonce(Hashed(EHashTag::NONCE, *coin.sender_key).data());
+    const SecretKey send_key = Hasher(EHashTag::SEND_KEY)
+        .Append(address.A())
+        .Append(address.B())
+        .Append(static_cast<uint64_t>(coin.amount))
+        .Append(nonce)
+        .hash();
+
+    return Hashed(EHashTag::DERIVE, address.A().Mul(send_key));
+}
 }
 
 Wallet::~Wallet() = default;
@@ -234,9 +251,30 @@ void Wallet::StageOutputAddresses(const std::map<mw::Hash, StealthAddress>& addr
     for (const auto& [output_id, address] : addresses_by_output_id) {
         auto staged_coin = m_staged_coins.find(output_id);
         if (staged_coin != m_staged_coins.end()) {
-            staged_coin->second.address = address;
+            mw::Coin& coin = staged_coin->second;
+            coin.address = address;
             if (IsChange(address)) {
-                staged_coin->second.address_index = mw::CHANGE_INDEX;
+                coin.address_index = mw::CHANGE_INDEX;
+            } else if (coin.address_index == mw::UNKNOWN_INDEX && m_pWallet->IsMine(GenericAddress{address}) != wallet::ISMINE_NO) {
+                for (const mw::Keychain::Ptr& keychain : GetAllKeychains()) {
+                    if (!keychain || !keychain->HasSpendPubKey()) {
+                        continue;
+                    }
+
+                    std::optional<uint32_t> address_index = keychain->LookupAddressIndex(address);
+                    if (address_index.has_value()) {
+                        coin.address_index = *address_index;
+                        coin.master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
+                        break;
+                    }
+                }
+            }
+
+            if (coin.IsMine()) {
+                if (!coin.shared_secret) {
+                    coin.shared_secret = DeriveSharedSecretFromSenderData(coin, address);
+                }
+                UpgradeCoinSpendKey(coin);
             }
         }
     }

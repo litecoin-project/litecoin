@@ -700,6 +700,7 @@ public:
 
     bool GetKey(const CKeyID& address, CKey& keyOut) const override;
     bool GetMWEBSpendKey(const StealthAddress& address, CKey& keyOut) const;
+    bool GetMWEBSpendKey(const uint32_t address_index, CKey& keyOut) const;
     std::optional<uint32_t> GetMWEBAddressIndex(const StealthAddress& address) const;
 
     std::optional<int64_t> GetOldestKeyPoolTime() const override;

@@ -30,7 +30,6 @@ struct SignTxResult
 /// Any PrecomputedTransactionData built from tx before this call must be discarded and rebuilt.
 /// </remarks>
 /// <returns></returns>
-// MW: TODO - Probably needs wallet ptr or some kind of signing provider to generate secrets.
 extern util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& rewind_key, const SenderKeyGenerator& generate_sender_key) noexcept;
 
 END_NAMESPACE

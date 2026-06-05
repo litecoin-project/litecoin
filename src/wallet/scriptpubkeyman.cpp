@@ -15,6 +15,7 @@
 #include <util/translation.h>
 #include <wallet/scriptpubkeyman.h>
 
+#include <limits>
 #include <optional>
 
 namespace wallet {
@@ -2732,6 +2733,43 @@ bool DescriptorScriptPubKeyMan::GetMWEBSpendKey(const StealthAddress& address, C
     return provider->GetKey(address.GetSpendPubKey().GetID(), keyOut);
 }
 
+bool DescriptorScriptPubKeyMan::GetMWEBSpendKey(const uint32_t address_index, CKey& keyOut) const
+{
+    LOCK(cs_desc_man);
+
+    const std::optional<OutputType> desc_addr_type = m_wallet_descriptor.descriptor->GetOutputType();
+    if (!desc_addr_type || *desc_addr_type != OutputType::MWEB || !m_wallet_descriptor.descriptor->IsRange()) {
+        return false;
+    }
+    if (address_index > static_cast<uint32_t>(std::numeric_limits<int32_t>::max())) {
+        return false;
+    }
+
+    const int32_t index = static_cast<int32_t>(address_index);
+    std::vector<GenericAddress> addresses;
+    FlatSigningProvider public_keys;
+    if (!m_wallet_descriptor.descriptor->ExpandFromCache(index, m_wallet_descriptor.cache, addresses, public_keys)) {
+        FlatSigningProvider master_provider;
+        master_provider.keys = GetKeys();
+        DescriptorCache temp_cache;
+        if (!m_wallet_descriptor.descriptor->Expand(index, master_provider, addresses, public_keys, &temp_cache)) {
+            return false;
+        }
+    }
+    if (addresses.size() != 1 || !addresses[0].IsMWEB()) {
+        return false;
+    }
+    if (!HavePrivateKeys()) {
+        return false;
+    }
+
+    FlatSigningProvider master_provider;
+    master_provider.keys = GetKeys();
+    m_wallet_descriptor.descriptor->ExpandPrivate(index, master_provider, public_keys);
+
+    return public_keys.GetKey(addresses[0].GetMWEBAddress().GetSpendPubKey().GetID(), keyOut);
+}
+
 std::optional<uint32_t> DescriptorScriptPubKeyMan::GetMWEBAddressIndex(const StealthAddress& address) const
 {
     LOCK(cs_desc_man);
@@ -3191,11 +3229,12 @@ void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
         m_wallet_descriptor.descriptor->Expand(-2, provider, addresses_temp, out_keys_spend, &temp_cache);
     }
 
-    if (out_keys_spend.pubkeys.empty()) {
+    CPubKey master_spend_pk;
+    if (!out_keys_spend.GetMWEBMasterSpendPubKey(master_spend_pk)) {
         return;
     }
 
-    PublicKey master_spend_pubkey(out_keys_spend.pubkeys.begin()->second.begin());
+    PublicKey master_spend_pubkey(master_spend_pk.begin());
 
     if (!m_storage.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
         m_wallet_descriptor.descriptor->ExpandPrivate(-2, provider, out_keys_spend);

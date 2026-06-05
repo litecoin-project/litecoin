@@ -98,6 +98,19 @@ std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::Coin& coin)
         }
     }
 
+    if (coin.HasAddress() && coin.address_index != UNKNOWN_INDEX && coin.address_index != CUSTOM_KEY && HasSpendPubKey() &&
+        GetStealthAddress(coin.address_index) != *coin.address) {
+        return std::nullopt;
+    }
+
+    const auto* desc_spk_man = dynamic_cast<const wallet::DescriptorScriptPubKeyMan*>(m_spk_man);
+    if (desc_spk_man && coin.address_index != UNKNOWN_INDEX && coin.address_index != CUSTOM_KEY) {
+        CKey key;
+        if (desc_spk_man->GetMWEBSpendKey(coin.address_index, key)) {
+            return derive_output_key(SecretKey(key.begin()), *coin.shared_secret);
+        }
+    }
+
     // Watch-only or locked wallets will not have the master spend secret.
     if (!HasSpendSecret() || coin.address_index == CUSTOM_KEY) {
         return std::nullopt;
