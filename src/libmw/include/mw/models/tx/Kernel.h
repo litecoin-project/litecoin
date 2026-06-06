@@ -66,7 +66,8 @@ public:
         const std::optional<CAmount>& fee,
         const std::optional<CAmount>& pegin_amount,
         const std::vector<PegOutCoin>& pegouts,
-        const std::optional<int32_t>& lock_height
+        const std::optional<int32_t>& lock_height,
+        const std::vector<uint8_t>& extra_data
     );
 
     //

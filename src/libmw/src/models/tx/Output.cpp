@@ -13,10 +13,12 @@ Output Output::Create(
     const SecretKey& sender_privkey,
     const SecretKey& rewind_key,
     const StealthAddress& receiver_addr,
-    const uint64_t value)
+    const uint64_t value,
+    const std::vector<uint8_t>& extra_data)
 {
-    // We only support standard feature fields for now
-    const uint8_t features = OutputMessage::STANDARD_FIELDS_FEATURE_BIT;
+    const uint8_t features = static_cast<uint8_t>(
+        OutputMessage::STANDARD_FIELDS_FEATURE_BIT |
+        (extra_data.empty() ? 0 : OutputMessage::EXTRA_DATA_FEATURE_BIT));
 
     // Generate 128-bit secret nonce 'n' = Hash128(T_nonce, sender_privkey)
     BigInt<16> n(Hashed(EHashTag::NONCE, sender_privkey).data());
@@ -54,7 +56,7 @@ Output Output::Create(
     // Derive view tag as first byte of H(T_tag, sA)
     uint8_t view_tag = Hashed(EHashTag::TAG, sA)[0];
 
-    OutputMessage message{features, OutputStandardFields(Ke, view_tag, mv, mn)};
+    OutputMessage message{features, OutputStandardFields(Ke, view_tag, mv, mn), extra_data};
 
     SecretKey proof_nonce = Hasher(EHashTag::PROOF_NONCE)
         .Append(rewind_key)

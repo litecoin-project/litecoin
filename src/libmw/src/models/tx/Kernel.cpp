@@ -10,14 +10,16 @@ Kernel Kernel::Create(
     const std::optional<CAmount>& fee,
     const std::optional<CAmount>& pegin_amount,
     const std::vector<PegOutCoin>& pegouts,
-    const std::optional<int32_t>& lock_height)
+    const std::optional<int32_t>& lock_height,
+    const std::vector<uint8_t>& extra_data)
 {
-    const uint8_t features_byte =
+    const uint8_t features_byte = static_cast<uint8_t>(
         (fee ? FEE_FEATURE_BIT : 0) |
         (pegin_amount ? PEGIN_FEATURE_BIT : 0) |
         (pegouts.empty() ? 0 : PEGOUT_FEATURE_BIT) |
         (lock_height ? HEIGHT_LOCK_FEATURE_BIT : 0) |
-        (stealth_blind ? STEALTH_EXCESS_FEATURE_BIT : 0);
+        (stealth_blind ? STEALTH_EXCESS_FEATURE_BIT : 0) |
+        (extra_data.empty() ? 0 : EXTRA_DATA_FEATURE_BIT));
 
     SecretKey sig_key = blind.data();
     Commitment excess_commit = Commitment::Blinded(blind, 0);
@@ -43,7 +45,7 @@ Kernel Kernel::Create(
         pegin_amount,
         pegouts,
         lock_height,
-        {}
+        extra_data
     );
     Signature sig = Schnorr::Sign(sig_key.data(), sig_message);
     return Kernel(
@@ -53,7 +55,7 @@ Kernel Kernel::Create(
         pegouts,
         lock_height,
         std::move(stealth_excess),
-        std::vector<uint8_t>{},
+        extra_data,
         std::move(excess_commit),
         std::move(sig)
     );

@@ -6,9 +6,16 @@
 #include <mw/models/tx/OutputMask.h>
 #include <script/standard.h>
 
+#include <vector>
+
 MW_NAMESPACE
 
-static util::Result<Signature> InputSignature(const mw::Hash& output_id, const uint8_t features, const SecretKey& input_key, const SecretKey& output_key) noexcept
+static util::Result<Signature> InputSignature(
+    const mw::Hash& output_id,
+    const uint8_t features,
+    const SecretKey& input_key,
+    const SecretKey& output_key,
+    const std::vector<uint8_t>& extra_data) noexcept
 {
     try {
         PublicKey input_pubkey = PublicKey::From(input_key);
@@ -28,6 +35,9 @@ static util::Result<Signature> InputSignature(const mw::Hash& output_id, const u
         // Hash message
         Hasher msg_hasher;
         msg_hasher << features << output_id;
+        if (features & mw::Input::FeatureBit::EXTRA_DATA_FEATURE_BIT) {
+            msg_hasher << extra_data;
+        }
         mw::Hash msg_hash = msg_hasher.hash();
 
         return Schnorr::Sign(sig_key.data(), msg_hash);
@@ -68,7 +78,15 @@ static util::Result<SignInputResult> SignInput(MutableInput& input) noexcept
     input.output_pubkey = PublicKey::From(*input.spend_key);
 
     if (!input.features) {
-        input.features = (uint8_t)mw::Input::FeatureBit::STEALTH_KEY_FEATURE_BIT;
+        input.features = static_cast<uint8_t>(
+            mw::Input::FeatureBit::STEALTH_KEY_FEATURE_BIT |
+            (input.extradata.empty() ? 0 : mw::Input::FeatureBit::EXTRA_DATA_FEATURE_BIT));
+    } else if (!input.extradata.empty()) {
+        input.features = static_cast<uint8_t>(*input.features | mw::Input::FeatureBit::EXTRA_DATA_FEATURE_BIT);
+    }
+
+    if ((*input.features & mw::Input::FeatureBit::EXTRA_DATA_FEATURE_BIT) > 0 && input.extradata.empty()) {
+        return util::Error{Untranslated("Input extra data missing")};
     }
 
     if ((*input.features & mw::Input::FeatureBit::STEALTH_KEY_FEATURE_BIT) > 0) {
@@ -90,7 +108,8 @@ static util::Result<SignInputResult> SignInput(MutableInput& input) noexcept
         input.output_id,
         *input.features,
         *input.ephemeral_key,
-        *input.spend_key
+        *input.spend_key,
+        input.extradata
     );
     if (!input_signature_result) {
         return input_signature_result.error();
@@ -130,12 +149,20 @@ static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw
     }
 
     SecretKey ephemeral_key = sender_key_result.value();
+    const std::vector<uint8_t> extra_data = output.message.has_value() ? output.message->extra_data : std::vector<uint8_t>{};
+    if (output.message.has_value() &&
+        (output.message->features & mw::OutputMessage::EXTRA_DATA_FEATURE_BIT) > 0 &&
+        extra_data.empty()) {
+        return util::Error{Untranslated("Output extra data missing")};
+    }
+
     mw::Output finalized = mw::Output::Create(
         &raw_blind,
         ephemeral_key,
         rewind_key,
         *output.address,
-        *output.amount
+        *output.amount,
+        extra_data
     );
 
     output.Update(finalized);
@@ -242,7 +269,8 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& 
             kernel.fee,
             kernel.pegin,
             kernel.GetPegOuts(),
-            kernel.lock_height
+            kernel.lock_height,
+            kernel.extradata
         );
 
         kernel.stealth_excess = finalized.GetStealthExcess();

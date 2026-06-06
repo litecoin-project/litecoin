@@ -790,6 +790,7 @@ util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransac
         assert(output.message.has_value());
         psbt_output.mweb_features = output.message->features;
         psbt_output.mweb_standard_fields = output.message->standard_fields;
+        psbt_output.mweb_extra_data = output.message->extra_data;
         psbt_output.mweb_rangeproof = output.proof;
         psbt_output.mweb_sig = output.signature;
     }
@@ -1067,6 +1068,7 @@ void PartiallySignedTransaction::SetupFromTx(const CMutableTransaction& tx)
         psbt_input.mweb_features = mweb_input.features;
         psbt_input.mweb_sig = mweb_input.signature;
         psbt_input.mweb_amount = mweb_input.amount;
+        psbt_input.mweb_extra_data = mweb_input.extradata;
     }
 
     for (uint32_t i = 0; i < tx.vout.size(); ++i) {
@@ -1092,6 +1094,7 @@ void PartiallySignedTransaction::SetupFromTx(const CMutableTransaction& tx)
         psbt_output.mweb_output_pubkey = mweb_output.receiver_pubkey;
         if (mweb_output.message.has_value()) {
             psbt_output.mweb_standard_fields = mweb_output.message->standard_fields;
+            psbt_output.mweb_extra_data = mweb_output.message->extra_data;
         }
         psbt_output.mweb_rangeproof = mweb_output.proof;
         psbt_output.mweb_sig = mweb_output.signature;

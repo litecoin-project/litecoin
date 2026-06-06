@@ -632,7 +632,8 @@ BOOST_AUTO_TEST_CASE(MWEBSenderKeyScanAdvancesNextIndex)
         keychain->GetSenderKey(SENDER_INDEX),
         keychain->GetRewindKey(),
         StealthAddress::Random(),
-        OUTPUT_AMOUNT
+        OUTPUT_AMOUNT,
+        std::vector<uint8_t>{}
     );
 
     mw::Coin coin;

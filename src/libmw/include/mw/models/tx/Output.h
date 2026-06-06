@@ -223,7 +223,8 @@ public:
         const SecretKey& sender_privkey,
         const SecretKey& rewind_key,
         const StealthAddress& receiver_addr,
-        const uint64_t value
+        const uint64_t value,
+        const std::vector<uint8_t>& extra_data
     );
 
     //

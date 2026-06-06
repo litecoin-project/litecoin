@@ -59,7 +59,8 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
         output1_sender_key,                 // sender private key
         SecretKey::Random(),                // rewind key
         StealthAddress::Random(),           // receiver_addr
-        1'000'000                           // amount
+        1'000'000,                          // amount
+        std::vector<uint8_t>{}              // extra_data
     );
     outputs.push_back(std::move(output1));
     
@@ -69,7 +70,8 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
         output2_sender_key,                 // sender private key
         SecretKey::Random(),                // rewind key
         StealthAddress::Random(),           // receiver_addr
-        2'000'000                           // amount
+        2'000'000,                          // amount
+        std::vector<uint8_t>{}              // extra_data
     );
     outputs.push_back(std::move(output2));
 
@@ -98,7 +100,8 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
         std::nullopt,                       // fee
         std::nullopt,                       // pegin_amount
         std::vector<PegOutCoin>{},          // pegout
-        std::nullopt                        // lock_height
+        std::nullopt,                       // lock_height
+        std::vector<uint8_t>{}              // extradata
     );
 
     mw::Kernel kernel1_with_offset = mw::Kernel::Create(
@@ -107,7 +110,8 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
         std::nullopt,                       // fee
         std::nullopt,                       // pegin_amount
         std::vector<PegOutCoin>{},          // pegout
-        std::nullopt                        // lock_height
+        std::nullopt,                       // lock_height
+        std::vector<uint8_t>{}              // extradata
     );
 
     mw::Kernel kernel2_no_stealth_excess = mw::Kernel::Create(
@@ -116,7 +120,8 @@ BOOST_AUTO_TEST_CASE(ValidateStealthSum)
         std::nullopt,                       // fee
         std::nullopt,                       // pegin_amount
         std::vector<PegOutCoin>{},          // pegout
-        std::nullopt                        // lock_height
+        std::nullopt,                       // lock_height
+        std::vector<uint8_t>{}              // extradata
     );
 
     // Validate stealth sums with a zero stealth offset

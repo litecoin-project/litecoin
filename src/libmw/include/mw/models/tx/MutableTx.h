@@ -491,7 +491,37 @@ struct MutableTx : public Traits::ISerializable
             return 0;
         }
 
-        return (mw::STANDARD_OUTPUT_WEIGHT * outputs.size()) + Weight::CalcKernelWeight(true, GetPegOutCoins());
+        size_t input_weight = std::accumulate(
+            inputs.cbegin(), inputs.cend(), (size_t)0,
+            [](size_t sum, const mw::MutableInput& input) {
+                return sum + Weight::CalcInputWeight(input.extradata);
+            }
+        );
+
+        size_t output_weight = std::accumulate(
+            outputs.cbegin(), outputs.cend(), (size_t)0,
+            [](size_t sum, const mw::MutableOutput& output) {
+                const bool standard_fields = !output.message.has_value() ||
+                    (output.message->features & mw::OutputMessage::STANDARD_FIELDS_FEATURE_BIT);
+                return sum + Weight::CalcOutputWeight(
+                    standard_fields,
+                    output.message.has_value() ? output.message->extra_data : std::vector<uint8_t>{});
+            }
+        );
+
+        size_t kernel_weight = 0;
+        if (kernels.empty()) {
+            kernel_weight = Weight::CalcKernelWeight(true, std::vector<PegOutCoin>{});
+        } else {
+            kernel_weight = std::accumulate(
+                kernels.cbegin(), kernels.cend(), (size_t)0,
+                [](size_t sum, const mw::MutableKernel& kernel) {
+                    return sum + Weight::CalcKernelWeight(true, kernel.GetPegOuts(), kernel.extradata);
+                }
+            );
+        }
+
+        return input_weight + output_weight + kernel_weight;
     }
 
     //

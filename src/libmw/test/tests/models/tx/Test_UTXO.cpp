@@ -19,7 +19,8 @@ BOOST_AUTO_TEST_CASE(TxUTXO)
         SecretKey::Random(),
         SecretKey::Random(),
         StealthAddress::Random(),
-        amount
+        amount,
+        std::vector<uint8_t>{}
     );
     Commitment commit = Commitment::Switch(blind, amount);
 

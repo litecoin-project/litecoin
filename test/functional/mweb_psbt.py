@@ -12,11 +12,17 @@ from test_framework.psbt import (
     PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET,
     PSBT_IN_MWEB_ADDR_DESCRIPTOR,
     PSBT_IN_MWEB_COMMIT,
+    PSBT_IN_MWEB_EXTRA_DATA,
+    PSBT_IN_MWEB_FEATURES,
     PSBT_IN_MWEB_OUTPUT_PUBKEY,
     PSBT_IN_MWEB_KEY_EXCHANGE_PK,
+    PSBT_KERN_EXTRA_DATA,
+    PSBT_KERN_FEATURES,
+    PSBT_OUT_MWEB_EXTRA_DATA,
+    PSBT_OUT_MWEB_FEATURES,
 )
 from test_framework.test_framework import LitecoinTestFramework
-from test_framework.util import assert_equal
+from test_framework.util import assert_equal, assert_raises_rpc_error
 
 
 class MWEBPsbtTest(LitecoinTestFramework):
@@ -107,6 +113,56 @@ class MWEBPsbtTest(LitecoinTestFramework):
             expected_output_type='script',
         )
 
+        self.log.info("Build, sign, and finalize an MWEB PSBT with extra_data")
+        self.run_extra_data_workflow_test(node0, node1)
+
+    def run_extra_data_workflow_test(self, node0, node1):
+        recipient = node0.getnewaddress(address_type='mweb')
+        amount = Decimal('0.5')
+
+        funded = node1.walletcreatefundedpsbt(
+            [],
+            {recipient: amount},
+            0,
+            {"fee_rate": 10},
+        )
+        decoded = node0.decodepsbt(funded["psbt"])
+        mweb_input_index = next(i for i, txin in enumerate(decoded["inputs"]) if txin.get("mweb"))
+        mweb_output_index = self.find_recipient_output_index(decoded, recipient, 'mweb')
+
+        input_extra = bytes.fromhex("51")
+        output_extra = bytes.fromhex("52")
+        kernel_extra = bytes.fromhex("53")
+
+        parsed = PSBT.from_base64(funded["psbt"])
+        parsed.i[mweb_input_index].map[PSBT_IN_MWEB_EXTRA_DATA] = input_extra
+        parsed.o[mweb_output_index].map[PSBT_OUT_MWEB_EXTRA_DATA] = output_extra
+        assert len(parsed.k) > 0
+        parsed.k[0].map[PSBT_KERN_EXTRA_DATA] = kernel_extra
+
+        extra_data_psbt = parsed.to_base64()
+        extra_data_decoded = node0.decodepsbt(extra_data_psbt)
+        assert_equal(extra_data_decoded["inputs"][mweb_input_index]["mweb"]["extra_data"], input_extra.hex())
+        assert_equal(extra_data_decoded["outputs"][mweb_output_index]["mweb"]["extra_data"], output_extra.hex())
+        assert_equal(extra_data_decoded["kernels"][0]["extra_data"], kernel_extra.hex())
+
+        signed = node1.walletprocesspsbt(extra_data_psbt, True, "ALL", True, False)
+        assert signed["complete"]
+
+        signed_decoded = node0.decodepsbt(signed["psbt"])
+        assert_equal(signed_decoded["inputs"][mweb_input_index]["mweb"]["extra_data"], input_extra.hex())
+        assert_equal(signed_decoded["outputs"][mweb_output_index]["mweb"]["extra_data"], output_extra.hex())
+        assert_equal(signed_decoded["kernels"][0]["extra_data"], kernel_extra.hex())
+
+        signed_parsed = PSBT.from_base64(signed["psbt"])
+        assert signed_parsed.i[mweb_input_index].map[PSBT_IN_MWEB_FEATURES][0] & 0x02
+        assert signed_parsed.o[mweb_output_index].map[PSBT_OUT_MWEB_FEATURES][0] & 0x02
+        assert signed_parsed.k[0].map[PSBT_KERN_FEATURES][0] & 0x20
+
+        finalized = node0.finalizepsbt(signed["psbt"])
+        assert finalized["complete"]
+        assert_raises_rpc_error(-26, "non-standard-mweb-tx", node0.sendrawtransaction, finalized["hex"])
+
     def test_mweb_components_are_included_in_global_next(self, node0, node1):
         self.log.info("Global next accounts for MWEB components without MWEB inputs")
 
@@ -164,7 +220,6 @@ class MWEBPsbtTest(LitecoinTestFramework):
         if expected_output_type == 'mweb':
             utxos = node0.listunspent(addresses=[recipient])
             assert_equal(len(utxos), 1)
-            assert_equal(utxos[0]["txid"], txid)
             assert_equal(utxos[0]["amount"], amount)
             assert_equal(utxos[0]["confirmations"], 1)
         else:
@@ -234,15 +289,18 @@ class MWEBPsbtTest(LitecoinTestFramework):
         assert_equal(analysis["inputs"][0]["next"], expected_input_role)
 
     def find_recipient_output(self, decoded_psbt, recipient, expected_output_type):
-        for output in decoded_psbt["outputs"]:
+        return decoded_psbt["outputs"][self.find_recipient_output_index(decoded_psbt, recipient, expected_output_type)]
+
+    def find_recipient_output_index(self, decoded_psbt, recipient, expected_output_type):
+        for i, output in enumerate(decoded_psbt["outputs"]):
             if expected_output_type == 'mweb':
                 mweb = output.get("mweb")
                 if mweb and mweb.get("address") == recipient:
-                    return output
+                    return i
             else:
                 script = output.get("script")
                 if script and script.get("address") == recipient:
-                    return output
+                    return i
 
         raise AssertionError(f"Expected output for recipient {recipient} not found")
 

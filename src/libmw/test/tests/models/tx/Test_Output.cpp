@@ -55,7 +55,8 @@ BOOST_AUTO_TEST_CASE(Create)
         sender_key,
         SecretKey::Random(),
         receiver_subaddr,
-        amount
+        amount,
+        std::vector<uint8_t>{}
     );
     Commitment expected_commit = Commitment::Switch(blind, amount);
 

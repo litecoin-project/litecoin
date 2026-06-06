@@ -75,7 +75,8 @@ TxBuilder& TxBuilder::AddPlainKernel(const CAmount fee, const bool add_stealth_e
         fee,
         std::nullopt,
         std::vector<PegOutCoin>{},
-        std::nullopt
+        std::nullopt,
+        std::vector<uint8_t>{}
     );
 
     m_kernels.push_back(std::move(kernel));
@@ -100,7 +101,8 @@ TxBuilder& TxBuilder::AddPeginKernel(const CAmount amount, const std::optional<C
         fee,
         amount,
         std::vector<PegOutCoin>{},
-        std::nullopt
+        std::nullopt,
+        std::vector<uint8_t>{}
     );
 
     m_kernels.push_back(std::move(kernel));
@@ -127,7 +129,8 @@ TxBuilder& TxBuilder::AddPegoutKernel(const CAmount amount, const CAmount fee, c
         fee,
         std::nullopt,
         std::vector<PegOutCoin>{ pegout },
-        std::nullopt
+        std::nullopt,
+        std::vector<uint8_t>{}
     );
 
     m_kernels.push_back(std::move(kernel));

@@ -20,7 +20,7 @@ public:
         const uint64_t amount)
     {
         BlindingFactor raw_blind;
-        mw::Output output = mw::Output::Create(&raw_blind, sender_privkey, SecretKey::Random(), receiver_addr, amount);
+        mw::Output output = mw::Output::Create(&raw_blind, sender_privkey, SecretKey::Random(), receiver_addr, amount, std::vector<uint8_t>{});
         BlindingFactor blind_switch = Pedersen::BlindSwitch(raw_blind, amount);
 
         return TxOutput{std::move(blind_switch), amount, std::move(output)};

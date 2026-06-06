@@ -930,6 +930,7 @@ const RPCResult decodepsbt_inputs{
                 {RPCResult::Type::STR_HEX, "output_pubkey", /*optional=*/true, "The hex-encoded output pubkey"},
                 {RPCResult::Type::STR_HEX, "input_pubkey", /*optional=*/true, "The hex-encoded input pubkey"},
                 {RPCResult::Type::NUM, "features", /*optional=*/true, "The MWEB input feature mask"},
+                {RPCResult::Type::STR_HEX, "extra_data", /*optional=*/true, "The hex-encoded MWEB input extra data"},
                 {RPCResult::Type::STR_HEX, "signature", /*optional=*/true, "The hex-encoded MWEB input signature"},
                 {RPCResult::Type::STR, "address_descriptor", /*optional=*/true, "A single-address MWEB descriptor for the subaddress the UTXO was sent to"},
                 {RPCResult::Type::NUM, "amount", /*optional=*/true, "The UTXO amount"},
@@ -1470,6 +1471,10 @@ static RPCHelpMan decodepsbt()
                 mweb_obj.pushKV("features", *input.mweb_features);
             }
 
+            if (!input.mweb_extra_data.empty()) {
+                mweb_obj.pushKV("extra_data", HexStr(input.mweb_extra_data));
+            }
+
             if (input.mweb_sig.has_value()) {
                 mweb_obj.pushKV("signature", input.mweb_sig->ToHex());
             }
@@ -1628,6 +1633,10 @@ static RPCHelpMan decodepsbt()
 
             if (output.mweb_output_pubkey.has_value()) {
                 mweb_obj.pushKV("output_pubkey", output.mweb_output_pubkey->ToHex());
+            }
+
+            if (!output.mweb_extra_data.empty()) {
+                mweb_obj.pushKV("extra_data", HexStr(output.mweb_extra_data));
             }
 
             if (output.mweb_standard_fields.has_value()) {

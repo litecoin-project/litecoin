@@ -67,7 +67,8 @@ mw::Output CreateOutput(const StealthAddress& address, const uint64_t amount)
         SenderSecret(),
         ScanSecret(),
         address,
-        amount
+        amount,
+        std::vector<uint8_t>{}
     );
 }
 

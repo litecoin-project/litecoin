@@ -159,7 +159,7 @@ BOOST_AUTO_TEST_CASE(ValidateForBlockWithoutBuilder)
 
     // Add kernel
     const CAmount fee = 500'000;
-    kernels.push_back(mw::Kernel::Create(excess, std::nullopt, fee, std::nullopt, std::vector<PegOutCoin>{}, std::nullopt));
+    kernels.push_back(mw::Kernel::Create(excess, std::nullopt, fee, std::nullopt, std::vector<PegOutCoin>{}, std::nullopt, std::vector<uint8_t>{}));
 
     // Create Transaction
     auto pTransaction = mw::Transaction::Create(
@@ -205,7 +205,14 @@ BOOST_AUTO_TEST_CASE(ValidateForTx)
 
 BOOST_AUTO_TEST_CASE(ValidateForTx_AllowsPointAtInfinity)
 {
-    mw::Output output = mw::Output::Create(nullptr, SecretKey::Random(), SecretKey::Random(), StealthAddress::Random(), 100);
+    mw::Output output = mw::Output::Create(
+        nullptr,
+        SecretKey::Random(),
+        SecretKey::Random(),
+        StealthAddress::Random(),
+        100,
+        std::vector<uint8_t>{}
+    );
     mw::Input input = mw::Input::Create(
         SecretKey::Random().GetBigInt(),
         output.GetCommitment(),

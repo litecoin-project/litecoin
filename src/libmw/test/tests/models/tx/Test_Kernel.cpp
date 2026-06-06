@@ -13,7 +13,7 @@ BOOST_AUTO_TEST_CASE(PlainKernel_Test)
 {
     CAmount fee = 1000;
     BlindingFactor excess_blind = BlindingFactor::Random();
-    mw::Kernel kernel = mw::Kernel::Create(excess_blind, std::nullopt, fee, std::nullopt, std::vector<PegOutCoin>{}, std::nullopt);
+    mw::Kernel kernel = mw::Kernel::Create(excess_blind, std::nullopt, fee, std::nullopt, std::vector<PegOutCoin>{}, std::nullopt, std::vector<uint8_t>{});
 
     //
     // Serialization
