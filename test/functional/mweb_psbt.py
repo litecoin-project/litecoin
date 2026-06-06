@@ -20,6 +20,7 @@ from test_framework.psbt import (
     PSBT_KERN_FEATURES,
     PSBT_OUT_MWEB_EXTRA_DATA,
     PSBT_OUT_MWEB_FEATURES,
+    PSBT_OUT_SCRIPT,
 )
 from test_framework.test_framework import LitecoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
@@ -93,10 +94,31 @@ class MWEBPsbtTest(LitecoinTestFramework):
         if had_key_exchange_pk:
             assert_equal(updated_input_map[PSBT_IN_MWEB_KEY_EXCHANGE_PK], original_key_exchange_pk)
 
+        self.log.info("combinepsbt merges MWEB updater metadata")
+        for combined_psbt in [
+            node0.combinepsbt([stripped_psbt, updated_psbt]),
+            node0.combinepsbt([updated_psbt, stripped_psbt]),
+            node0.combinepsbt([original_psbt, updated_psbt]),
+        ]:
+            combined_input_map = PSBT.from_base64(combined_psbt).i[mweb_input_index].map
+            assert_equal(combined_input_map[PSBT_IN_MWEB_COMMIT], original_commit)
+            assert_equal(combined_input_map[PSBT_IN_MWEB_OUTPUT_PUBKEY], original_output_pubkey)
+
         self.test_mweb_components_are_included_in_global_next(node0, node1)
         self.workflow_tests(node0, node1)
 
     def workflow_tests(self, node0, node1):
+        self.log.info("combinepsbt rejects distinct MWEB-only transaction intents")
+        psbt1 = node1.walletcreatefundedpsbt(
+            [],
+            {node0.getnewaddress(address_type='mweb'): Decimal('1')},
+        )["psbt"]
+        psbt2 = node1.walletcreatefundedpsbt(
+            [],
+            {node0.getnewaddress(address_type='mweb'): Decimal('1')},
+        )["psbt"]
+        assert_raises_rpc_error(-8, "PSBTs not compatible", node0.combinepsbt, [psbt1, psbt2])
+
         self.log.info("Build, sign, and broadcast an MWEB-to-MWEB PSBT")
         self.run_workflow_test(
             node0=node0,
@@ -159,6 +181,10 @@ class MWEBPsbtTest(LitecoinTestFramework):
         assert signed_parsed.o[mweb_output_index].map[PSBT_OUT_MWEB_FEATURES][0] & 0x02
         assert signed_parsed.k[0].map[PSBT_KERN_FEATURES][0] & 0x20
 
+        conflicting = PSBT.from_base64(signed["psbt"])
+        conflicting.o[mweb_output_index].map[PSBT_OUT_MWEB_EXTRA_DATA] = bytes.fromhex("53")
+        assert_raises_rpc_error(-8, "PSBTs not compatible", node0.combinepsbt, [signed["psbt"], conflicting.to_base64()])
+
         finalized = node0.finalizepsbt(signed["psbt"])
         assert finalized["complete"]
         assert_raises_rpc_error(-26, "non-standard-mweb-tx", node0.sendrawtransaction, finalized["hex"])
@@ -177,6 +203,16 @@ class MWEBPsbtTest(LitecoinTestFramework):
 
         signed = node0.walletprocesspsbt(funded["psbt"], True, "ALL", True, True)
         assert signed["complete"]
+        self.assert_combinepsbt_complete(node0, funded["psbt"], signed["psbt"])
+
+        signed_output_scripts = [output.map.get(PSBT_OUT_SCRIPT) for output in PSBT.from_base64(signed["psbt"]).o]
+        for combined_psbt in [
+            node0.combinepsbt([funded["psbt"], signed["psbt"]]),
+            node0.combinepsbt([signed["psbt"], funded["psbt"]]),
+        ]:
+            combined_output_scripts = [output.map.get(PSBT_OUT_SCRIPT) for output in PSBT.from_base64(combined_psbt).o]
+            assert_equal(combined_output_scripts, signed_output_scripts)
+
         signed_analysis = node0.analyzepsbt(signed["psbt"])
         assert "mweb_next" not in signed_analysis
         assert_equal(signed_analysis["next"], "extractor")
@@ -207,6 +243,9 @@ class MWEBPsbtTest(LitecoinTestFramework):
         assert signed["complete"]
 
         signed_psbt = signed["psbt"]
+        self.assert_combinepsbt_complete(node0, unsigned_psbt, signed_psbt)
+        self.assert_conflicting_mweb_global_rejected(node0, signed_psbt)
+
         signed_decoded = node0.decodepsbt(signed_psbt)
         signed_analysis = node0.analyzepsbt(signed_psbt)
 
@@ -227,6 +266,19 @@ class MWEBPsbtTest(LitecoinTestFramework):
             assert_equal(len(received), 1)
             assert_equal(received[0]["amount"], amount)
             assert_equal(received[0]["confirmations"], 1)
+
+    def assert_combinepsbt_complete(self, node, unsigned_psbt, signed_psbt):
+        for psbts in ([unsigned_psbt, signed_psbt], [signed_psbt, unsigned_psbt]):
+            combined = node.combinepsbt(psbts)
+            finalized = node.finalizepsbt(combined)
+            assert finalized["complete"]
+
+    def assert_conflicting_mweb_global_rejected(self, node, signed_psbt):
+        parsed = PSBT.from_base64(signed_psbt)
+        offset = bytearray(parsed.g.map[PSBT_GLOBAL_MWEB_TX_OFFSET])
+        offset[0] ^= 0x01
+        parsed.g.map[PSBT_GLOBAL_MWEB_TX_OFFSET] = bytes(offset)
+        assert_raises_rpc_error(-8, "PSBTs not compatible", node.combinepsbt, [signed_psbt, parsed.to_base64()])
 
     def assert_unsigned_mweb_psbt(self, decoded_psbt, analysis, recipient, amount, expected_output_type):
         self.assert_mweb_analysis(analysis, expected_input_role='signer', expected_next='signer', expected_is_final=False)
