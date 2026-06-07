@@ -1086,6 +1086,37 @@ bool PSBTInputSignedAndVerified(const PartiallySignedTransaction& psbt, unsigned
     }
 }
 
+static bool VerifyPSBTInputSignatures(const PartiallySignedTransaction& psbt, const PrecomputedTransactionData* txdata)
+{
+    for (unsigned int i = 0; i < psbt.inputs.size(); ++i) {
+        if (!PSBTInputSignedAndVerified(psbt, i, txdata)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool VerifyFinalMWEBTransaction(const CMutableTransaction& mtx)
+{
+    if (mtx.mweb_tx.IsNull()) {
+        return true;
+    }
+
+    try {
+        const CTransaction tx{mtx};
+        if (tx.mweb_tx.IsNull()) {
+            return false;
+        }
+
+        tx.mweb_tx.m_transaction->Validate();
+    } catch (const std::exception&) {
+        return false;
+    }
+
+    return true;
+}
+
 size_t CountPSBTUnsignedInputs(const PartiallySignedTransaction& psbt) {
     size_t count = 0;
     for (const auto& input : psbt.inputs) {
@@ -1364,7 +1395,7 @@ util::Result<CMutableTransaction> FinalizePSBT(PartiallySignedTransaction& psbtx
         complete &= SignPSBTInput(DUMMY_SIGNING_PROVIDER, psbtx, i, &txdata, SIGHASH_ALL, nullptr, true);
     }
 
-    if (!psbtx.IsComplete()) {
+    if (!complete || !psbtx.IsComplete() || !VerifyPSBTInputSignatures(psbtx, &txdata) || !VerifyFinalPeginScripts(psbtx)) {
         return util::Error{};
     }
 
@@ -1372,6 +1403,10 @@ util::Result<CMutableTransaction> FinalizePSBT(PartiallySignedTransaction& psbtx
     for (unsigned int i = 0; i < mtx.vin.size(); ++i) {
         mtx.vin[i].scriptSig = psbtx.inputs[i].final_script_sig;
         mtx.vin[i].scriptWitness = psbtx.inputs[i].final_script_witness;
+    }
+
+    if (!VerifyFinalMWEBTransaction(mtx)) {
+        return util::Error{};
     }
 
     return mtx;

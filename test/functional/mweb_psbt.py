@@ -14,12 +14,15 @@ from test_framework.psbt import (
     PSBT_IN_MWEB_COMMIT,
     PSBT_IN_MWEB_EXTRA_DATA,
     PSBT_IN_MWEB_FEATURES,
+    PSBT_IN_MWEB_INPUT_SIG,
     PSBT_IN_MWEB_OUTPUT_PUBKEY,
     PSBT_IN_MWEB_KEY_EXCHANGE_PK,
     PSBT_KERN_EXTRA_DATA,
     PSBT_KERN_FEATURES,
+    PSBT_KERN_SIG,
     PSBT_OUT_MWEB_EXTRA_DATA,
     PSBT_OUT_MWEB_FEATURES,
+    PSBT_OUT_MWEB_SIG,
     PSBT_OUT_SCRIPT,
 )
 from test_framework.test_framework import LitecoinTestFramework
@@ -250,6 +253,8 @@ class MWEBPsbtTest(LitecoinTestFramework):
         signed_analysis = node0.analyzepsbt(signed_psbt)
 
         self.assert_signed_mweb_psbt(unsigned_decoded, signed_decoded, signed_analysis, recipient, amount, expected_output_type)
+        if expected_output_type == 'mweb':
+            self.assert_tampered_mweb_signatures_not_finalized(node0, signed_psbt)
 
         finalized = node0.finalizepsbt(signed_psbt)
         assert finalized["complete"]
@@ -279,6 +284,32 @@ class MWEBPsbtTest(LitecoinTestFramework):
         offset[0] ^= 0x01
         parsed.g.map[PSBT_GLOBAL_MWEB_TX_OFFSET] = bytes(offset)
         assert_raises_rpc_error(-8, "PSBTs not compatible", node.combinepsbt, [signed_psbt, parsed.to_base64()])
+
+    def assert_tampered_mweb_signatures_not_finalized(self, node, signed_psbt):
+        for maps_getter, key in [
+            (lambda psbt: psbt.i, PSBT_IN_MWEB_INPUT_SIG),
+            (lambda psbt: psbt.o, PSBT_OUT_MWEB_SIG),
+            (lambda psbt: psbt.k, PSBT_KERN_SIG),
+        ]:
+            parsed = PSBT.from_base64(signed_psbt)
+            self.tamper_first_psbt_field(maps_getter(parsed), key)
+            finalized = node.finalizepsbt(parsed.to_base64())
+            assert_equal(finalized["complete"], False)
+            assert "psbt" in finalized
+            assert "hex" not in finalized
+
+    def tamper_first_psbt_field(self, psbt_maps, key):
+        for psbt_map in psbt_maps:
+            if key not in psbt_map.map:
+                continue
+
+            value = bytearray(psbt_map.map[key])
+            assert len(value) > 0
+            value[-1] ^= 0x01
+            psbt_map.map[key] = bytes(value)
+            return
+
+        raise AssertionError(f"Expected PSBT field {key} not found")
 
     def assert_unsigned_mweb_psbt(self, decoded_psbt, analysis, recipient, amount, expected_output_type):
         self.assert_mweb_analysis(analysis, expected_input_role='signer', expected_next='signer', expected_is_final=False)

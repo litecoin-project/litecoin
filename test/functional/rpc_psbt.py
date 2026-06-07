@@ -23,6 +23,8 @@ from test_framework.psbt import (
     PSBT,
     PSBTMap,
     PSBT_GLOBAL_UNSIGNED_TX,
+    PSBT_IN_FINAL_SCRIPTSIG,
+    PSBT_IN_FINAL_SCRIPTWITNESS,
     PSBT_IN_RIPEMD160,
     PSBT_IN_SHA256,
     PSBT_IN_HASH160,
@@ -111,6 +113,25 @@ class PSBTTest(BitcoinTestFramework):
         changepos = psbtx["changepos"]
         assert_equal(decoded_psbt["outputs"][changepos]["script"]["type"], expected_type)
 
+    def assert_tampered_final_script_not_extracted(self, finalized_psbt):
+        parsed = PSBT.from_base64(finalized_psbt)
+        for key in [PSBT_IN_FINAL_SCRIPTWITNESS, PSBT_IN_FINAL_SCRIPTSIG]:
+            for psbt_input in parsed.i:
+                if key not in psbt_input.map:
+                    continue
+
+                value = bytearray(psbt_input.map[key])
+                assert len(value) > 0
+                value[-1] ^= 0x01
+                psbt_input.map[key] = bytes(value)
+                result = self.nodes[0].finalizepsbt(parsed.to_base64())
+                assert_equal(result["complete"], False)
+                assert "psbt" in result
+                assert "hex" not in result
+                return
+
+        raise AssertionError("Expected a finalized script field in PSBT input")
+
     def run_test(self):
         # Create and fund a raw tx for sending 10 LTC
         psbtx1 = self.nodes[0].walletcreatefundedpsbt([], {self.nodes[2].getnewaddress():10})['psbt']
@@ -143,6 +164,7 @@ class PSBTTest(BitcoinTestFramework):
         signed_tx = self.nodes[0].walletprocesspsbt(psbt=psbtx, finalize=False)['psbt']
         finalized_tx = self.nodes[0].walletprocesspsbt(psbt=psbtx, finalize=True)['psbt']
         assert signed_tx != finalized_tx
+        self.assert_tampered_final_script_not_extracted(finalized_tx)
         final_tx = self.nodes[0].finalizepsbt(signed_tx)['hex']
         self.nodes[0].sendrawtransaction(final_tx)
 

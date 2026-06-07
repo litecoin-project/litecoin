@@ -10,21 +10,23 @@ the live implementation uses the `0x90` MWEB key range shown below.
 
 ## Current Status
 
-The online wallet can create and update MWEB PSBTs, and a software wallet can
-sign the whole MWEB portion in one pass through `walletprocesspsbt` or
-`CWallet::FillPSBT(sign=true)`.
+The online wallet can create, update, combine, finalize, and extract MWEB
+PSBTs. A software wallet can sign the whole MWEB portion in one pass through
+`walletprocesspsbt` or `CWallet::FillPSBT(sign=true)`.
 
 The exact hardware-wallet flow described here is not fully implemented yet.
 The most important missing pieces are:
 
-- PSBT combining currently rejects any PSBT with MWEB components, so a
-  collaborative "merge the signer's PSBT back in" workflow is unavailable.
+- Standard external-signer routing is not wired to MWEB ownership metadata yet.
+  It still expects standard key-origin data such as `hd_keypaths`, while MWEB
+  spends use `mweb.address_descriptor`, `mweb.key_exchange_pk`, and related
+  metadata.
 - MWEB signing is all-or-nothing. `PSBTSignMWEBTx` rebuilds the mutable MWEB
   transaction and signs inputs, outputs, kernels, offsets, and range proofs
   together.
 
-Until those gaps are fixed, treat this document as the target flow and as a
-checklist for what a hardware signer integration must provide.
+Until those gaps are fixed, treat this document as a hardware-signer target
+flow and as a checklist for what an integration must provide.
 
 ## Actors
 
@@ -49,9 +51,10 @@ where the fields differ.
 | `0x91` | `PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET` | `mweb_stealth_offset` | Signer | Final stealth offset. Required for any final MWEB transaction. |
 | `0x92` | `PSBT_GLOBAL_MWEB_KERNEL_COUNT` | not currently decoded | Creator | Compact-size count of kernel maps that follow the output maps. |
 
-MWEB PSBTs should always be PSBTv2. The code can currently produce some
-inconsistent PSBTv0/MWEB combinations, so callers should pass `psbt_version=2`
-and reject v0 when any MWEB field is present.
+MWEB PSBTs should always be PSBTv2. RPC creators default to PSBTv2, and MWEB
+input/output fields plus kernel count are rejected when parsing PSBTv0. Callers
+should still pass `psbt_version=2` and reject v0 when any MWEB field is present,
+because some MWEB global offset serialization paths are not explicitly v2-gated.
 
 ### Input MWEB Fields
 
@@ -63,11 +66,11 @@ and reject v0 when any MWEB field is present.
 | `0x93` | `PSBT_IN_MWEB_INPUT_PUBKEY` | `mweb.input_pubkey` | Signer | Ephemeral input public key used by the stealth-key input signature. |
 | `0x94` | `PSBT_IN_MWEB_FEATURES` | `mweb.features` | Signer | Input feature byte. Current signing only supports the stealth-key feature. |
 | `0x95` | `PSBT_IN_MWEB_INPUT_SIG` | `mweb.signature` | Signer | Schnorr signature for the MWEB input. |
-| `0x96` | `PSBT_IN_MWEB_ADDR_DESCRIPTOR` | `mweb.address_descriptor` | Wallet/signer | Single-address MWEB descriptor for the subaddress that owns the spent output. |
+| `0x96` | `PSBT_IN_MWEB_ADDR_DESCRIPTOR` | `mweb.address_descriptor` | Wallet/signer | Single-address MWEB descriptor for the subaddress that owns the spent output. The parser also tolerates the old 4-byte address-index value by ignoring it. |
 | `0x97` | `PSBT_IN_MWEB_AMOUNT` | `mweb.amount` | Creator/updater | Explicit input amount. Required by the signer for balance and fee checks. |
 | `0x98` | `PSBT_IN_MWEB_SHARED_SECRET` | `mweb.shared_secret` | Wallet/signer | ECDH shared secret. Sensitive; only include when the signer policy expects it. |
 | `0x99` | `PSBT_IN_MWEB_KEY_EXCHANGE_PK` | `mweb.key_exchange_pk` | Updater | Public key from the spent output standard fields, used to derive the shared secret. |
-| `0x9C` | `PSBT_IN_MWEB_EXTRA_DATA` | not currently decoded | Creator/signer | Extra input data committed by the input signature. Current signing has issues with this field. |
+| `0x9C` | `PSBT_IN_MWEB_EXTRA_DATA` | `mweb.extra_data` | Creator/signer | Extra input data committed by the input signature when the extra-data feature bit is set. |
 
 ### Output MWEB Fields
 
@@ -81,7 +84,7 @@ and reject v0 when any MWEB field is present.
 | `0x95` | `PSBT_OUT_MWEB_STANDARD_FIELDS` | split fields | Signer | Encodes key exchange public key, view tag, encrypted value, and encrypted nonce. |
 | `0x96` | `PSBT_OUT_MWEB_RANGEPROOF` | `mweb.rangeproof` | Signer | Bulletproof range proof. |
 | `0x97` | `PSBT_OUT_MWEB_SIG` | `mweb.sig` | Signer | Output Schnorr signature. |
-| `0x98` | `PSBT_OUT_MWEB_EXTRA_DATA` | not currently decoded | Creator/signer | Extra output message data. Current output signing only creates standard fields. |
+| `0x98` | `PSBT_OUT_MWEB_EXTRA_DATA` | `mweb.extra_data` | Creator/signer | Extra output message data. Current signing preserves it and sets the output extra-data feature bit. |
 
 ### Kernel Fields
 
@@ -97,7 +100,7 @@ Kernel maps are serialized after all output maps. Their count is taken from
 | `0x04` | `PSBT_KERN_PEGOUT` | `kernels[].pegouts[]` | Creator | Pegout amount and script. Keydata contains the pegout index when serialized. |
 | `0x05` | `PSBT_KERN_LOCK_HEIGHT` | `kernels[].lock_height` | Creator | Kernel lock height. |
 | `0x06` | `PSBT_KERN_FEATURES` | not currently decoded | Creator/signer | Feature byte derived from fee, pegin, pegout, lock height, stealth excess, and extra data. |
-| `0x07` | `PSBT_KERN_EXTRA_DATA` | `kernels[].extra_data` | Creator/signer | Extra kernel data. Current kernel signing does not support this correctly. |
+| `0x07` | `PSBT_KERN_EXTRA_DATA` | `kernels[].extra_data` | Creator/signer | Extra kernel data. Current signing preserves it and sets the kernel extra-data feature bit. |
 | `0x08` | `PSBT_KERN_SIG` | `kernels[].signature` | Signer | Kernel Schnorr signature. |
 | `0xFC` | `PSBT_KERN_PROPRIETARY` | unknown | Any | Constant exists, but `PSBTKernel` stores unknowns rather than a proprietary map. |
 
@@ -127,7 +130,8 @@ single-address MWEB descriptor field for each MWEB input.
 ## Step 2: Create and Fund the PSBT
 
 Use `walletcreatefundedpsbt` for normal wallet coin selection and fee
-calculation. Always request PSBTv2.
+calculation. It defaults to PSBTv2; pass `psbt_version=2` explicitly when the
+caller controls that argument.
 
 ```bash
 PSBT=$(
@@ -148,7 +152,7 @@ After this step, the PSBT should contain:
   output count, and MWEB kernel count if a kernel exists.
 - MWEB input maps: at minimum `mweb.output_id`. If the wallet has coin
   metadata, it may also include `mweb.amount`, `mweb.output_commit`,
-  `mweb.output_pubkey`, `mweb.shared_secret`, or
+  `mweb.output_pubkey`, `mweb.key_exchange_pk`, `mweb.shared_secret`, or
   `mweb.address_descriptor`.
 - MWEB output maps: `amount` and `mweb.address` for each recipient or change
   output. Commitments, range proofs, sender pubkeys, output pubkeys, output
@@ -247,19 +251,13 @@ Use `analyzepsbt` for role status:
 litecoin-cli analyzepsbt "$PSBT"
 ```
 
-The PSBT should report `next: "signer"` until all MWEB input, output, kernel,
-and offset fields are present.
+The PSBT should report the normal global `next: "signer"` role until all MWEB
+input, output, kernel, and offset fields are present. There is no separate
+`mweb_next` result field.
 
-## Step 5: Hand the PSBT to the External Signer
+## Step 5: Hand the PSBT to the Signer
 
-The intended external signer command is the normal signer `signtx` interface:
-
-```bash
-printf 'signtx "%s"\n' "$PSBT" |
-  litecoin-signer --stdin --fingerprint F23F9D4A --chain main
-```
-
-Or, through an external-signer wallet:
+The current software-wallet signing path is:
 
 ```bash
 SIGNED_PSBT=$(
@@ -273,9 +271,21 @@ SIGNED_PSBT=$(
 )
 ```
 
-This second command is how the standard external signer plumbing is normally
-reached. It does not yet work for MWEB-only PSBTs because signer matching only
-looks at standard `hd_keypaths`.
+That command signs MWEB components when the wallet has the needed MWEB scan,
+spend, rewind, and sender-key material. It is not a complete hardware-wallet
+route by itself.
+
+The intended hardware signer command is the normal signer `signtx` interface:
+
+```bash
+printf 'signtx "%s"\n' "$PSBT" |
+  litecoin-signer --stdin --fingerprint F23F9D4A --chain main
+```
+
+The standard external-signer wallet plumbing does not yet select MWEB-only
+PSBTs because signer matching still looks at standard `hd_keypaths`. A signer
+process that returns a PSBT can be merged back with `combinepsbt` when the MWEB
+maps, offsets, and pegin scripts are compatible and non-conflicting.
 
 ## Step 6: What the Signer Must Verify
 
@@ -292,8 +302,9 @@ The signer should reject the PSBT unless all of these checks pass:
 - Output stealth addresses and amounts are exactly what the user approved.
 - Pegin and pegout amounts balance with input amounts, output amounts, and
   fees.
-- No unsupported extra-data feature is requested until the signing bugs noted
-  below are fixed.
+- Any MWEB `extra_data` is explicitly accepted by signer policy and shown to the
+  user. Current signing preserves and signs it, but the extracted transaction
+  can still be rejected by standardness policy.
 
 ## Step 7: What the Signer Adds
 
@@ -310,9 +321,12 @@ Then it fills:
 - `PSBT_IN_MWEB_FEATURES`,
 - `PSBT_IN_MWEB_INPUT_PUBKEY`,
 - `PSBT_IN_MWEB_INPUT_SIG`,
+- `PSBT_IN_MWEB_AMOUNT`,
 - any missing `PSBT_IN_MWEB_COMMIT`,
 - any missing `PSBT_IN_MWEB_OUTPUT_PUBKEY`,
 - optionally `PSBT_IN_MWEB_ADDR_DESCRIPTOR`.
+
+It also preserves and signs any existing `PSBT_IN_MWEB_EXTRA_DATA`.
 
 For each MWEB output, the signer generates sender entropy and fills:
 
@@ -323,6 +337,8 @@ For each MWEB output, the signer generates sender entropy and fills:
 - `PSBT_OUT_MWEB_STANDARD_FIELDS`,
 - `PSBT_OUT_MWEB_RANGEPROOF`,
 - `PSBT_OUT_MWEB_SIG`.
+
+It also preserves and signs any existing `PSBT_OUT_MWEB_EXTRA_DATA`.
 
 For each kernel, the signer chooses the kernel blinding factor and stealth
 blinding factor, then fills:
@@ -337,7 +353,8 @@ It preserves any creator-supplied:
 - `PSBT_KERN_FEE`,
 - `PSBT_KERN_PEGIN_AMOUNT`,
 - `PSBT_KERN_PEGOUT`,
-- `PSBT_KERN_LOCK_HEIGHT`.
+- `PSBT_KERN_LOCK_HEIGHT`,
+- `PSBT_KERN_EXTRA_DATA`.
 
 Finally, the signer computes and fills:
 
@@ -363,10 +380,11 @@ The decoded PSBT should now contain:
 - MWEB input `features`, `input_pubkey`, and `signature`,
 - MWEB output commitment, features, sender pubkey, output pubkey, standard
   fields, range proof, and signature,
-- kernel excess commitment, stealth commitment, features, and signature.
+- kernel excess commitment, stealth commitment, and signature. Kernel features
+  are serialized but not currently printed by `decodepsbt`.
 
 `analyzepsbt` should report `next: "extractor"` once the full PSBT is ready
-for extraction.
+for extraction, again without a separate `mweb_next` field.
 
 ## Step 9: Finalize and Extract
 
@@ -390,7 +408,11 @@ Expected result:
 ```
 
 If `complete` is false, the result contains a PSBT instead of transaction hex.
-Inspect it with `decodepsbt` and `analyzepsbt` to find the missing MWEB fields.
+Inspect it with `decodepsbt` and `analyzepsbt` to find missing or invalid
+fields. Finalization now verifies final script signatures, MWEB input
+signatures, pegin scripts, and the extracted MWEB transaction before returning
+hex; a structurally complete but cryptographically invalid PSBT is not
+extracted.
 
 Broadcast the final transaction:
 
@@ -424,22 +446,25 @@ For pegin-plus-pegout transactions:
 
 ## Review Notes and Current Issues
 
-These are the PSBT/MWEB issues found while reviewing the current code:
+These notes reflect the current code and remaining gaps:
 
-- `PartiallySignedTransaction::Merge` rejects all PSBTs containing MWEB
-  components. This blocks normal combiner workflows for hardware and
-  collaborative signing.
+- Standard external-signer routing is not MWEB-aware yet. Hardware signing
+  needs signer matching based on MWEB ownership metadata, not only standard
+  `hd_keypaths`.
+- `PartiallySignedTransaction::Merge` now supports compatible MWEB PSBTs, but
+  it intentionally rejects conflicts in strict MWEB fields, offsets, kernel
+  data, and finalized pegin scripts.
 - MWEB signing is not separated by PSBT role. `PSBTSignMWEBTx` signs inputs,
   outputs, kernels, range proofs, peg-in script updates, and offsets together.
-- `FinalizePSBT` accumulates `complete &= SignPSBTInput(...)` but then ignores
-  that value. For MWEB it relies on `IsComplete()`, which checks field presence
-  but not all cryptographic validity.
-- PSBTv0 gating is inconsistent. MWEB input and output fields reject v0 on
-  parse, but some MWEB global fields and serialization paths are not
-  consistently v2-only.
-- MWEB `extra_data` is not safe to use yet. Input signing omits input
-  `extra_data` from the signing helper, kernel creation signs with empty extra
-  data, and output signing only creates standard output messages.
+- `FinalizePSBT` verifies final script signatures, MWEB input signatures,
+  finalized pegin scripts, and the extracted MWEB transaction before returning
+  hex. `IsComplete()` remains a structural field-presence check.
+- PSBTv0 gating is still uneven around MWEB globals. MWEB input and output
+  fields and kernel count reject v0 on parse, but offset globals and some
+  serialization paths are not consistently v2-only.
+- MWEB `extra_data` is preserved and signed, and `decodepsbt` prints input,
+  output, and kernel extra data. Transactions containing it may still be
+  rejected by standardness policy, so hardware signer policy should be explicit.
 - Kernel pegout keydata contains an index when serialized, but parsing ignores
   that index and pushes pegouts in wire order.
 - Transaction modifiability is not enforced for MWEB. Signers should clear or
@@ -448,7 +473,7 @@ These are the PSBT/MWEB issues found while reviewing the current code:
   "explicit commitment and pubkey tuple without output id" idea is not
   implemented.
 - `decodepsbt` omits some MWEB fields that would be useful while debugging,
-  including kernel count, kernel features, and input/output extra data.
+  including kernel count and kernel features.
 - `walletprocesspsbt sign=false` can expose `mweb.shared_secret` in the PSBT
   when the wallet has it. That may be useful for some signer designs, but it is
   sensitive metadata and should be explicit policy.
