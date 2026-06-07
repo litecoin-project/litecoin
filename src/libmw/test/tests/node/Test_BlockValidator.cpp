@@ -314,9 +314,13 @@ BOOST_AUTO_TEST_CASE(BlockValidator_Test_BlockWeight)
     BOOST_CHECK(is_valid);
 
     std::vector<mw::Output> outputs = pBlock->GetOutputs();
-    while (!Weight::ExceedsMaximum(mw::TxBody(pBlock->GetInputs(), outputs, pBlock->GetKernels()))) {
-        outputs.push_back(outputs.front());
-    }
+    const mw::Output& output = outputs.front();
+    const size_t current_weight = Weight::Calculate(pBlock->GetTxBody());
+    const size_t output_weight = Weight::CalcOutputWeight(output.HasStandardFields(), output.GetExtraData());
+    const size_t additional_outputs = ((mw::MAX_BLOCK_WEIGHT - current_weight) / output_weight) + 1;
+    outputs.insert(outputs.end(), additional_outputs, output);
+
+    BOOST_REQUIRE(Weight::ExceedsMaximum(mw::TxBody(pBlock->GetInputs(), outputs, pBlock->GetKernels())));
 
     mw::Block::CPtr pHeavyBlock = mw::MutBlock(pBlock)
         .SetOutputs(std::move(outputs))
