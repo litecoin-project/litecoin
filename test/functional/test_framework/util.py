@@ -14,6 +14,7 @@ import logging
 import os
 import random
 import re
+import socket
 import time
 import unittest
 
@@ -312,6 +313,13 @@ PORT_RANGE = 5000
 class PortSeed:
     # Must be initialized with a unique integer for each process
     n = None
+
+
+def get_unused_port():
+    """Return an unused TCP port on the IPv4 localhost interface."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
 
 
 def get_rpc_proxy(url: str, node_number: int, *, timeout: int=None, coveragedir: str=None) -> coverage.AuthServiceProxyWrapper:

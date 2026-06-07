@@ -9,13 +9,14 @@ Test ports handling for I2P hosts
 import re
 
 from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import get_unused_port
 
 
 class I2PPorts(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
-        # The test assumes that an I2P SAM proxy is not listening here.
-        self.extra_args = [["-i2psam=127.0.0.1:60000"]]
+        self.i2p_sam_port = get_unused_port()
+        self.extra_args = [[f"-i2psam=127.0.0.1:{self.i2p_sam_port}"]]
 
     def run_test(self):
         node = self.nodes[0]
