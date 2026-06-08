@@ -1239,41 +1239,43 @@ struct PSBTOutput
         }
 
         // MWEB fields
-        if (mweb_stealth_address != std::nullopt) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_STEALTH_ADDRESS));
-            SerializeToVector(s, *mweb_stealth_address);
-        }
-        if (mweb_commit != std::nullopt) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_COMMIT));
-            SerializeToVector(s, *mweb_commit);
-        }
-        if (mweb_features != std::nullopt) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_FEATURES));
-            SerializeToVector(s, *mweb_features);
-        }
-        if (mweb_sender_pubkey != std::nullopt) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_SENDER_PUBKEY));
-            SerializeToVector(s, *mweb_sender_pubkey);
-        }
-        if (mweb_output_pubkey != std::nullopt) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_OUTPUT_PUBKEY));
-            SerializeToVector(s, *mweb_output_pubkey);
-        }
-        if (!mweb_extra_data.empty()) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_EXTRA_DATA));
-            s << mweb_extra_data;
-        }
-        if (mweb_standard_fields != std::nullopt) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_STANDARD_FIELDS));
-            SerializeToVector(s, *mweb_standard_fields);
-        }
-        if (mweb_rangeproof != std::nullopt) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_RANGEPROOF));
-            SerializeToVector(s, *mweb_rangeproof.value());
-        }
-        if (mweb_sig != std::nullopt) {
-            SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_SIG));
-            SerializeToVector(s, *mweb_sig);
+        if (m_psbt_version >= 2) {
+            if (mweb_stealth_address != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_STEALTH_ADDRESS));
+                SerializeToVector(s, *mweb_stealth_address);
+            }
+            if (mweb_commit != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_COMMIT));
+                SerializeToVector(s, *mweb_commit);
+            }
+            if (mweb_features != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_FEATURES));
+                SerializeToVector(s, *mweb_features);
+            }
+            if (mweb_sender_pubkey != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_SENDER_PUBKEY));
+                SerializeToVector(s, *mweb_sender_pubkey);
+            }
+            if (mweb_output_pubkey != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_OUTPUT_PUBKEY));
+                SerializeToVector(s, *mweb_output_pubkey);
+            }
+            if (!mweb_extra_data.empty()) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_EXTRA_DATA));
+                s << mweb_extra_data;
+            }
+            if (mweb_standard_fields != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_STANDARD_FIELDS));
+                SerializeToVector(s, *mweb_standard_fields);
+            }
+            if (mweb_rangeproof != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_RANGEPROOF));
+                SerializeToVector(s, *mweb_rangeproof.value());
+            }
+            if (mweb_sig != std::nullopt) {
+                SerializeToVector(s, CompactSizeWriter(PSBT_OUT_MWEB_SIG));
+                SerializeToVector(s, *mweb_sig);
+            }
         }
 
         // Write unknown things
@@ -1864,6 +1866,9 @@ struct PartiallySignedTransaction
 
     template <typename Stream>
     inline void Serialize(Stream& s) const {
+        if (GetPSBTVersion() == 0 && ContainsMWEBComponents()) {
+            throw std::ios_base::failure("MWEB fields are not allowed in PSBTv0");
+        }
 
         // magic bytes
         s << PSBT_MAGIC_BYTES;
@@ -2009,8 +2014,8 @@ struct PartiallySignedTransaction
                         throw std::ios_base::failure("Global unsigned tx key is more than one byte type");
                     }
                     CMutableTransaction mtx;
-                    // Set the stream to serialize with non-witness since this should always be non-witness
-                    OverrideStream<Stream> os(&s, s.GetType(), s.GetVersion() | SERIALIZE_TRANSACTION_NO_WITNESS);
+                    // Set the stream to unserialize without witness or MWEB since this should always be non-witness v0 data
+                    OverrideStream<Stream> os(&s, s.GetType(), s.GetVersion() | SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB);
                     UnserializeFromVector(os, mtx);
                     tx = std::move(mtx);
                     // Make sure that all scriptSigs and scriptWitnesses are empty
@@ -2215,7 +2220,13 @@ struct PartiallySignedTransaction
                 throw std::ios_base::failure("PSBT_GLOBAL_OUTPUT_COUNT is not allowed in PSBTv0");
             }
             if (found_kernel_count) {
-                throw std::ios_base::failure("PSBT_GLOBAL_KERNEL_COUNT is not allowed in PSBTv0");
+                throw std::ios_base::failure("PSBT_GLOBAL_MWEB_KERNEL_COUNT is not allowed in PSBTv0");
+            }
+            if (mweb_tx_offset != std::nullopt) {
+                throw std::ios_base::failure("PSBT_GLOBAL_MWEB_TX_OFFSET is not allowed in PSBTv0");
+            }
+            if (mweb_stealth_offset != std::nullopt) {
+                throw std::ios_base::failure("PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET is not allowed in PSBTv0");
             }
             if (m_tx_modifiable != std::nullopt) {
                 throw std::ios_base::failure("PSBT_GLOBAL_TX_MODIFIABLE is not allowed in PSBTv0");

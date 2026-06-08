@@ -1852,6 +1852,9 @@ static RPCHelpMan createpsbt()
     if (psbt_version != 2 && psbt_version != 0) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "The PSBT version can only be 2 or 0");
     }
+    if (psbt_version == 0 && !rawTx.mweb_tx.IsNull()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "MWEB PSBTs require PSBT version 2");
+    }
 
     PartiallySignedTransaction psbtx(rawTx, psbt_version);
 

@@ -391,6 +391,10 @@ bool PartiallySignedTransaction::IsNull() const
 
 bool PartiallySignedTransaction::ContainsMWEBComponents() const noexcept
 {
+    if (tx.has_value() && !tx->mweb_tx.IsNull()) {
+        return true;
+    }
+
     if (mweb_tx_offset.has_value() || mweb_stealth_offset.has_value()) {
         return true;
     }

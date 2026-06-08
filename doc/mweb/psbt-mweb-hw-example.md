@@ -448,23 +448,8 @@ For pegin-plus-pegout transactions:
 
 These notes reflect the current code and remaining gaps:
 
-- Standard external-signer routing is not MWEB-aware yet. Hardware signing
-  needs signer matching based on MWEB ownership metadata, not only standard
-  `hd_keypaths`.
-- `PartiallySignedTransaction::Merge` now supports compatible MWEB PSBTs, but
-  it intentionally rejects conflicts in strict MWEB fields, offsets, kernel
-  data, and finalized pegin scripts.
 - MWEB signing is not separated by PSBT role. `PSBTSignMWEBTx` signs inputs,
   outputs, kernels, range proofs, peg-in script updates, and offsets together.
-- `FinalizePSBT` verifies final script signatures, MWEB input signatures,
-  finalized pegin scripts, and the extracted MWEB transaction before returning
-  hex. `IsComplete()` remains a structural field-presence check.
-- PSBTv0 gating is still uneven around MWEB globals. MWEB input and output
-  fields and kernel count reject v0 on parse, but offset globals and some
-  serialization paths are not consistently v2-only.
-- MWEB `extra_data` is preserved and signed, and `decodepsbt` prints input,
-  output, and kernel extra data. Transactions containing it may still be
-  rejected by standardness policy, so hardware signer policy should be explicit.
 - Kernel pegout keydata contains an index when serialized, but parsing ignores
   that index and pushes pegouts in wire order.
 - Transaction modifiability is not enforced for MWEB. Signers should clear or

@@ -59,6 +59,8 @@ class MWEBPsbtTest(LitecoinTestFramework):
         utxos = node1.listunspent(addresses=[node1_mweb_addr])
         assert_equal(len(utxos), 1)
 
+        self.test_mweb_psbtv0_creation_rejected(node0, node1)
+
         self.log.info("Create an MWEB-input PSBT and capture the original updater fields")
         recipient = node0.getnewaddress(address_type='mweb')
         funded = node1.walletcreatefundedpsbt([], {recipient: Decimal('2')})
@@ -140,6 +142,31 @@ class MWEBPsbtTest(LitecoinTestFramework):
 
         self.log.info("Build, sign, and finalize an MWEB PSBT with extra_data")
         self.run_extra_data_workflow_test(node0, node1)
+
+    def test_mweb_psbtv0_creation_rejected(self, node0, node1):
+        self.log.info("PSBTv0 creation rejects MWEB components")
+        mweb_recipient = node0.getnewaddress(address_type='mweb')
+        assert_raises_rpc_error(
+            -8,
+            "MWEB PSBTs require PSBT version 2",
+            node0.createpsbt,
+            [],
+            {mweb_recipient: Decimal('1')},
+            0,
+            False,
+            0,
+        )
+        assert_raises_rpc_error(
+            -8,
+            "MWEB PSBTs require PSBT version 2",
+            node1.walletcreatefundedpsbt,
+            [],
+            {mweb_recipient: Decimal('1')},
+            0,
+            {},
+            True,
+            0,
+        )
 
     def run_extra_data_workflow_test(self, node0, node1):
         recipient = node0.getnewaddress(address_type='mweb')
@@ -403,6 +430,15 @@ class MWEBPsbtTest(LitecoinTestFramework):
         for psbt_base64 in valid_psbt64:
             decoded_psbt = self.nodes[0].decodepsbt(psbt_base64)
             assert 'tx' in decoded_psbt
+
+        for global_key, error in [
+            (PSBT_GLOBAL_MWEB_TX_OFFSET, "PSBT_GLOBAL_MWEB_TX_OFFSET is not allowed in PSBTv0"),
+            (PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET, "PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET is not allowed in PSBTv0"),
+        ]:
+            psbt = PSBT.from_base64(valid_psbt64[0])
+            assert_equal(psbt.version, 0)
+            psbt.g.map[global_key] = b"\x01" * 32
+            assert_raises_rpc_error(-22, f"TX decode failed {error}", self.nodes[0].decodepsbt, psbt.to_base64())
 
 
 if __name__ == '__main__':
