@@ -34,6 +34,7 @@
 #include <chrono>
 #include <fstream>
 #include <memory>
+#include <variant>
 
 #include <QFontMetrics>
 #include <QScrollBar>
@@ -1080,7 +1081,15 @@ void SendCoinsDialog::coinControlUpdateLabels()
         if(entry && !entry->isHidden())
         {
             SendCoinsRecipient rcp = entry->getValue();
-            CoinControlDialog::payAmounts.append(rcp.amount);
+            CoinControlDialog::PayAmountType pay_amount_type{CoinControlDialog::PayAmountType::LTC};
+            if (rcp.type == SendCoinsRecipient::MWEB_PEGIN) {
+                pay_amount_type = CoinControlDialog::PayAmountType::MWEB;
+            } else if (rcp.type == SendCoinsRecipient::MWEB_PEGOUT) {
+                pay_amount_type = CoinControlDialog::PayAmountType::MWEBPegOut;
+            } else if (std::holds_alternative<StealthAddress>(DecodeDestination(rcp.address.toStdString()))) {
+                pay_amount_type = CoinControlDialog::PayAmountType::MWEB;
+            }
+            CoinControlDialog::payAmounts.append(CoinControlDialog::PayAmount{rcp.amount, pay_amount_type});
             if (rcp.fSubtractFeeFromAmount)
                 CoinControlDialog::fSubtractFeeFromAmount = true;
         }

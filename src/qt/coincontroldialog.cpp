@@ -18,7 +18,9 @@
 
 #include <interfaces/node.h>
 #include <key_io.h>
+#include <mw/consensus/Weight.h>
 #include <policy/policy.h>
+#include <script/standard.h>
 #include <wallet/coincontrol.h>
 #include <wallet/coinselection.h>
 #include <wallet/wallet.h>
@@ -32,9 +34,32 @@
 #include <QSettings>
 #include <QTreeWidget>
 
+#include <variant>
+#include <vector>
+
 using wallet::CCoinControl;
 
-QList<CAmount> CoinControlDialog::payAmounts;
+namespace {
+static constexpr unsigned int P2PKH_OUTPUT_BYTES{34};
+static constexpr unsigned int TX_OVERHEAD_BYTES{10};
+
+CScript DummyP2PKHScript()
+{
+    return CScript() << std::vector<unsigned char>(24, 0);
+}
+
+unsigned int GetPeginOutputBytes()
+{
+    return ::GetSerializeSize(CTxOut{MAX_MONEY, GetScriptForPegin(mw::Hash())});
+}
+
+unsigned int GetHogExInputBytes()
+{
+    return ::GetSerializeSize(CTxIn());
+}
+} // namespace
+
+QList<CoinControlDialog::PayAmount> CoinControlDialog::payAmounts;
 bool CoinControlDialog::fSubtractFeeFromAmount = false;
 
 bool CCoinControlWidgetItem::operator<(const QTreeWidgetItem &other) const {
@@ -403,14 +428,26 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
     // nPayAmount
     CAmount nPayAmount = 0;
     bool fDust = false;
-    for (const CAmount &amount : CoinControlDialog::payAmounts)
+    unsigned int nPayLTCOutputs = 0;
+    unsigned int nPayMWEBOutputs = 0;
+    unsigned int nPayPegOuts = 0;
+    for (const PayAmount& pay_amount : CoinControlDialog::payAmounts)
     {
+        const CAmount& amount = pay_amount.amount;
         nPayAmount += amount;
 
-        if (amount > 0)
+        if (pay_amount.type == PayAmountType::LTC) {
+            ++nPayLTCOutputs;
+        } else if (pay_amount.type == PayAmountType::MWEB) {
+            ++nPayMWEBOutputs;
+        } else {
+            ++nPayPegOuts;
+        }
+
+        if (amount > 0 && pay_amount.type != PayAmountType::MWEB)
         {
             // Assumes a p2pkh script size
-            CTxOut txout(amount, CScript() << std::vector<unsigned char>(24, 0));
+            CTxOut txout(amount, DummyP2PKHScript());
             fDust |= IsDust(txout, model->node().getDustRelayFee());
         }
     }
@@ -422,7 +459,10 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
     unsigned int nBytes         = 0;
     unsigned int nBytesInputs   = 0;
     unsigned int nQuantity      = 0;
+    unsigned int nLTCInputs     = 0;
+    unsigned int nMWEBInputs    = 0;
     bool fWitness               = false;
+    uint64_t mweb_weight        = 0;
 
     std::vector<GenericOutputID> vCoinControl;
     m_coin_control.ListSelected(vCoinControl);
@@ -448,6 +488,7 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
 
         // Bytes
         if (!out.address.IsMWEB()) {
+            nLTCInputs++;
             const CScript& scriptPubKey = out.address.GetScript();
             CTxDestination address;
             int witnessversion = 0;
@@ -464,30 +505,87 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
                     nBytesInputs += 148; // in all error cases, simply assume 148 here
             } else
                 nBytesInputs += 148;
+        } else {
+            nMWEBInputs++;
         }
     }
 
     // calculation
     if (nQuantity > 0)
     {
-        // MW: TODO - Implement byte & fee estimation for MWEB
-        uint64_t mweb_weight = 0;
+        const bool has_pay_amounts = CoinControlDialog::payAmounts.size() > 0;
+        const bool pay_ltc_outputs_become_pegouts = nMWEBInputs > 0 && nPayMWEBOutputs == 0 && nPayLTCOutputs > 0;
+        const unsigned int nPegOuts = nPayPegOuts + (pay_ltc_outputs_become_pegouts ? nPayLTCOutputs : 0);
+        const unsigned int nLTCOutputs = pay_ltc_outputs_become_pegouts ? 0 : nPayLTCOutputs;
+        const bool has_mweb_component = nMWEBInputs > 0 || nPayMWEBOutputs > 0 || nPegOuts > 0;
+        const bool has_pegin = nLTCInputs > 0 && (nPayMWEBOutputs > 0 || nPegOuts > 0);
+        const bool mweb_to_mweb = nMWEBInputs > 0 && nPayMWEBOutputs > 0 && !has_pegin && nPegOuts == 0;
+        const bool change_destination_is_default = std::holds_alternative<CNoDestination>(m_coin_control.destChange);
+        const bool change_destination_is_mweb = std::holds_alternative<StealthAddress>(m_coin_control.destChange);
+        const bool change_belongs_on_mweb = has_mweb_component && (mweb_to_mweb || change_destination_is_default || change_destination_is_mweb);
+        bool change_output_is_mweb = false;
+        bool change_output_included = false;
+
+        auto remove_estimated_change_output = [&] {
+            if (!change_output_included) return;
+
+            if (change_output_is_mweb) {
+                mweb_weight -= Weight::CalcOutputWeight(/*standard_fields=*/true);
+            } else {
+                nBytes -= P2PKH_OUTPUT_BYTES;
+            }
+
+            change_output_included = false;
+        };
 
         // Bytes
-        nBytes = nBytesInputs + ((CoinControlDialog::payAmounts.size() > 0 ? CoinControlDialog::payAmounts.size() + 1 : 2) * 34) + 10; // always assume +1 output for change here
+        nBytes = nBytesInputs;
+        if (has_pay_amounts) {
+            nBytes += (nLTCOutputs + nPegOuts) * P2PKH_OUTPUT_BYTES;
+            if (has_pegin) {
+                nBytes += GetHogExInputBytes();
+                nBytes += GetPeginOutputBytes();
+            }
+            if (nBytes > 0 && (nLTCInputs > 0 || nLTCOutputs > 0 || has_pegin)) {
+                nBytes += TX_OVERHEAD_BYTES;
+            }
+        } else if (has_mweb_component) {
+            mweb_weight += 2 * Weight::CalcOutputWeight(/*standard_fields=*/true);
+        } else {
+            nBytes += (2 * P2PKH_OUTPUT_BYTES) + TX_OVERHEAD_BYTES;
+        }
+
         if (fWitness)
         {
             // there is some fudging in these numbers related to the actual virtual transaction size calculation that will keep this estimate from being exact.
             // usually, the result will be an overestimate within a couple of satoshis so that the confirmation dialog ends up displaying a slightly smaller fee.
             // also, the witness stack size value is a variable sized integer. usually, the number of stack items will be well under the single byte var int limit.
             nBytes += 2; // account for the serialized marker and flag bytes
-            nBytes += nQuantity; // account for the witness byte that holds the number of stack items for each input.
+            nBytes += nLTCInputs; // account for the witness byte that holds the number of stack items for each input.
         }
 
-        // in the subtract fee from amount case, we can tell if zero change already and subtract the bytes, so that fee calculation afterwards is accurate
-        if (CoinControlDialog::fSubtractFeeFromAmount)
-            if (nAmount - nPayAmount == 0)
-                nBytes -= 34;
+        // MWEB Weight
+        if (has_mweb_component) {
+            if (nPegOuts > 0) {
+                std::vector<PegOutCoin> pegouts(nPegOuts, PegOutCoin(0, DummyP2PKHScript()));
+                mweb_weight += Weight::CalcKernelWeight(/*has_stealth_excess=*/true, pegouts);
+            } else {
+                mweb_weight += Weight::CalcKernelWeight(/*has_stealth_excess=*/true, std::vector<PegOutCoin>{});
+            }
+
+            mweb_weight += nPayMWEBOutputs * Weight::CalcOutputWeight(/*standard_fields=*/true);
+        }
+
+        // Always assume +1 output for change here, unless we can tell in advance that there is no change.
+        if (has_pay_amounts && (!CoinControlDialog::fSubtractFeeFromAmount || nAmount - nPayAmount != 0)) {
+            change_output_included = true;
+            change_output_is_mweb = change_belongs_on_mweb;
+            if (change_output_is_mweb) {
+                mweb_weight += Weight::CalcOutputWeight(/*standard_fields=*/true);
+            } else {
+                nBytes += P2PKH_OUTPUT_BYTES;
+            }
+        }
 
         // Fee
         nPayFee = model->wallet().getMinimumFee(nBytes, mweb_weight, m_coin_control, nullptr /* returned_target */, nullptr /* reason */);
@@ -499,20 +597,22 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
                 nChange -= nPayFee;
 
             if (nChange > 0) {
-                // Assumes a p2pkh script size
-                CTxOut txout(nChange, CScript() << std::vector<unsigned char>(24, 0));
-                // Never create dust outputs; if we would, just add the dust to the fee.
-                if (IsDust(txout, model->node().getDustRelayFee()))
-                {
-                    nPayFee += nChange;
-                    nChange = 0;
-                    if (CoinControlDialog::fSubtractFeeFromAmount)
-                        nBytes -= 34; // we didn't detect lack of change above
+                if (!change_output_is_mweb) {
+                    // Assumes a p2pkh script size
+                    CTxOut txout(nChange, DummyP2PKHScript());
+                    // Never create dust outputs; if we would, just add the dust to the fee.
+                    if (IsDust(txout, model->node().getDustRelayFee()))
+                    {
+                        nPayFee += nChange;
+                        nChange = 0;
+                        if (CoinControlDialog::fSubtractFeeFromAmount)
+                            remove_estimated_change_output(); // we didn't detect lack of change above
+                    }
                 }
             }
 
             if (nChange == 0 && !CoinControlDialog::fSubtractFeeFromAmount)
-                nBytes -= 34;
+                remove_estimated_change_output();
         }
 
         // after fee
@@ -529,6 +629,7 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
     QLabel *l3 = dialog->findChild<QLabel *>("labelCoinControlFee");
     QLabel *l4 = dialog->findChild<QLabel *>("labelCoinControlAfterFee");
     QLabel *l5 = dialog->findChild<QLabel *>("labelCoinControlBytes");
+    QLabel *l5Text = dialog->findChild<QLabel *>("labelCoinControlBytesText");
     QLabel *l7 = dialog->findChild<QLabel *>("labelCoinControlLowOutput");
     QLabel *l8 = dialog->findChild<QLabel *>("labelCoinControlChange");
 
@@ -543,7 +644,13 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
     l2->setText(BitcoinUnits::formatWithUnit(nDisplayUnit, nAmount));        // Amount
     l3->setText(BitcoinUnits::formatWithUnit(nDisplayUnit, nPayFee));        // Fee
     l4->setText(BitcoinUnits::formatWithUnit(nDisplayUnit, nAfterFee));      // After Fee
-    l5->setText(((nBytes > 0) ? ASYMP_UTF8 : "") + QString::number(nBytes));        // Bytes
+    if (mweb_weight > 0) {
+        l5Text->setText(tr("Bytes / MWEB weight:"));
+        l5->setText(ASYMP_UTF8 + QString("%1 / %2").arg(nBytes).arg(mweb_weight));
+    } else {
+        l5Text->setText(tr("Bytes:"));
+        l5->setText(((nBytes > 0) ? ASYMP_UTF8 : "") + QString::number(nBytes));
+    }
     l7->setText(fDust ? tr("yes") : tr("no"));                               // Dust
     l8->setText(BitcoinUnits::formatWithUnit(nDisplayUnit, nChange));        // Change
     if (nPayFee > 0)
@@ -559,6 +666,9 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
 
     // tool tips
     QString toolTipDust = tr("This label turns red if any recipient receives an amount smaller than the current dust threshold.");
+    QString toolTipBytes = (mweb_weight > 0)
+        ? tr("Estimated virtual transaction size and MWEB weight used for fee calculation.")
+        : QString();
 
     // how many satoshis the estimated fee can vary per byte we guess wrong
     double dFeeVary = (nBytes != 0) ? (double)nPayFee / nBytes : 0;
@@ -567,11 +677,12 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
 
     l3->setToolTip(toolTip4);
     l4->setToolTip(toolTip4);
+    l5->setToolTip(toolTipBytes);
     l7->setToolTip(toolTipDust);
     l8->setToolTip(toolTip4);
     dialog->findChild<QLabel *>("labelCoinControlFeeText")      ->setToolTip(l3->toolTip());
     dialog->findChild<QLabel *>("labelCoinControlAfterFeeText") ->setToolTip(l4->toolTip());
-    dialog->findChild<QLabel *>("labelCoinControlBytesText")    ->setToolTip(l5->toolTip());
+    l5Text                                                       ->setToolTip(l5->toolTip());
     dialog->findChild<QLabel *>("labelCoinControlLowOutputText")->setToolTip(l7->toolTip());
     dialog->findChild<QLabel *>("labelCoinControlChangeText")   ->setToolTip(l8->toolTip());
 

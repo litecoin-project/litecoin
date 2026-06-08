@@ -51,7 +51,18 @@ public:
     // static because also called from sendcoinsdialog
     static void updateLabels(wallet::CCoinControl& m_coin_control, WalletModel*, QDialog*);
 
-    static QList<CAmount> payAmounts;
+    enum class PayAmountType {
+        LTC,
+        MWEB,
+        MWEBPegOut,
+    };
+
+    struct PayAmount {
+        CAmount amount;
+        PayAmountType type;
+    };
+
+    static QList<PayAmount> payAmounts;
     static bool fSubtractFeeFromAmount;
 
 protected:
