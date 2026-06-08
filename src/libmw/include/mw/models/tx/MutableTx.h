@@ -123,7 +123,6 @@ struct MutableOutput {
     std::optional<CAmount> amount{};
     std::optional<StealthAddress> address{};
     std::optional<bool> subtract_fee_from_amount{};
-    // MW: TODO - Include generated secrets
 
     bool operator==(const MutableOutput& other) const noexcept
     {
@@ -198,8 +197,6 @@ struct MutableKernel {
     std::vector<uint8_t> extradata;
     std::optional<Commitment> excess;
     std::optional<Signature> signature;
-
-    // MW: TODO - Should include secret keys
 
     bool operator==(const MutableKernel& other) const noexcept
     {

@@ -936,7 +936,6 @@ const RPCResult decodepsbt_inputs{
                 {RPCResult::Type::NUM, "amount", /*optional=*/true, "The UTXO amount"},
                 {RPCResult::Type::STR_HEX, "shared_secret", /*optional=*/true, "The hex-encoded shared secret"},
                 {RPCResult::Type::STR_HEX, "key_exchange_pk", /*optional=*/true, "The hex-encoded MWEB key exchange public key"},
-                //{RPCResult::Type::OBJ_DYN, "utxo", /*optional=*/true, "The MWEB UTXO being spent",{}}, // MW: TODO - Define the structure
             }},
             {RPCResult::Type::OBJ_DYN, "unknown", /*optional=*/ true, "The unknown input fields",
             {
@@ -1011,8 +1010,19 @@ const RPCResult decodepsbt_outputs{
             }},
             {RPCResult::Type::OBJ, "mweb", /*optional=*/true, "The MWEB output",
             {
-                {RPCResult::Type::ELISION, "",""},
-            }}, // MW: TODO - Define this
+                {RPCResult::Type::STR, "address", /*optional=*/true, "The MWEB stealth address"},
+                {RPCResult::Type::STR_HEX, "output_commit", /*optional=*/true, "The hex-encoded output commitment"},
+                {RPCResult::Type::NUM, "features", /*optional=*/true, "The MWEB output feature mask"},
+                {RPCResult::Type::STR_HEX, "sender_pubkey", /*optional=*/true, "The hex-encoded MWEB sender public key"},
+                {RPCResult::Type::STR_HEX, "output_pubkey", /*optional=*/true, "The hex-encoded MWEB output public key"},
+                {RPCResult::Type::STR_HEX, "extra_data", /*optional=*/true, "The hex-encoded MWEB output extra data"},
+                {RPCResult::Type::STR_HEX, "key_exchange_pubkey", /*optional=*/true, "The hex-encoded MWEB key exchange public key"},
+                {RPCResult::Type::NUM, "view_tag", /*optional=*/true, "The MWEB output view tag"},
+                {RPCResult::Type::STR_HEX, "encrypted_value", /*optional=*/true, "The encrypted output value"},
+                {RPCResult::Type::STR_HEX, "encrypted_nonce", /*optional=*/true, "The encrypted output nonce"},
+                {RPCResult::Type::STR_HEX, "rangeproof", /*optional=*/true, "The hex-encoded MWEB output rangeproof"},
+                {RPCResult::Type::STR_HEX, "sig", /*optional=*/true, "The hex-encoded MWEB output signature"},
+            }},
             {RPCResult::Type::OBJ_DYN, "unknown", /*optional=*/true, "The unknown output fields",
             {
                 {RPCResult::Type::STR_HEX, "key", "(key-value pair) An unknown key-value pair"},
@@ -1519,11 +1529,6 @@ static RPCHelpMan decodepsbt()
                 mweb_obj.pushKV("key_exchange_pk", input.mweb_key_exchange_pubkey->ToHex());
             }
 
-            //if (input.mweb_utxo.has_value()) {
-            //    UniValue mweb_utxo = input.mweb_utxo->ToUni();
-            //    mweb_obj.pushKV("utxo", mweb_utxo);
-            //}
-
             in.pushKV("mweb", mweb_obj);
         }
 
@@ -1637,8 +1642,6 @@ static RPCHelpMan decodepsbt()
         // MWEB fields
         if (output.IsMWEB()) {
             UniValue mweb_obj(UniValue::VOBJ);
-            // MW: TODO - Add MWEB fields
-
             if (output.mweb_stealth_address.has_value()) {
                 mweb_obj.pushKV("address", GenericAddress(*output.mweb_stealth_address).Encode());
             }
