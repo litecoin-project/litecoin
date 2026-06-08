@@ -32,6 +32,12 @@ from test_framework.util import assert_equal, assert_raises_rpc_error
 
 
 class MWEBPsbtTest(LitecoinTestFramework):
+    MWEB_BYTES_PER_WEIGHT = 42
+    MWEB_KERNEL_WITH_STEALTH_WEIGHT = 3
+    MWEB_BASE_OUTPUT_WEIGHT = 17
+    MWEB_STANDARD_OUTPUT_WEIGHT = 18
+    MWEB_STANDARD_FIELDS_FEATURE_BIT = 0x01
+
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 2
@@ -251,9 +257,11 @@ class MWEBPsbtTest(LitecoinTestFramework):
             assert_equal(combined_output_scripts, signed_output_scripts)
 
         signed_analysis = node0.analyzepsbt(signed["psbt"])
+        signed_decoded = node0.decodepsbt(signed["psbt"])
         assert "mweb_next" not in signed_analysis
         assert_equal(signed_analysis["next"], "extractor")
         assert_equal(signed_analysis["fee"], funded["fee"])
+        assert_equal(signed_analysis["estimated_mweb_weight"], self.expected_mweb_weight(signed_decoded))
         assert all(input_analysis["next"] == "extractor" for input_analysis in signed_analysis["inputs"])
 
         parsed = PSBT.from_base64(signed["psbt"])
@@ -430,6 +438,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
 
     def assert_unsigned_mweb_psbt(self, decoded_psbt, analysis, recipient, amount, expected_output_type):
         self.assert_mweb_analysis(analysis, expected_input_role='signer', expected_next='signer', expected_is_final=False)
+        assert_equal(analysis["estimated_mweb_weight"], self.expected_mweb_weight(decoded_psbt))
 
         mweb_inputs = [txin for txin in decoded_psbt["inputs"] if txin.get("mweb")]
         assert_equal(len(mweb_inputs), 1)
@@ -446,6 +455,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
 
     def assert_signed_mweb_psbt(self, unsigned_decoded, decoded_psbt, analysis, recipient, amount, expected_output_type):
         self.assert_mweb_analysis(analysis, expected_input_role='extractor', expected_next='extractor', expected_is_final=True)
+        assert_equal(analysis["estimated_mweb_weight"], self.expected_mweb_weight(decoded_psbt))
 
         unsigned_input = next(txin["mweb"] for txin in unsigned_decoded["inputs"] if txin.get("mweb"))
         signed_input = next(txin["mweb"] for txin in decoded_psbt["inputs"] if txin.get("mweb"))
@@ -487,6 +497,45 @@ class MWEBPsbtTest(LitecoinTestFramework):
         assert_equal(analysis["inputs"][0]["has_utxo"], False)
         assert_equal(analysis["inputs"][0]["is_final"], expected_is_final)
         assert_equal(analysis["inputs"][0]["next"], expected_input_role)
+
+    def extra_data_weight(self, hex_str):
+        return ((len(hex_str) // 2) + self.MWEB_BYTES_PER_WEIGHT - 1) // self.MWEB_BYTES_PER_WEIGHT
+
+    def expected_mweb_weight(self, decoded_psbt):
+        has_mweb_components = False
+        weight = 0
+
+        for txin in decoded_psbt["inputs"]:
+            mweb = txin.get("mweb")
+            if not mweb:
+                continue
+            has_mweb_components = True
+            weight += self.extra_data_weight(mweb.get("extra_data", ""))
+
+        for output in decoded_psbt["outputs"]:
+            mweb = output.get("mweb")
+            if not mweb:
+                continue
+            has_mweb_components = True
+            standard_fields = (
+                "features" not in mweb or
+                mweb["features"] & self.MWEB_STANDARD_FIELDS_FEATURE_BIT
+            )
+            weight += self.MWEB_STANDARD_OUTPUT_WEIGHT if standard_fields else self.MWEB_BASE_OUTPUT_WEIGHT
+            weight += self.extra_data_weight(mweb.get("extra_data", ""))
+
+        kernels = decoded_psbt["kernels"]
+        if kernels:
+            has_mweb_components = True
+            for kernel in kernels:
+                weight += self.MWEB_KERNEL_WITH_STEALTH_WEIGHT
+                weight += self.extra_data_weight(kernel.get("extra_data", ""))
+                for pegout in kernel.get("pegouts", []):
+                    weight += self.extra_data_weight(pegout["scriptPubKey"]["hex"])
+        elif has_mweb_components:
+            weight += self.MWEB_KERNEL_WITH_STEALTH_WEIGHT
+
+        return weight
 
     def find_recipient_output(self, decoded_psbt, recipient, expected_output_type):
         return decoded_psbt["outputs"][self.find_recipient_output_index(decoded_psbt, recipient, expected_output_type)]

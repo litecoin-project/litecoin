@@ -5,6 +5,7 @@
 #include <coins.h>
 #include <consensus/amount.h>
 #include <consensus/tx_verify.h>
+#include <mw/consensus/Weight.h>
 #include <node/psbt.h>
 #include <policy/policy.h>
 #include <policy/settings.h>
@@ -118,6 +119,44 @@ std::optional<PSBTRole> GetMWEBNextRole(const PartiallySignedTransaction& psbtx)
     }
 
     return PSBTRole::EXTRACTOR;
+}
+
+size_t EstimateMWEBWeight(const PartiallySignedTransaction& psbtx)
+{
+    bool has_mweb_tx_component{false};
+    size_t weight{0};
+
+    for (const PSBTInput& input : psbtx.inputs) {
+        if (!input.IsMWEB()) {
+            continue;
+        }
+        has_mweb_tx_component = true;
+        weight += Weight::CalcInputWeight(input.mweb_extra_data);
+    }
+
+    for (const PSBTOutput& output : psbtx.outputs) {
+        if (!output.IsMWEB()) {
+            continue;
+        }
+        has_mweb_tx_component = true;
+        const bool standard_fields = !output.mweb_features.has_value() ||
+            (*output.mweb_features & mw::OutputMessage::STANDARD_FIELDS_FEATURE_BIT);
+        weight += Weight::CalcOutputWeight(standard_fields, output.mweb_extra_data);
+    }
+
+    if (!psbtx.kernels.empty()) {
+        has_mweb_tx_component = true;
+        for (const PSBTKernel& kernel : psbtx.kernels) {
+            weight += Weight::CalcKernelWeight(
+                /*has_stealth_excess=*/true,
+                kernel.pegouts,
+                kernel.extra_data);
+        }
+    } else if (has_mweb_tx_component) {
+        weight += Weight::CalcKernelWeight(/*has_stealth_excess=*/true, std::vector<PegOutCoin>{});
+    }
+
+    return weight;
 }
 } // namespace
 
@@ -311,9 +350,11 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
         if (success) {
             CTransaction ctx = CTransaction(mtx);
             size_t size(GetVirtualTransactionSize(ctx, GetTransactionSigOpCost(ctx, view, STANDARD_SCRIPT_VERIFY_FLAGS), ::nBytesPerSigOp));
+            const size_t mweb_weight = EstimateMWEBWeight(psbtx);
             result.estimated_vsize = size;
+            result.estimated_mweb_weight = mweb_weight;
             // Estimate fee rate
-            CFeeRate feerate(fee, size, mtx.mweb_tx.GetMWEBWeight());
+            CFeeRate feerate(fee, size, mweb_weight);
             result.estimated_feerate = feerate;
         }
 

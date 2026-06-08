@@ -2145,6 +2145,7 @@ static RPCHelpMan analyzepsbt()
                         }},
                     }},
                     {RPCResult::Type::NUM, "estimated_vsize", /*optional=*/true, "Estimated vsize of the final signed transaction"},
+                    {RPCResult::Type::NUM, "estimated_mweb_weight", /*optional=*/true, "Estimated MWEB weight of the final signed transaction"},
                     {RPCResult::Type::STR_AMOUNT, "estimated_feerate", /*optional=*/true, "Estimated feerate of the final signed transaction in " + CURRENCY_UNIT + "/kvB. Shown only if all UTXO slots in the PSBT have been filled"},
                     {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The transaction fee paid. Shown only if all UTXO slots in the PSBT have been filled"},
                     {RPCResult::Type::STR, "next", "Role of the next person that this psbt needs to go to"},
@@ -2206,6 +2207,9 @@ static RPCHelpMan analyzepsbt()
 
     if (psbta.estimated_vsize != std::nullopt) {
         result.pushKV("estimated_vsize", (int)*psbta.estimated_vsize);
+    }
+    if (psbta.estimated_mweb_weight != std::nullopt) {
+        result.pushKV("estimated_mweb_weight", (int)*psbta.estimated_mweb_weight);
     }
     if (psbta.estimated_feerate != std::nullopt) {
         result.pushKV("estimated_feerate", ValueFromAmount(psbta.estimated_feerate->GetFeePerK()));
