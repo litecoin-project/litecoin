@@ -77,6 +77,33 @@ bool MergeVectorStrict(std::vector<T>& dst, const std::vector<T>& src)
     return dst == src;
 }
 
+bool HasMWEBSignatureOrProof(const PartiallySignedTransaction& psbt)
+{
+    for (const PSBTInput& input : psbt.inputs) {
+        if (input.mweb_sig.has_value()) {
+            return true;
+        }
+    }
+    for (const PSBTOutput& output : psbt.outputs) {
+        if (output.mweb_rangeproof.has_value() || output.mweb_sig.has_value()) {
+            return true;
+        }
+    }
+    for (const PSBTKernel& kernel : psbt.kernels) {
+        if (kernel.sig.has_value()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ClearTxModifiable(PartiallySignedTransaction& psbt)
+{
+    if (psbt.m_tx_modifiable.has_value()) {
+        psbt.m_tx_modifiable->reset();
+    }
+}
+
 bool MergeUnknownStrict(std::map<std::vector<unsigned char>, std::vector<unsigned char>>& dst, const std::map<std::vector<unsigned char>, std::vector<unsigned char>>& src)
 {
     for (const auto& [key, value] : src) {
@@ -477,6 +504,7 @@ bool PartiallySignedTransaction::Merge(const PartiallySignedTransaction& psbt)
     if (merged_psbt.fallback_locktime == std::nullopt && psbt.fallback_locktime != std::nullopt) merged_psbt.fallback_locktime = psbt.fallback_locktime;
     if (merged_psbt.m_tx_modifiable != std::nullopt && psbt.m_tx_modifiable != std::nullopt) *merged_psbt.m_tx_modifiable |= *psbt.m_tx_modifiable;
     if (merged_psbt.m_tx_modifiable == std::nullopt && psbt.m_tx_modifiable != std::nullopt) merged_psbt.m_tx_modifiable = psbt.m_tx_modifiable;
+    if (contains_mweb && HasMWEBSignatureOrProof(merged_psbt)) ClearTxModifiable(merged_psbt);
     if (contains_mweb) {
         if (!MergeUnknownStrict(merged_psbt.unknown, psbt.unknown) ||
             !MergeProprietaryStrict(merged_psbt.m_proprietary, psbt.m_proprietary)) {
@@ -1182,6 +1210,8 @@ util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransac
     if (!mweb_result) {
         return util::Error{util::ErrorString(mweb_result)};
     }
+
+    ClearTxModifiable(psbtx);
 
     coins_by_output_id = mweb_result->coins_by_output_id;
 

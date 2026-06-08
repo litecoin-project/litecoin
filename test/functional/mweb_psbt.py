@@ -10,6 +10,7 @@ from test_framework.psbt import (
     PSBT,
     PSBT_GLOBAL_MWEB_TX_OFFSET,
     PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET,
+    PSBT_GLOBAL_TX_MODIFIABLE,
     PSBT_IN_MWEB_ADDR_DESCRIPTOR,
     PSBT_IN_MWEB_COMMIT,
     PSBT_IN_MWEB_EXTRA_DATA,
@@ -317,11 +318,17 @@ class MWEBPsbtTest(LitecoinTestFramework):
 
         self.assert_unsigned_mweb_psbt(unsigned_decoded, unsigned_analysis, recipient, amount, expected_output_type)
 
-        signed = node1.walletprocesspsbt(unsigned_psbt, True, "ALL", True, False)
+        unsigned_modifiable = PSBT.from_base64(unsigned_psbt)
+        unsigned_modifiable.g.map[PSBT_GLOBAL_TX_MODIFIABLE] = b"\x03"
+        unsigned_modifiable_psbt = unsigned_modifiable.to_base64()
+
+        signed = node1.walletprocesspsbt(unsigned_modifiable_psbt, True, "ALL", True, False)
         assert signed["complete"]
 
         signed_psbt = signed["psbt"]
         self.assert_combinepsbt_complete(node0, unsigned_psbt, signed_psbt)
+        self.assert_combinepsbt_complete(node0, unsigned_modifiable_psbt, signed_psbt)
+        self.assert_mweb_modifiability_cleared(node0, signed_psbt, unsigned_modifiable_psbt)
         self.assert_conflicting_mweb_global_rejected(node0, signed_psbt)
 
         signed_decoded = node0.decodepsbt(signed_psbt)
@@ -385,6 +392,22 @@ class MWEBPsbtTest(LitecoinTestFramework):
             return
 
         raise AssertionError(f"Expected PSBT field {key} not found")
+
+    def assert_mweb_modifiability_cleared(self, node, signed_psbt, unsigned_modifiable_psbt):
+        signed_map = PSBT.from_base64(signed_psbt).g.map
+        assert_equal(signed_map[PSBT_GLOBAL_TX_MODIFIABLE], b"\x00")
+
+        signed_decoded = node.decodepsbt(signed_psbt)
+        assert_equal(signed_decoded["inputs_modifiable"], False)
+        assert_equal(signed_decoded["outputs_modifiable"], False)
+        assert_equal(signed_decoded["has_sighash_single"], False)
+
+        for combined in [
+            node.combinepsbt([unsigned_modifiable_psbt, signed_psbt]),
+            node.combinepsbt([signed_psbt, unsigned_modifiable_psbt]),
+        ]:
+            combined_map = PSBT.from_base64(combined).g.map
+            assert_equal(combined_map[PSBT_GLOBAL_TX_MODIFIABLE], b"\x00")
 
     def is_kernel_pegout_key(self, key):
         return isinstance(key, bytes) and len(key) > 0 and key[0] == PSBT_KERN_PEGOUT
