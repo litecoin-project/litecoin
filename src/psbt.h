@@ -1675,6 +1675,7 @@ struct PSBTKernel
     inline void Unserialize(Stream& s) {
         // Used for duplicate key detection
         std::set<std::vector<unsigned char>> key_lookup;
+        std::map<uint64_t, PegOutCoin> indexed_pegouts;
 
         // Read loop
         bool found_sep = false;
@@ -1759,11 +1760,22 @@ struct PSBTKernel
                 {
                     if (!key_lookup.emplace(key).second) {
                         throw std::ios_base::failure("Duplicate Key, pegout is already provided");
+                    } else if (key.size() == 1) {
+                        throw std::ios_base::failure("Kernel pegout key is missing index");
                     }
+
+                    SpanReader s_key(s.GetType(), s.GetVersion(), Span{key}.subspan(1));
+                    const uint64_t index = ReadCompactSize(s_key);
+                    if (!s_key.empty()) {
+                        throw std::ios_base::failure("Kernel pegout key has unexpected data after index");
+                    }
+
                     CAmount amount;
                     CScript script;
                     UnserializeFromVector(s, amount, script);
-                    pegouts.push_back(PegOutCoin(amount, std::move(script)));
+                    if (!indexed_pegouts.emplace(index, PegOutCoin(amount, std::move(script))).second) {
+                        throw std::ios_base::failure("Duplicate Key, pegout index is already provided");
+                    }
                     break;
                 }
                 case PSBT_KERN_LOCK_HEIGHT:
@@ -1817,6 +1829,15 @@ struct PSBTKernel
 
         if (!found_sep) {
             throw std::ios_base::failure("Separator is missing at the end of a kernel map");
+        }
+
+        uint64_t expected_index = 0;
+        for (auto& [index, pegout] : indexed_pegouts) {
+            if (index != expected_index) {
+                throw std::ios_base::failure("Kernel pegout indexes must be contiguous");
+            }
+            pegouts.push_back(std::move(pegout));
+            ++expected_index;
         }
     }
 

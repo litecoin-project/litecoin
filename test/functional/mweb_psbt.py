@@ -19,6 +19,7 @@ from test_framework.psbt import (
     PSBT_IN_MWEB_KEY_EXCHANGE_PK,
     PSBT_KERN_EXTRA_DATA,
     PSBT_KERN_FEATURES,
+    PSBT_KERN_PEGOUT,
     PSBT_KERN_SIG,
     PSBT_OUT_MWEB_EXTRA_DATA,
     PSBT_OUT_MWEB_FEATURES,
@@ -110,6 +111,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
             assert_equal(combined_input_map[PSBT_IN_MWEB_OUTPUT_PUBKEY], original_output_pubkey)
 
         self.test_mweb_components_are_included_in_global_next(node0, node1)
+        self.test_mweb_pegout_indexes_are_honored(node0, node1)
         self.workflow_tests(node0, node1)
 
     def workflow_tests(self, node0, node1):
@@ -259,6 +261,52 @@ class MWEBPsbtTest(LitecoinTestFramework):
         assert_equal(missing_offset_analysis["next"], "signer")
         assert all(input_analysis["next"] == "extractor" for input_analysis in missing_offset_analysis["inputs"])
 
+    def test_mweb_pegout_indexes_are_honored(self, node0, node1):
+        self.log.info("MWEB kernel pegout parsing uses keydata indexes, not wire order")
+
+        funded = node1.walletcreatefundedpsbt(
+            [],
+            {
+                node0.getnewaddress(address_type='bech32'): Decimal('0.7'),
+                node0.getnewaddress(address_type='bech32'): Decimal('0.8'),
+            },
+        )
+        decoded = node0.decodepsbt(funded["psbt"])
+        original_pegouts = decoded["kernels"][0]["pegouts"]
+        assert_equal(len(original_pegouts), 2)
+
+        parsed = PSBT.from_base64(funded["psbt"])
+        kernel_map = parsed.k[0].map
+        pegout_entries = [(key, value) for key, value in kernel_map.items() if self.is_kernel_pegout_key(key)]
+        assert_equal(len(pegout_entries), 2)
+        assert all(isinstance(key, bytes) and len(key) > 1 for key, _ in pegout_entries)
+
+        reordered_map = {}
+        inserted_reversed_pegouts = False
+        for key, value in kernel_map.items():
+            if self.is_kernel_pegout_key(key):
+                if not inserted_reversed_pegouts:
+                    for pegout_key, pegout_value in reversed(pegout_entries):
+                        reordered_map[pegout_key] = pegout_value
+                    inserted_reversed_pegouts = True
+                continue
+            reordered_map[key] = value
+        parsed.k[0].map = reordered_map
+
+        reordered_decoded = node0.decodepsbt(parsed.to_base64())
+        assert_equal(reordered_decoded["kernels"][0]["pegouts"], original_pegouts)
+
+        malformed = PSBT.from_base64(funded["psbt"])
+        malformed_pegout_key, malformed_pegout_value = pegout_entries[0]
+        del malformed.k[0].map[malformed_pegout_key]
+        malformed.k[0].map[PSBT_KERN_PEGOUT] = malformed_pegout_value
+        assert_raises_rpc_error(
+            -22,
+            "TX decode failed Kernel pegout key is missing index",
+            node0.decodepsbt,
+            malformed.to_base64(),
+        )
+
     def run_workflow_test(self, node0, node1, recipients, expected_output_type):
         recipient, amount = next(iter(recipients.items()))
 
@@ -337,6 +385,9 @@ class MWEBPsbtTest(LitecoinTestFramework):
             return
 
         raise AssertionError(f"Expected PSBT field {key} not found")
+
+    def is_kernel_pegout_key(self, key):
+        return isinstance(key, bytes) and len(key) > 0 and key[0] == PSBT_KERN_PEGOUT
 
     def assert_unsigned_mweb_psbt(self, decoded_psbt, analysis, recipient, amount, expected_output_type):
         self.assert_mweb_analysis(analysis, expected_input_role='signer', expected_next='signer', expected_is_final=False)
