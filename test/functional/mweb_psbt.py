@@ -68,6 +68,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
         funded = node1.walletcreatefundedpsbt([], {recipient: Decimal('2')})
         original_psbt = funded["psbt"]
         original_decoded = node0.decodepsbt(original_psbt)
+        self.assert_kernel_count_and_features_decoded(original_decoded, original_psbt)
 
         mweb_input_index = next(i for i, txin in enumerate(original_decoded["inputs"]) if txin.get("mweb"))
 
@@ -197,6 +198,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
 
         extra_data_psbt = parsed.to_base64()
         extra_data_decoded = node0.decodepsbt(extra_data_psbt)
+        self.assert_kernel_count_and_features_decoded(extra_data_decoded, extra_data_psbt)
         assert_equal(extra_data_decoded["inputs"][mweb_input_index]["mweb"]["extra_data"], input_extra.hex())
         assert_equal(extra_data_decoded["outputs"][mweb_output_index]["mweb"]["extra_data"], output_extra.hex())
         assert_equal(extra_data_decoded["kernels"][0]["extra_data"], kernel_extra.hex())
@@ -205,9 +207,11 @@ class MWEBPsbtTest(LitecoinTestFramework):
         assert signed["complete"]
 
         signed_decoded = node0.decodepsbt(signed["psbt"])
+        self.assert_kernel_count_and_features_decoded(signed_decoded, signed["psbt"])
         assert_equal(signed_decoded["inputs"][mweb_input_index]["mweb"]["extra_data"], input_extra.hex())
         assert_equal(signed_decoded["outputs"][mweb_output_index]["mweb"]["extra_data"], output_extra.hex())
         assert_equal(signed_decoded["kernels"][0]["extra_data"], kernel_extra.hex())
+        assert signed_decoded["kernels"][0]["features"] & 0x20
 
         signed_parsed = PSBT.from_base64(signed["psbt"])
         assert signed_parsed.i[mweb_input_index].map[PSBT_IN_MWEB_FEATURES][0] & 0x02
@@ -359,6 +363,18 @@ class MWEBPsbtTest(LitecoinTestFramework):
             combined = node.combinepsbt(psbts)
             finalized = node.finalizepsbt(combined)
             assert finalized["complete"]
+
+    def assert_kernel_count_and_features_decoded(self, decoded_psbt, psbt_base64):
+        parsed = PSBT.from_base64(psbt_base64)
+        assert_equal(decoded_psbt["kernel_count"], parsed.kernel_count)
+        assert_equal(decoded_psbt["kernel_count"], len(decoded_psbt["kernels"]))
+        assert_equal(decoded_psbt["kernel_count"], len(parsed.k))
+
+        for i, kernel in enumerate(parsed.k):
+            if PSBT_KERN_FEATURES in kernel.map:
+                assert_equal(decoded_psbt["kernels"][i]["features"], kernel.map[PSBT_KERN_FEATURES][0])
+            else:
+                assert "features" not in decoded_psbt["kernels"][i]
 
     def assert_conflicting_mweb_global_rejected(self, node, signed_psbt):
         parsed = PSBT.from_base64(signed_psbt)

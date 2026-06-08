@@ -49,7 +49,7 @@ where the fields differ.
 | --- | --- | --- | --- | --- |
 | `0x90` | `PSBT_GLOBAL_MWEB_TX_OFFSET` | `mweb_tx_offset` | Signer | Final aggregate kernel offset. Required for any final MWEB transaction. |
 | `0x91` | `PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET` | `mweb_stealth_offset` | Signer | Final stealth offset. Required for any final MWEB transaction. |
-| `0x92` | `PSBT_GLOBAL_MWEB_KERNEL_COUNT` | not currently decoded | Creator | Compact-size count of kernel maps that follow the output maps. |
+| `0x92` | `PSBT_GLOBAL_MWEB_KERNEL_COUNT` | `kernel_count` | Creator | Compact-size count of kernel maps that follow the output maps. |
 
 MWEB PSBTs should always be PSBTv2. RPC creators default to PSBTv2, and MWEB
 input/output fields plus kernel count are rejected when parsing PSBTv0. Callers
@@ -99,7 +99,7 @@ Kernel maps are serialized after all output maps. Their count is taken from
 | `0x03` | `PSBT_KERN_PEGIN_AMOUNT` | `kernels[].pegin_amount` | Creator | Amount entering MWEB through a pegin. |
 | `0x04` | `PSBT_KERN_PEGOUT` | `kernels[].pegouts[]` | Creator | Pegout amount and script. Keydata contains the pegout index when serialized. |
 | `0x05` | `PSBT_KERN_LOCK_HEIGHT` | `kernels[].lock_height` | Creator | Kernel lock height. |
-| `0x06` | `PSBT_KERN_FEATURES` | not currently decoded | Creator/signer | Feature byte derived from fee, pegin, pegout, lock height, stealth excess, and extra data. |
+| `0x06` | `PSBT_KERN_FEATURES` | `kernels[].features` | Creator/signer | Feature byte derived from fee, pegin, pegout, lock height, stealth excess, and extra data. |
 | `0x07` | `PSBT_KERN_EXTRA_DATA` | `kernels[].extra_data` | Creator/signer | Extra kernel data. Current signing preserves it and sets the kernel extra-data feature bit. |
 | `0x08` | `PSBT_KERN_SIG` | `kernels[].signature` | Signer | Kernel Schnorr signature. |
 | `0xFC` | `PSBT_KERN_PROPRIETARY` | unknown | Any | Constant exists, but `PSBTKernel` stores unknowns rather than a proprietary map. |
@@ -217,6 +217,7 @@ Before signing, the decoded MWEB maps should look roughly like this:
   "psbt_version": 2,
   "input_count": 1,
   "output_count": 1,
+  "kernel_count": 1,
   "inputs": [
     {
       "mweb": {
@@ -239,6 +240,7 @@ Before signing, the decoded MWEB maps should look roughly like this:
   ],
   "kernels": [
     {
+      "features": 1,
       "fee": 500000
     }
   ]
@@ -380,8 +382,8 @@ The decoded PSBT should now contain:
 - MWEB input `features`, `input_pubkey`, and `signature`,
 - MWEB output commitment, features, sender pubkey, output pubkey, standard
   fields, range proof, and signature,
-- kernel excess commitment, stealth commitment, and signature. Kernel features
-  are serialized but not currently printed by `decodepsbt`.
+- kernel count, kernel features, excess commitment, stealth commitment, and
+  signature.
 
 `analyzepsbt` should report `next: "extractor"` once the full PSBT is ready
 for extraction, again without a separate `mweb_next` field.
@@ -457,8 +459,6 @@ These notes reflect the current code and remaining gaps:
 - MWEB input detection requires `PSBT_IN_MWEB_OUTPUT_ID`. The alternate
   "explicit commitment and pubkey tuple without output id" idea is not
   implemented.
-- `decodepsbt` omits some MWEB fields that would be useful while debugging,
-  including kernel count and kernel features.
 - `walletprocesspsbt sign=false` can expose `mweb.shared_secret` in the PSBT
   when the wallet has it. That may be useful for some signer designs, but it is
   sensitive metadata and should be explicit policy.

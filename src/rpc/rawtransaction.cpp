@@ -1059,6 +1059,7 @@ static RPCHelpMan decodepsbt()
                         {RPCResult::Type::NUM, "fallback_locktime", /* optional */ true, "The locktime to fallback to if no inputs specify a required locktime."},
                         {RPCResult::Type::NUM, "input_count", /* optional */ true, "The number of inputs in this psbt"},
                         {RPCResult::Type::NUM, "output_count", /* optional */ true, "The number of outputs in this psbt."},
+                        {RPCResult::Type::NUM, "kernel_count", /* optional */ true, "The number of MWEB kernels in this psbt."},
                         {RPCResult::Type::BOOL, "inputs_modifiable", /* optional */ true, "Whether inputs can be modified"},
                         {RPCResult::Type::BOOL, "outputs_modifiable", /* optional */ true, "Whether outputs can be modified"},
                         {RPCResult::Type::BOOL, "has_sighash_single", /* optional */ true, "Whether this PSBT has SIGHASH_SINGLE inputs"},
@@ -1085,8 +1086,26 @@ static RPCHelpMan decodepsbt()
                         {
                             {RPCResult::Type::OBJ, "", "",
                             {
-                                {RPCResult::Type::ELISION, "",""},
-                            }}, // MW: TODO - Define this
+                                {RPCResult::Type::NUM, "features", /*optional=*/true, "The MWEB kernel feature mask"},
+                                {RPCResult::Type::STR_HEX, "commit", /*optional=*/true, "The hex-encoded MWEB kernel excess commitment"},
+                                {RPCResult::Type::STR_HEX, "stealth_commit", /*optional=*/true, "The hex-encoded MWEB kernel stealth excess commitment"},
+                                {RPCResult::Type::NUM, "fee", /*optional=*/true, "The MWEB kernel fee in litoshis"},
+                                {RPCResult::Type::NUM, "pegin_amount", /*optional=*/true, "The MWEB pegin amount in litoshis"},
+                                {RPCResult::Type::ARR, "pegouts", /*optional=*/true, "The MWEB pegouts",
+                                {
+                                    {RPCResult::Type::OBJ, "", "",
+                                    {
+                                        {RPCResult::Type::NUM, "amount", "The pegout amount in litoshis"},
+                                        {RPCResult::Type::OBJ, "scriptPubKey", "The pegout script",
+                                        {
+                                            {RPCResult::Type::ELISION, "", "The layout is the same as the output of scriptPubKeys in decoderawtransaction."},
+                                        }},
+                                    }},
+                                }},
+                                {RPCResult::Type::NUM, "lock_height", /*optional=*/true, "The MWEB kernel lock height"},
+                                {RPCResult::Type::STR_HEX, "extra_data", /*optional=*/true, "The hex-encoded MWEB kernel extra data"},
+                                {RPCResult::Type::STR_HEX, "signature", /*optional=*/true, "The hex-encoded MWEB kernel signature"},
+                            }},
                         }},
                         {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The transaction fee paid if all UTXOs slots in the PSBT have been filled."},
                     }
@@ -1137,6 +1156,7 @@ static RPCHelpMan decodepsbt()
         }
         result.pushKV("input_count", (uint64_t)psbtx.inputs.size());
         result.pushKV("output_count", (uint64_t)psbtx.outputs.size());
+        result.pushKV("kernel_count", (uint64_t)psbtx.kernels.size());
         if (psbtx.m_tx_modifiable != std::nullopt) {
             result.pushKV("inputs_modifiable", psbtx.m_tx_modifiable->test(0));
             result.pushKV("outputs_modifiable", psbtx.m_tx_modifiable->test(1));
@@ -1180,6 +1200,10 @@ static RPCHelpMan decodepsbt()
     UniValue kernels(UniValue::VARR);
     for (const PSBTKernel& kernel : psbtx.kernels) {
         UniValue kern(UniValue::VOBJ);
+
+        if (kernel.features.has_value()) {
+            kern.pushKV("features", *kernel.features);
+        }
 
         if (kernel.commit.has_value()) {
             kern.pushKV("commit", kernel.commit->ToHex());
