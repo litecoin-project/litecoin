@@ -1,4 +1,4 @@
-#include <wallet/rawtransaction.h>
+#include <wallet/transactiondraft.h>
 
 #include <core_io.h>
 #include <key_io.h>
@@ -14,19 +14,19 @@
 
 using namespace wallet;
 
-RawTransaction RawTransaction::FromRPC(const UniValue& inputs_in, const UniValue& outputs_in, const UniValue& locktime, std::optional<bool> rbf)
+TransactionDraft TransactionDraft::FromRPC(const UniValue& inputs_in, const UniValue& outputs_in, const UniValue& locktime, std::optional<bool> rbf)
 {
     if (outputs_in.isNull()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, output argument must be non-null");
     }
 
-    RawTransaction rawTx;
+    TransactionDraft draft;
 
     if (!locktime.isNull()) {
         int64_t nLockTime = locktime.getInt<int64_t>();
         if (nLockTime < 0 || nLockTime > LOCKTIME_MAX)
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, locktime out of range");
-        rawTx.tx.nLockTime = nLockTime;
+        draft.tx.nLockTime = nLockTime;
     }
 
     UniValue inputs;
@@ -53,7 +53,7 @@ RawTransaction RawTransaction::FromRPC(const UniValue& inputs_in, const UniValue
 
         if (rbf.value_or(true)) {
             nSequence = MAX_BIP125_RBF_SEQUENCE; /* CTxIn::SEQUENCE_FINAL - 2 */
-        } else if (rawTx.tx.nLockTime) {
+        } else if (draft.tx.nLockTime) {
             nSequence = CTxIn::MAX_SEQUENCE_NONFINAL; /* CTxIn::SEQUENCE_FINAL - 1 */
         } else {
             nSequence = CTxIn::SEQUENCE_FINAL;
@@ -72,7 +72,7 @@ RawTransaction RawTransaction::FromRPC(const UniValue& inputs_in, const UniValue
 
         CTxIn in(COutPoint(txid, nOutput), CScript(), nSequence);
 
-        rawTx.tx.vin.push_back(in);
+        draft.tx.vin.push_back(in);
     }
 
     const bool outputs_is_obj = outputs_in.isObject();
@@ -107,8 +107,8 @@ RawTransaction RawTransaction::FromRPC(const UniValue& inputs_in, const UniValue
             CScript scriptPubKey = (CScript() << OP_RETURN << data);
 
             CTxOut out(0, scriptPubKey);
-            rawTx.tx.vout.push_back(std::move(out));
-            //rawTx.m_recipients.push_back(CRecipient{GenericAddress(scriptPubKey), 0, false});
+            draft.tx.vout.push_back(std::move(out));
+            //draft.m_recipients.push_back(CRecipient{GenericAddress(scriptPubKey), 0, false});
         }
         else {
             CTxDestination destination = DecodeDestination(name_);
@@ -127,23 +127,23 @@ RawTransaction RawTransaction::FromRPC(const UniValue& inputs_in, const UniValue
                 mw::MutableOutput mweb_output;
                 mweb_output.amount = nAmount;
                 mweb_output.address = address.GetMWEBAddress();
-                rawTx.tx.mweb_tx.outputs.push_back(std::move(mweb_output));
+                draft.tx.mweb_tx.outputs.push_back(std::move(mweb_output));
             }
             else {
                 CTxOut out(nAmount, address.GetScript());
-                rawTx.tx.vout.push_back(std::move(out));
+                draft.tx.vout.push_back(std::move(out));
             }
         }
     }
 
-    if (rbf.has_value() && rbf.value() && rawTx.tx.vin.size() > 0 && !SignalsOptInRBF(rawTx.ToTransaction())) {
+    if (rbf.has_value() && rbf.value() && draft.tx.vin.size() > 0 && !SignalsOptInRBF(draft.ToTransaction())) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter combination: Sequence number(s) contradict replaceable option");
     }
 
-    return rawTx;
+    return draft;
 }
 
-FundTransactionResult RawTransaction::FundTransaction(CWallet& wallet, const int nChangePosIn, const bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, const CCoinControl& coin_control_in)
+FundTransactionResult TransactionDraft::FundTransaction(CWallet& wallet, const int nChangePosIn, const bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, const CCoinControl& coin_control_in)
 {
     CCoinControl coinControl = coin_control_in;
 
@@ -218,19 +218,19 @@ FundTransactionResult RawTransaction::FundTransaction(CWallet& wallet, const int
     return FundTransactionResult{res->fee, res->change_pos};
 }
 
-RawTransaction RawTransaction::FromHex(const std::string& hex, const bool try_no_witness, const bool try_witness)
+TransactionDraft TransactionDraft::FromHex(const std::string& hex, const bool try_no_witness, const bool try_witness)
 {
-    RawTransaction raw_tx;
+    TransactionDraft draft;
 
     // MW: TODO - How do we decode hex MWEB transactions?
-    if (!DecodeHexTx(raw_tx.tx, hex, try_no_witness, try_witness)) {
+    if (!DecodeHexTx(draft.tx, hex, try_no_witness, try_witness)) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
     }
 
-    return raw_tx;
+    return draft;
 }
 
-std::vector<CRecipient> RawTransaction::BuildRecipients(const std::set<int>& setSubtractFeeFromOutputs)
+std::vector<CRecipient> TransactionDraft::BuildRecipients(const std::set<int>& setSubtractFeeFromOutputs)
 {
     std::vector<CRecipient> recipients;
 
@@ -255,17 +255,17 @@ std::vector<CRecipient> RawTransaction::BuildRecipients(const std::set<int>& set
     return recipients;
 }
 
-CMutableTransaction RawTransaction::ToMutableTx() const
+CMutableTransaction TransactionDraft::ToMutableTx() const
 {
     return tx;
 }
 
-CTransaction RawTransaction::ToTransaction() const
+CTransaction TransactionDraft::ToTransaction() const
 {
     return CTransaction(tx);
 }
 
-PartiallySignedTransaction RawTransaction::ToPSBT(const CWallet& wallet) const
+PartiallySignedTransaction TransactionDraft::ToPSBT(const CWallet& wallet) const
 {
     // Make a blank psbt
     PartiallySignedTransaction psbtx(tx, 2);
@@ -282,7 +282,7 @@ PartiallySignedTransaction RawTransaction::ToPSBT(const CWallet& wallet) const
     return psbtx;
 }
 
-std::string RawTransaction::ToHex(const int serialize_flags) const
+std::string TransactionDraft::ToHex(const int serialize_flags) const
 {
     return EncodeHexTx(ToTransaction(), serialize_flags);
 }

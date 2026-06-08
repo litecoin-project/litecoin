@@ -327,7 +327,7 @@ BITCOIN_CORE_H = \
   wallet/fees.h \
   wallet/ismine.h \
   wallet/load.h \
-  wallet/rawtransaction.h \
+  wallet/transactiondraft.h \
   wallet/receive.h \
   wallet/reserve.h \
   wallet/rpc/util.h \
@@ -484,7 +484,7 @@ libbitcoin_wallet_a_SOURCES = \
   wallet/fees.cpp \
   wallet/interfaces.cpp \
   wallet/load.cpp \
-  wallet/rawtransaction.cpp \
+  wallet/transactiondraft.cpp \
   wallet/receive.cpp \
   wallet/reserve.cpp \
   wallet/rpc/addresses.cpp \

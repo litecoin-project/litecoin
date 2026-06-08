@@ -15,7 +15,7 @@
 #include <wallet/coincontrol.h>
 #include <wallet/feebumper.h>
 #include <wallet/fees.h>
-#include <wallet/rawtransaction.h>
+#include <wallet/transactiondraft.h>
 #include <wallet/rpc/util.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
@@ -163,9 +163,9 @@ static std::string EncodePSBTResult(const PartiallySignedTransaction& psbtx)
     return EncodeBase64(ssTx.str());
 }
 
-static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const UniValue& options, const RawTransaction& rawTx)
+static UniValue FinishTransaction(const std::shared_ptr<CWallet> pwallet, const UniValue& options, const TransactionDraft& draft)
 {
-    PartiallySignedTransaction psbtx = rawTx.ToPSBT(*pwallet);
+    PartiallySignedTransaction psbtx = draft.ToPSBT(*pwallet);
 
     util::Result<CMutableTransaction> finalize_result = FinalizePSBT(psbtx);
     const bool complete = finalize_result.has_value();
@@ -564,7 +564,7 @@ static std::vector<RPCArg> FundTxDoc(bool solving_data = true)
     return args;
 }
 
-FundTransactionResult FundTransaction(CWallet& wallet, RawTransaction& tx, const UniValue& options, const bool allow_other_inputs, bool override_min_fee)
+FundTransactionResult FundTransaction(CWallet& wallet, TransactionDraft& draft, const UniValue& options, const bool allow_other_inputs, bool override_min_fee)
 {
     // Make sure the results are valid at least up to the most recent block
     // the user could have gotten from another RPC command prior to now
@@ -761,7 +761,7 @@ FundTransactionResult FundTransaction(CWallet& wallet, RawTransaction& tx, const
         }
     }
 
-    std::vector<CRecipient> recipients = tx.BuildRecipients();
+    std::vector<CRecipient> recipients = draft.BuildRecipients();
     if (recipients.size() == 0)
         throw JSONRPCError(RPC_INVALID_PARAMETER, "TX must have at least one output");
 
@@ -779,7 +779,7 @@ FundTransactionResult FundTransaction(CWallet& wallet, RawTransaction& tx, const
         setSubtractFeeFromOutputs.insert(pos);
     }
 
-    return tx.FundTransaction(wallet, change_position, lockUnspents, setSubtractFeeFromOutputs, coinControl);
+    return draft.FundTransaction(wallet, change_position, lockUnspents, setSubtractFeeFromOutputs, coinControl);
 }
 
 static void SetOptionsInputWeights(const UniValue& inputs, UniValue& options)
@@ -890,16 +890,16 @@ RPCHelpMan fundrawtransaction()
     // parse hex string from parameter
     bool try_witness = request.params[2].isNull() ? true : request.params[2].get_bool();
     bool try_no_witness = request.params[2].isNull() ? true : !request.params[2].get_bool();
-    RawTransaction rawTx = RawTransaction::FromHex(request.params[0].get_str(), try_no_witness, try_witness);
+    TransactionDraft draft = TransactionDraft::FromHex(request.params[0].get_str(), try_no_witness, try_witness);
 
     // Automatically select (additional) coins. Can be overridden by options.add_inputs.
     const bool allow_other_inputs = true;
-    FundTransactionResult ret = FundTransaction(*pwallet, rawTx, request.params[1], allow_other_inputs, /*override_min_fee=*/true);
+    FundTransactionResult ret = FundTransaction(*pwallet, draft, request.params[1], allow_other_inputs, /*override_min_fee=*/true);
 
     UniValue result(UniValue::VOBJ);
-    result.pushKV("hex", rawTx.ToHex());
+    result.pushKV("hex", draft.ToHex());
     result.pushKV("fee", ValueFromAmount(ret.fee));
-    result.pushKV("changepos", GetRPCChangePos(rawTx.tx, ret.change_pos));
+    result.pushKV("changepos", GetRPCChangePos(draft.tx, ret.change_pos));
 
     return result;
 },
@@ -1288,16 +1288,16 @@ RPCHelpMan send()
             PreventOutdatedOptions(options);
 
             bool rbf{options.exists("replaceable") ? options["replaceable"].get_bool() : pwallet->m_signal_rbf};
-            RawTransaction rawTx = RawTransaction::FromRPC(options["inputs"], request.params[0], options["locktime"], rbf);
+            TransactionDraft draft = TransactionDraft::FromRPC(options["inputs"], request.params[0], options["locktime"], rbf);
 
             SetOptionsInputWeights(options["inputs"], options);
 
             // Automatically select coins, unless at least one is manually selected. Can
             // be overridden by options.add_inputs.
-            const bool allow_other_inputs = rawTx.tx.GetInputs().size() == 0;
-            FundTransaction(*pwallet, rawTx, options, allow_other_inputs, /*override_min_fee=*/false);
+            const bool allow_other_inputs = draft.tx.GetInputs().size() == 0;
+            FundTransaction(*pwallet, draft, options, allow_other_inputs, /*override_min_fee=*/false);
 
-            return FinishTransaction(pwallet, options, rawTx);
+            return FinishTransaction(pwallet, options, draft);
         }
     };
 }
@@ -1437,7 +1437,7 @@ RPCHelpMan sendall()
                 throw JSONRPCError(RPC_WALLET_ERROR, "Fee estimation failed. Fallbackfee is disabled. Wait a few blocks or enable -fallbackfee.");
             }
 
-            RawTransaction rawTx = RawTransaction::FromRPC(options["inputs"], recipient_key_value_pairs, options["locktime"], rbf);
+            TransactionDraft draft = TransactionDraft::FromRPC(options["inputs"], recipient_key_value_pairs, options["locktime"], rbf);
             LOCK(pwallet->cs_wallet);
 
             CAmount total_input_value(0);
@@ -1445,7 +1445,7 @@ RPCHelpMan sendall()
             if (options.exists("inputs") && options.exists("send_max")) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot combine send_max with specific inputs.");
             } else if (options.exists("inputs")) {
-                for (const GenericInput& input : rawTx.tx.GetInputs()) {
+                for (const GenericInput& input : draft.tx.GetInputs()) {
                     if (pwallet->IsSpent(input.GetID())) {
                         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Input not available. UTXO (%s) was already spent.", input.ToString()));
                     }
@@ -1466,17 +1466,17 @@ RPCHelpMan sendall()
                     }
 
                     if (output.IsMWEB()) {
-                        rawTx.tx.mweb_tx.inputs.push_back(mw::MutableInput::FromCoin(output.GetMWEB().coin));
+                        draft.tx.mweb_tx.inputs.push_back(mw::MutableInput::FromCoin(output.GetMWEB().coin));
                     } else {
                         CTxIn input(output.GetTxHash(), output.GetID().ToOutPoint().n, CScript(), rbf ? MAX_BIP125_RBF_SEQUENCE : CTxIn::SEQUENCE_FINAL);
-                        rawTx.tx.vin.push_back(std::move(input));
+                        draft.tx.vin.push_back(std::move(input));
                     }
                     total_input_value += output.GetValue();
                 }
             }
 
-            const std::vector<CRecipient> recipients_to_send = rawTx.BuildRecipients();
-            const std::vector<GenericInput> selected_inputs = rawTx.tx.GetInputs();
+            const std::vector<CRecipient> recipients_to_send = draft.BuildRecipients();
+            const std::vector<GenericInput> selected_inputs = draft.tx.GetInputs();
             const bool use_txbuilder = std::any_of(
                 recipients_to_send.cbegin(), recipients_to_send.cend(),
                 [](const CRecipient& recipient) { return recipient.IsMWEB(); }
@@ -1503,25 +1503,25 @@ RPCHelpMan sendall()
                     BuildSendAllRecipients(recipients_to_send, addresses_without_amount, total_input_value),
                     /*change_pos=*/-1,
                     sendall_coin_control,
-                    rawTx.tx.nVersion,
-                    rawTx.tx.nLockTime,
+                    draft.tx.nVersion,
+                    draft.tx.nLockTime,
                     /*sign=*/can_sign
                 );
                 if (!create_result) {
                     throw JSONRPCError(RPC_WALLET_ERROR, util::ErrorString(create_result).original);
                 }
 
-                rawTx.tx = std::move(create_result->tx);
+                draft.tx = std::move(create_result->tx);
 
                 if (lock_unspents) {
-                    for (const GenericInput& input : rawTx.tx.GetInputs()) {
+                    for (const GenericInput& input : draft.tx.GetInputs()) {
                         pwallet->LockCoin(input.GetID());
                     }
                 }
 
                 if (!psbt_opt_in && can_sign) {
                     UniValue result(UniValue::VOBJ);
-                    CTransactionRef tx(MakeTransactionRef(std::move(rawTx.tx)));
+                    CTransactionRef tx(MakeTransactionRef(std::move(draft.tx)));
                     std::string hex{EncodeHexTx(*tx)};
                     result.pushKV("txid", tx->GetHash().GetHex());
                     if (add_to_wallet) {
@@ -1533,7 +1533,7 @@ RPCHelpMan sendall()
                     return result;
                 }
 
-                PartiallySignedTransaction psbtx(rawTx.tx, 2);
+                PartiallySignedTransaction psbtx(draft.tx, 2);
                 bool complete{false};
                 TransactionError err{pwallet->FillPSBT(psbtx, complete, SIGHASH_DEFAULT, false, true)};
                 if (err != TransactionError::OK) {
@@ -1561,8 +1561,8 @@ RPCHelpMan sendall()
             }
 
             // estimate final size of tx
-            const TxSize tx_size{CalculateMaximumSignedTxSize(rawTx.ToTransaction(), pwallet.get())};
-            const CAmount fee_from_size{fee_rate.GetFee(tx_size.vsize, rawTx.tx.mweb_tx.GetMWEBWeight())};
+            const TxSize tx_size{CalculateMaximumSignedTxSize(draft.ToTransaction(), pwallet.get())};
+            const CAmount fee_from_size{fee_rate.GetFee(tx_size.vsize, draft.tx.mweb_tx.GetMWEBWeight())};
             const CAmount effective_value{total_input_value - fee_from_size};
 
             if (fee_from_size > pwallet->m_default_max_tx_fee) {
@@ -1599,7 +1599,7 @@ RPCHelpMan sendall()
             const CAmount per_output_without_amount{remainder / (long)addresses_without_amount.size()};
 
             bool gave_remaining_to_first{false};
-            for (CTxOut& out : rawTx.tx.vout) {
+            for (CTxOut& out : draft.tx.vout) {
                 CTxDestination dest;
                 ExtractDestination(out.scriptPubKey, dest);
                 std::string addr{EncodeDestination(dest)};
@@ -1622,12 +1622,12 @@ RPCHelpMan sendall()
             }
 
             if (lock_unspents) {
-                for (const GenericInput& input : rawTx.tx.GetInputs()) {
+                for (const GenericInput& input : draft.tx.GetInputs()) {
                     pwallet->LockCoin(input.GetID());
                 }
             }
 
-            return FinishTransaction(pwallet, options, rawTx);
+            return FinishTransaction(pwallet, options, draft);
         }
     };
 }
@@ -1819,13 +1819,13 @@ RPCHelpMan walletcreatefundedpsbt()
         rbf = replaceable_arg.isTrue();
     }
 
-    RawTransaction rawTx = RawTransaction::FromRPC(request.params[0], request.params[1], request.params[2], rbf);
+    TransactionDraft draft = TransactionDraft::FromRPC(request.params[0], request.params[1], request.params[2], rbf);
     SetOptionsInputWeights(request.params[0], options);
 
     // Automatically select coins, unless at least one is manually selected. Can
     // be overridden by options.add_inputs.
-    bool allow_other_inputs = rawTx.tx.GetInputs().size() == 0;
-    FundTransactionResult ret = FundTransaction(wallet, rawTx, options, allow_other_inputs, /*override_min_fee=*/true);
+    bool allow_other_inputs = draft.tx.GetInputs().size() == 0;
+    FundTransactionResult ret = FundTransaction(wallet, draft, options, allow_other_inputs, /*override_min_fee=*/true);
 
     // Make a blank psbt
     uint32_t psbt_version = 2;
@@ -1835,11 +1835,11 @@ RPCHelpMan walletcreatefundedpsbt()
     if (psbt_version != 2 && psbt_version != 0) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "The PSBT version can only be 2 or 0");
     }
-    if (psbt_version == 0 && !rawTx.tx.mweb_tx.IsNull()) {
+    if (psbt_version == 0 && !draft.tx.mweb_tx.IsNull()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "MWEB PSBTs require PSBT version 2");
     }
 
-    PartiallySignedTransaction psbtx(rawTx.tx, psbt_version);
+    PartiallySignedTransaction psbtx(draft.tx, psbt_version);
 
     // Fill transaction with out data but don't sign
     bool bip32derivs = request.params[4].isNull() ? true : request.params[4].get_bool();
@@ -1856,7 +1856,7 @@ RPCHelpMan walletcreatefundedpsbt()
     UniValue result(UniValue::VOBJ);
     result.pushKV("psbt", EncodeBase64(ssTx.str()));
     result.pushKV("fee", ValueFromAmount(ret.fee));
-    result.pushKV("changepos", GetRPCChangePos(rawTx.tx, ret.change_pos));
+    result.pushKV("changepos", GetRPCChangePos(draft.tx, ret.change_pos));
     return result;
 },
     };

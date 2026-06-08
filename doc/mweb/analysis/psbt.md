@@ -7,7 +7,7 @@
 1. `FundTransaction`
 
 ```cpp
-FundTransactionResult FundTransaction(CWallet& wallet, RawTransaction& tx, const UniValue& options, const bool allow_other_inputs, bool override_min_fee)
+FundTransactionResult FundTransaction(CWallet& wallet, TransactionDraft& draft, const UniValue& options, const bool allow_other_inputs, bool override_min_fee)
 {
     // Make sure the results are valid at least up to the most recent block
     // the user could have gotten from another RPC command prior to now
@@ -222,14 +222,14 @@ FundTransactionResult FundTransaction(CWallet& wallet, RawTransaction& tx, const
         setSubtractFeeFromOutputs.insert(pos);
     }
 
-    return tx.FundTransaction(wallet, change_position, lockUnspents, setSubtractFeeFromOutputs, coinControl);
+    return draft.FundTransaction(wallet, change_position, lockUnspents, setSubtractFeeFromOutputs, coinControl);
 }
 ```
 
-2. `RawTransaction::FundTransaction`
+2. `TransactionDraft::FundTransaction`
 
 ```cpp
-FundTransactionResult RawTransaction::FundTransaction(CWallet& wallet, const int nChangePosIn, const bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, const CCoinControl& coin_control_in)
+FundTransactionResult TransactionDraft::FundTransaction(CWallet& wallet, const int nChangePosIn, const bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, const CCoinControl& coin_control_in)
 {
     CCoinControl coinControl = coin_control_in;
 
@@ -308,7 +308,7 @@ FundTransactionResult RawTransaction::FundTransaction(CWallet& wallet, const int
 
 #### send
 
-1. `RawTransaction::FromRPC` to build `RawTransaction` object.
+1. `TransactionDraft::FromRPC` to build `TransactionDraft` object.
 2. `FundTransaction`
 3. `FinishTransaction`
 
@@ -421,16 +421,16 @@ RPCHelpMan send()
             PreventOutdatedOptions(options);
 
             bool rbf{options.exists("replaceable") ? options["replaceable"].get_bool() : pwallet->m_signal_rbf};
-            RawTransaction rawTx = RawTransaction::FromRPC(options["inputs"], request.params[0], options["locktime"], rbf);
+            TransactionDraft draft = TransactionDraft::FromRPC(options["inputs"], request.params[0], options["locktime"], rbf);
 
             SetOptionsInputWeights(options["inputs"], options);
 
             // Automatically select coins, unless at least one is manually selected. Can
             // be overridden by options.add_inputs.
-            const bool allow_other_inputs = rawTx.tx.GetInputs().size() == 0;
-            FundTransaction(*pwallet, rawTx, options, allow_other_inputs, /*override_min_fee=*/false);
+            const bool allow_other_inputs = draft.tx.GetInputs().size() == 0;
+            FundTransaction(*pwallet, draft, options, allow_other_inputs, /*override_min_fee=*/false);
 
-            return FinishTransaction(pwallet, options, rawTx);
+            return FinishTransaction(pwallet, options, draft);
         }
     };
 }

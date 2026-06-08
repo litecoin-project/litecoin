@@ -206,8 +206,6 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
             in_amt += utxo.nValue;
             input_analysis.has_utxo = true;
         } else {
-            // MW: TODO - Determine has_utxo, is_final, and in_amt/fee for MWEB inputs
-            
             if (input.non_witness_utxo && input.prev_out >= input.non_witness_utxo->vout.size()) {
                 result.SetInvalid(strprintf("PSBT is not valid. Input %u specifies invalid prevout", i));
                 return result;
