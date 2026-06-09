@@ -2016,6 +2016,21 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
 
 static CCheckQueue<CScriptCheck> scriptcheckqueue(128);
 
+int GetNumScriptCheckWorkerThreads(const ArgsManager& args)
+{
+    int script_threads = args.GetIntArg("-par", DEFAULT_SCRIPTCHECK_THREADS);
+    if (script_threads <= 0) {
+        // -par=0 means autodetect; -par=-n means leave n cores free.
+        script_threads += GetNumCores();
+    }
+
+    // Subtract 1 because the main thread counts towards the par threads.
+    script_threads = std::max(script_threads - 1, 0);
+
+    // Number of script-checking threads <= MAX_SCRIPTCHECK_THREADS.
+    return std::min(script_threads, MAX_SCRIPTCHECK_THREADS);
+}
+
 void StartScriptCheckWorkerThreads(int threads_num)
 {
     scriptcheckqueue.StartWorkerThreads(threads_num);
@@ -3645,14 +3660,21 @@ std::vector<unsigned char> ChainstateManager::GenerateCoinbaseCommitment(CBlock&
     return commitment;
 }
 
+static size_t GetNumPoWCheckThreads(const size_t num_headers)
+{
+    if (num_headers <= 1) return num_headers;
+
+    static constexpr size_t MIN_POW_CHECK_HEADERS_PER_THREAD{64};
+    const size_t threads_by_arg = GetNumScriptCheckWorkerThreads(gArgs) + 1;
+    const size_t threads_by_work = num_headers / MIN_POW_CHECK_HEADERS_PER_THREAD;
+    return std::max<size_t>(1, std::min({num_headers, threads_by_arg, threads_by_work}));
+}
+
 bool HasValidProofOfWork(const std::vector<CBlockHeader>& headers, const Consensus::Params& consensusParams)
 {
     if (headers.empty()) return true;
 
-    // MW: TODO - Use a thread pool and calculate thread count similar to the way "-par" is handled in init.cpp
-    const unsigned int hc = GetNumCores();
-    const size_t desired_threads = std::max<size_t>(1, hc > 0 ? hc - 1 : 0);
-    const size_t nthreads = std::min<size_t>(desired_threads, headers.size());
+    const size_t nthreads = GetNumPoWCheckThreads(headers.size());
 
     if (nthreads == 1) {
         return std::all_of(headers.cbegin(), headers.cend(),

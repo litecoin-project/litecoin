@@ -10,6 +10,8 @@
 
 #include <test/util/setup_common.h>
 
+#include <vector>
+
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(validation_tests, TestingSetup)
@@ -57,6 +59,29 @@ BOOST_AUTO_TEST_CASE(subsidy_limit_test)
         BOOST_CHECK(MoneyRange(nSum));
     }
     BOOST_CHECK_EQUAL(nSum, CAmount{8399999990760000});
+}
+
+BOOST_AUTO_TEST_CASE(has_valid_proof_of_work)
+{
+    m_node.args->ForceSetArg("-par", "2");
+
+    const auto chain_params = CreateChainParams(*m_node.args, CBaseChainParams::MAIN);
+    const CBlockHeader valid_header = chain_params->GenesisBlock().GetBlockHeader();
+    std::vector<CBlockHeader> headers(4, valid_header);
+
+    BOOST_CHECK(HasValidProofOfWork(headers, chain_params->GetConsensus()));
+    BOOST_CHECK(HasValidProofOfWork({}, chain_params->GetConsensus()));
+
+    CBlockHeader invalid_header = valid_header;
+    invalid_header.nBits = 0;
+    headers.push_back(invalid_header);
+    BOOST_CHECK(!HasValidProofOfWork(headers, chain_params->GetConsensus()));
+
+    headers.assign(128, valid_header);
+    BOOST_CHECK(HasValidProofOfWork(headers, chain_params->GetConsensus()));
+
+    headers.push_back(invalid_header);
+    BOOST_CHECK(!HasValidProofOfWork(headers, chain_params->GetConsensus()));
 }
 
 //! Test retrieval of valid assumeutxo values.
