@@ -143,7 +143,7 @@ TransactionDraft TransactionDraft::FromRPC(const UniValue& inputs_in, const UniV
     return draft;
 }
 
-FundTransactionResult TransactionDraft::FundTransaction(CWallet& wallet, const int nChangePosIn, const bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, const CCoinControl& coin_control_in)
+FundTransactionResult TransactionDraft::FundTransaction(CWallet& wallet, const int nChangePosIn, const bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, const CCoinControl& coin_control_in, bool allow_mweb_result)
 {
     CCoinControl coinControl = coin_control_in;
 
@@ -180,34 +180,17 @@ FundTransactionResult TransactionDraft::FundTransaction(CWallet& wallet, const i
         throw JSONRPCError(RPC_WALLET_ERROR, util::ErrorString(res).original);
     }
 
+    if (!allow_mweb_result && (!res->tx.mweb_tx.IsNull() || res->tx.m_hogEx)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "fundrawtransaction cannot return MWEB transaction hex; use walletcreatefundedpsbt for MWEB funding");
+    }
+
     tx.mweb_tx = res->tx.mweb_tx;
     tx.vout = res->tx.vout;
 
-    //if (res->change_pos.IsLTC()) {
-    //    size_t change_position = res->change_pos.ToLTC();
-    //    tx.vout.insert(tx.vout.begin() + change_position, res->tx.vout[change_position]);
-    //} else if (res->change_pos.IsMWEB()) {
-    //    size_t change_position = res->change_pos.ToMWEB().idx;
-    //    tx.mweb_tx.outputs.insert(tx.mweb_tx.outputs.begin() + change_position, res->tx.mweb_tx.outputs[change_position]);
-    //}
-
-    // Copy output sizes from new transaction; they may have had the fee
-    // subtracted from them.
-    //for (unsigned int idx = 0; idx < tx.vout.size(); idx++) {
-    //    tx.vout[idx].nValue = res->tx.vout[idx].nValue;
-    //}
-    //for (size_t idx = 0; idx < tx.mweb_tx.outputs.size(); idx++) {
-    //    tx.mweb_tx.outputs[idx].amount = res->tx.mweb_tx.outputs[idx].amount;
-    //}
-
     // Add new txins while keeping original txin scriptSig/order.
     for (const GenericInput& tx_input : res->tx.GetInputs()) {
-        if (!coinControl.IsSelected(tx_input.GetID())) {
-            if (tx_input.IsMWEB()) {
-                //tx.mweb_tx.inputs.push_back(mw::MutableInput(tx_input.ToMWEB()));
-            } else {
-                tx.vin.push_back(tx_input.GetTxIn());
-            }
+        if (!coinControl.IsSelected(tx_input.GetID()) && !tx_input.IsMWEB()) {
+            tx.vin.push_back(tx_input.GetTxIn());
         }
 
         if (lockUnspents) {
@@ -222,9 +205,13 @@ TransactionDraft TransactionDraft::FromHex(const std::string& hex, const bool tr
 {
     TransactionDraft draft;
 
-    // MW: TODO - How do we decode hex MWEB transactions?
     if (!DecodeHexTx(draft.tx, hex, try_no_witness, try_witness)) {
         throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "TX decode failed");
+    }
+
+    // Raw transaction hex only carries finalized MWEB data, not the draft recipient metadata needed to fund or rewrite an MWEB transaction.
+    if (!draft.tx.mweb_tx.IsNull() || draft.tx.m_hogEx) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "fundrawtransaction does not support MWEB transaction hex; use walletcreatefundedpsbt for MWEB transaction drafts");
     }
 
     return draft;

@@ -55,7 +55,7 @@ struct Coin : public Traits::ISerializable {
     CAmount amount;
 
     // The output's ID (hash).
-    mw::Hash output_id; // MW: TODO - We should really just store the whole Output (without the rangeproof)
+    mw::Hash output_id;
 
     // The ephemeral private key used by the sender to create the output.
     std::optional<SecretKey> sender_key;

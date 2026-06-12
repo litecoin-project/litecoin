@@ -61,12 +61,20 @@ class MWEBPsbtTest(LitecoinTestFramework):
 
         self.log.info("Move MWEB funds to node1 so funding must use an MWEB input")
         node1_mweb_addr = node1.getnewaddress(address_type='mweb')
-        node0.sendtoaddress(node1_mweb_addr, Decimal('5'))
+        node0_to_node1_txid = node0.sendtoaddress(node1_mweb_addr, Decimal('5'))
+        node0_to_node1_hex = node0.getrawtransaction(node0_to_node1_txid)
+        assert_raises_rpc_error(
+            -8,
+            "fundrawtransaction does not support MWEB transaction hex",
+            node0.fundrawtransaction,
+            node0_to_node1_hex,
+        )
         self.generate(node0, 1, sync_fun=self.sync_all)
 
         utxos = node1.listunspent(addresses=[node1_mweb_addr])
         assert_equal(len(utxos), 1)
 
+        self.test_mweb_raw_hex_rejected(node0, node1)
         self.test_mweb_psbtv0_creation_rejected(node0, node1)
 
         self.log.info("Create an MWEB-input PSBT and capture the original updater fields")
@@ -121,6 +129,25 @@ class MWEBPsbtTest(LitecoinTestFramework):
         self.test_mweb_components_are_included_in_global_next(node0, node1)
         self.test_mweb_pegout_indexes_are_honored(node0, node1)
         self.workflow_tests(node0, node1)
+
+    def test_mweb_raw_hex_rejected(self, node0, node1):
+        self.log.info("Raw transaction hex RPCs reject unsupported MWEB workflows")
+        mweb_recipient = node0.getnewaddress(address_type='mweb')
+        assert_raises_rpc_error(
+            -8,
+            "MWEB outputs cannot be represented in raw transaction hex",
+            node0.createrawtransaction,
+            [],
+            {mweb_recipient: Decimal('1')},
+        )
+
+        raw_ltc_tx = node1.createrawtransaction([], {node0.getnewaddress(): Decimal('1')})
+        assert_raises_rpc_error(
+            -8,
+            "fundrawtransaction cannot return MWEB transaction hex",
+            node1.fundrawtransaction,
+            raw_ltc_tx,
+        )
 
     def workflow_tests(self, node0, node1):
         self.log.info("combinepsbt rejects distinct MWEB-only transaction intents")

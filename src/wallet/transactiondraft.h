@@ -32,7 +32,7 @@ public:
     static TransactionDraft FromHex(const std::string& hex, const bool try_no_witness, const bool try_witness);
 
     // Insert additional inputs into the transaction by calling CreateTransaction();
-    FundTransactionResult FundTransaction(CWallet& wallet, const int nChangePosIn, const bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, const CCoinControl& coin_control_in);
+    FundTransactionResult FundTransaction(CWallet& wallet, const int nChangePosIn, const bool lockUnspents, const std::set<int>& setSubtractFeeFromOutputs, const CCoinControl& coin_control_in, bool allow_mweb_result = true);
 
     std::vector<CRecipient> BuildRecipients(const std::set<int>& setSubtractFeeFromOutputs = {});
     CMutableTransaction ToMutableTx() const;

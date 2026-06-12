@@ -564,7 +564,7 @@ static std::vector<RPCArg> FundTxDoc(bool solving_data = true)
     return args;
 }
 
-FundTransactionResult FundTransaction(CWallet& wallet, TransactionDraft& draft, const UniValue& options, const bool allow_other_inputs, bool override_min_fee)
+FundTransactionResult FundTransaction(CWallet& wallet, TransactionDraft& draft, const UniValue& options, const bool allow_other_inputs, bool override_min_fee, bool allow_mweb_result = true)
 {
     // Make sure the results are valid at least up to the most recent block
     // the user could have gotten from another RPC command prior to now
@@ -779,7 +779,7 @@ FundTransactionResult FundTransaction(CWallet& wallet, TransactionDraft& draft, 
         setSubtractFeeFromOutputs.insert(pos);
     }
 
-    return draft.FundTransaction(wallet, change_position, lockUnspents, setSubtractFeeFromOutputs, coinControl);
+    return draft.FundTransaction(wallet, change_position, lockUnspents, setSubtractFeeFromOutputs, coinControl, allow_mweb_result);
 }
 
 static void SetOptionsInputWeights(const UniValue& inputs, UniValue& options)
@@ -894,7 +894,7 @@ RPCHelpMan fundrawtransaction()
 
     // Automatically select (additional) coins. Can be overridden by options.add_inputs.
     const bool allow_other_inputs = true;
-    FundTransactionResult ret = FundTransaction(*pwallet, draft, request.params[1], allow_other_inputs, /*override_min_fee=*/true);
+    FundTransactionResult ret = FundTransaction(*pwallet, draft, request.params[1], allow_other_inputs, /*override_min_fee=*/true, /*allow_mweb_result=*/false);
 
     UniValue result(UniValue::VOBJ);
     result.pushKV("hex", draft.ToHex());

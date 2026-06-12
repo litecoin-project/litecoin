@@ -21,7 +21,7 @@
 #include <util/strencodings.h>
 #include <util/translation.h>
 
-CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniValue& outputs_in, const UniValue& locktime, std::optional<bool> rbf)
+CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniValue& outputs_in, const UniValue& locktime, std::optional<bool> rbf, bool allow_mweb)
 {
     if (outputs_in.isNull()) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, output argument must be non-null");
@@ -129,6 +129,10 @@ CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniVal
             CAmount nAmount = AmountFromValue(outputs[name_]);
 
             if (address.IsMWEB()) {
+                if (!allow_mweb) {
+                    throw JSONRPCError(RPC_INVALID_PARAMETER, "MWEB outputs cannot be represented in raw transaction hex; use createpsbt or walletcreatefundedpsbt for MWEB transaction drafts");
+                }
+
                 mw::MutableOutput mweb_output;
                 mweb_output.address = address.GetMWEBAddress();
                 mweb_output.amount = nAmount;
