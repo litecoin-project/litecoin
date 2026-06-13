@@ -11,6 +11,7 @@
 #include <optional>
 #include <set>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -574,6 +575,8 @@ private:
                                           uint64_t limitDescendantSize,
                                           std::string &errString) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
+    void removeConflict(const GenericOutputID& input_id, const CTransaction* tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
+
 public:
     std::map<GenericOutputID, const CTransaction*> mapNextTx GUARDED_BY(cs);
 
@@ -951,6 +954,7 @@ class CCoinsViewMemPool : public CCoinsViewBacked
     * validation, since we can access transaction outputs without submitting them to mempool.
     */
     std::unordered_map<COutPoint, Coin, SaltedOutpointHasher> m_temp_added;
+    std::unordered_map<mw::Hash, mw::UTXO::CPtr, SaltedMWHashHasher> m_temp_added_mweb;
 protected:
     const CTxMemPool& mempool;
 
@@ -960,7 +964,7 @@ public:
     bool HaveCoin(const GenericOutputID& index) const override;
     bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const override;
     /** Add the coins created by this transaction. These coins are only temporarily stored in
-     * m_temp_added and cannot be flushed to the back end. Only used for package validation. */
+     * m_temp_added/m_temp_added_mweb and cannot be flushed to the back end. Only used for package validation. */
     void PackageAddTransaction(const CTransactionRef& tx);
 };
 

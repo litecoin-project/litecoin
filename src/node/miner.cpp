@@ -273,6 +273,7 @@ bool BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
  * of updated descendants. */
 static int UpdatePackagesForAdded(const CTxMemPool& mempool,
                                   const CTxMemPool::setEntries& alreadyAdded,
+                                  const CTxMemPool::setEntries& failedTx,
                                   indexed_modified_transaction_set& mapModifiedTx) EXCLUSIVE_LOCKS_REQUIRED(mempool.cs)
 {
     AssertLockHeld(mempool.cs);
@@ -283,7 +284,7 @@ static int UpdatePackagesForAdded(const CTxMemPool& mempool,
         mempool.CalculateDescendants(it, descendants);
         // Insert all descendants (not yet in block) into the modified set
         for (CTxMemPool::txiter desc : descendants) {
-            if (alreadyAdded.count(desc)) {
+            if (alreadyAdded.count(desc) || failedTx.count(desc)) {
                 continue;
             }
             ++nDescendantsUpdated;
@@ -455,16 +456,28 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
         std::vector<CTxMemPool::txiter> sortedEntries;
         SortForBlock(ancestors, sortedEntries);
 
+        CTxMemPool::setEntries addedEntries;
         for (size_t i = 0; i < sortedEntries.size(); ++i) {
-            AddToBlock(sortedEntries[i]);
+            if (!AddToBlock(sortedEntries[i])) {
+                for (size_t j = i; j < sortedEntries.size(); ++j) {
+                    failedTx.insert(sortedEntries[j]);
+                    mapModifiedTx.erase(sortedEntries[j]);
+                }
+                break;
+            }
+            addedEntries.insert(sortedEntries[i]);
             // Erase from the modified set, if present
             mapModifiedTx.erase(sortedEntries[i]);
+        }
+
+        if (addedEntries.empty()) {
+            continue;
         }
 
         ++nPackagesSelected;
 
         // Update transactions that depend on each of these
-        nDescendantsUpdated += UpdatePackagesForAdded(mempool, ancestors, mapModifiedTx);
+        nDescendantsUpdated += UpdatePackagesForAdded(mempool, addedEntries, failedTx, mapModifiedTx);
     }
 }
 } // namespace node

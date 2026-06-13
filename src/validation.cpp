@@ -290,6 +290,40 @@ static bool IsCurrentForFeeEstimation(Chainstate& active_chainstate) EXCLUSIVE_L
     return true;
 }
 
+static bool CheckMWEBInputsForMempoolReorg(const CTransaction& tx, const CTxMemPool& pool, const CCoinsViewCache& coins_tip) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, pool.cs)
+{
+    AssertLockHeld(::cs_main);
+    AssertLockHeld(pool.cs);
+
+    if (!tx.HasMWEBTx()) {
+        return true;
+    }
+
+    for (const mw::Input& input : tx.mweb_tx.m_transaction->GetInputs()) {
+        const mw::Hash& output_id = input.GetOutputID();
+        if (const auto spend_iter = pool.mapNextTx.find(output_id); spend_iter != pool.mapNextTx.end() && spend_iter->second != &tx) {
+            return false;
+        }
+
+        mw::UTXO::CPtr utxo;
+        if (const auto output_iter = pool.mapTxOutputs_MWEB.find(output_id); output_iter != pool.mapTxOutputs_MWEB.end()) {
+            mw::Output output;
+            if (!output_iter->second->mweb_tx.GetOutput(output_id, output)) {
+                return false;
+            }
+            utxo = std::make_shared<mw::UTXO>(mw::UTXO::ForMempool(std::move(output)));
+        } else if (!coins_tip.GetMWEBCoin(output_id, utxo)) {
+            return false;
+        }
+
+        if (utxo->GetReceiverPubKey() != input.GetOutputPubKey() || utxo->GetCommitment() != input.GetCommitment()) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
 void Chainstate::MaybeUpdateMempoolForReorg(
     DisconnectedBlockTransactions& disconnectpool,
     bool fAddToMempool)
@@ -341,6 +375,11 @@ void Chainstate::MaybeUpdateMempoolForReorg(
 
         // The transaction must be final.
         if (!CheckFinalTxAtTip(*Assert(m_chain.Tip()), tx)) return true;
+
+        if (!CheckMWEBInputsForMempoolReorg(tx, *m_mempool, CoinsTip())) {
+            return true;
+        }
+
         LockPoints lp = it->GetLockPoints();
         const bool validLP{TestLockPointValidity(m_chain, lp)};
         CCoinsViewMemPool view_mempool(&CoinsTip(), *m_mempool);
@@ -432,65 +471,36 @@ namespace {
 
 // MWEB coins views don't follow the same caching conventions as the base coins views.
 // There are cases where coins are pulled into a cache and then the backend is replaced on the view
-// with a dummy that prevents further caching of coins. This pattern doesn't work for MWEB, which requires
-// continually having access to the backend. This class wraps an MWEB coins view to be used in such cases,
-// where no new non-MWEB coins are retrieved from a coins view, but MWEB coins are still accessible.
+// with a dummy that prevents further caching of coins. This class wraps a mempool view to be used in
+// such cases, where no new non-MWEB coins are retrieved from a coins view, but MWEB coins, including
+// temporary package-created MWEB outputs, are still accessible.
 class CCoinsViewMWEBMemPoolOnly final : public CCoinsView
 {
 public:
-    CCoinsViewMWEBMemPoolOnly(mw::ICoinsView::Ptr mweb_view, const CTxMemPool& mempool)
-        : m_mweb_view(std::move(mweb_view)), m_mempool(mempool) {}
+    explicit CCoinsViewMWEBMemPoolOnly(const CCoinsViewMemPool& view) : m_view(view) {}
 
     bool GetCoin(const COutPoint&, Coin&) const override { return false; }
 
     bool HaveCoin(const GenericOutputID& output_id) const override
     {
-        if (!output_id.IsMWEB()) return false;
-
-        if (m_mempool.mapNextTx.find(output_id) != m_mempool.mapNextTx.end()) {
-            return false;
-        }
-
-        auto iter = m_mempool.mapTxOutputs_MWEB.find(output_id.ToMWEB());
-        if (iter != m_mempool.mapTxOutputs_MWEB.end()) {
-            return true;
-        }
-
-        return m_mweb_view && m_mweb_view->HasCoin(output_id.ToMWEB());
+        return output_id.IsMWEB() && m_view.HaveCoin(output_id);
     }
 
-    mw::ICoinsView::Ptr GetMWEBView() const override { return m_mweb_view; }
+    mw::ICoinsView::Ptr GetMWEBView() const override { return m_view.GetMWEBView(); }
 
     bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const override
     {
-        if (m_mempool.mapNextTx.find(output_id) != m_mempool.mapNextTx.end()) {
-            return false;
-        }
-
-        auto iter = m_mempool.mapTxOutputs_MWEB.find(output_id);
-        if (iter != m_mempool.mapTxOutputs_MWEB.end()) {
-            mw::Output output;
-            if (iter->second->mweb_tx.GetOutput(output_id, output)) {
-                coin = std::make_shared<mw::UTXO>(mw::UTXO::ForMempool(std::move(output)));
-                return true;
-            }
-            return false;
-        }
-
-        if (!m_mweb_view) return false;
-        coin = m_mweb_view->GetUTXO(output_id);
-        return coin != nullptr;
+        return m_view.GetMWEBCoin(output_id, coin);
     }
 
 private:
-    mw::ICoinsView::Ptr m_mweb_view;
-    const CTxMemPool& m_mempool;
+    const CCoinsViewMemPool& m_view;
 };
 
 class MemPoolAccept
 {
 public:
-    explicit MemPoolAccept(CTxMemPool& mempool, Chainstate& active_chainstate) : m_pool(mempool), m_dummy(active_chainstate.CoinsTip().GetMWEBView(), mempool), m_view(&m_dummy), m_viewmempool(&active_chainstate.CoinsTip(), m_pool), m_active_chainstate(active_chainstate),
+    explicit MemPoolAccept(CTxMemPool& mempool, Chainstate& active_chainstate) : m_pool(mempool), m_viewmempool(&active_chainstate.CoinsTip(), m_pool), m_dummy(m_viewmempool), m_view(&m_dummy), m_active_chainstate(active_chainstate),
         m_limit_ancestors(m_pool.m_limits.ancestor_count),
         m_limit_ancestor_size(m_pool.m_limits.ancestor_size_vbytes),
         m_limit_descendants(m_pool.m_limits.descendant_count),
@@ -722,9 +732,9 @@ private:
 
 private:
     CTxMemPool& m_pool;
+    CCoinsViewMemPool m_viewmempool;
     CCoinsViewMWEBMemPoolOnly m_dummy;
     CCoinsViewCache m_view;
-    CCoinsViewMemPool m_viewmempool;
 
     Chainstate& m_active_chainstate;
 
@@ -869,9 +879,10 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // hierarchy brings the best block into scope. See CCoinsViewDB::GetBestBlock().
     m_view.GetBestBlock();
 
-    // we have all inputs cached now, so switch back to dummy (to protect
-    // against bugs where we pull more inputs from disk that miss being added
-    // to coins_to_uncache)
+    // We have all transparent inputs cached now, so switch back to dummy to protect
+    // against bugs where we pull more inputs from disk that miss being added to
+    // coins_to_uncache. The dummy backend still serves MWEB lookups, including
+    // package-created MWEB outputs, but never serves transparent coins.
     m_view.SetBackend(m_dummy);
 
     assert(m_active_chainstate.m_blockman.LookupBlockIndex(m_view.GetBestBlock()) == m_active_chainstate.m_chain.Tip());

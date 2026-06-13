@@ -674,20 +674,26 @@ void CTxMemPool::removeForReorg(CChain& chain, std::function<bool(txiter)> check
     }
 }
 
+void CTxMemPool::removeConflict(const GenericOutputID& input_id, const CTransaction* tx)
+{
+    AssertLockHeld(cs);
+    auto it = mapNextTx.find(input_id);
+    if (it != mapNextTx.end()) {
+        const CTransaction& txConflict = *it->second;
+        if (tx == nullptr || txConflict != *tx)
+        {
+            ClearPrioritisation(txConflict.GetHash());
+            removeRecursive(txConflict, MemPoolRemovalReason::CONFLICT);
+        }
+    }
+}
+
 void CTxMemPool::removeConflicts(const CTransaction &tx)
 {
     // Remove transactions which depend on inputs of tx, recursively
     AssertLockHeld(cs);
     for (const GenericInput& input : tx.GetInputs()) {
-        auto it = mapNextTx.find(input.GetID());
-        if (it != mapNextTx.end()) {
-            const CTransaction &txConflict = *it->second;
-            if (txConflict != tx)
-            {
-                ClearPrioritisation(txConflict.GetHash());
-                removeRecursive(txConflict, MemPoolRemovalReason::CONFLICT);
-            }
-        }
+        removeConflict(input.GetID(), &tx);
     }
 }
 
@@ -741,6 +747,12 @@ void CTxMemPool::removeForBlock(const CBlock& block, unsigned int nBlockHeight, 
         }
         removeConflicts(*tx);
         ClearPrioritisation(tx->GetHash());
+    }
+
+    if (!block.mweb_block.IsNull()) {
+        for (const mw::Hash& spent_id : block.mweb_block.GetSpentIDs()) {
+            removeConflict(GenericOutputID{spent_id}, nullptr);
+        }
     }
 
     lastRollingFeeUpdate = GetTime();
@@ -1145,8 +1157,9 @@ void CCoinsViewMemPool::PackageAddTransaction(const CTransactionRef& tx)
 {
     for (const GenericOutput& output : tx->GetOutputs()) {
         if (output.IsMWEB()) {
-            mw::Output mweb_output = output.ToMWEBOutput();
-            // MW: TODO - m_temp_added.emplace(output.ToMWEB(), mweb_output);
+            m_temp_added_mweb.emplace(
+                output.ToMWEBOutputID(),
+                std::make_shared<mw::UTXO>(mw::UTXO::ForMempool(output.ToMWEBOutput())));
         } else {
             m_temp_added.emplace(output.ToOutPoint(), Coin(output.GetTxOut(), MEMPOOL_HEIGHT, false, false));
         }
@@ -1156,6 +1169,10 @@ void CCoinsViewMemPool::PackageAddTransaction(const CTransactionRef& tx)
 bool CCoinsViewMemPool::HaveCoin(const GenericOutputID& output_id) const 
 {
     if (output_id.IsMWEB()) {
+        if (m_temp_added_mweb.find(output_id.ToMWEB()) != m_temp_added_mweb.end()) {
+            return true;
+        }
+
         if (mempool.mapNextTx.find(output_id) != mempool.mapNextTx.end()) {
             return false;
         }
@@ -1166,7 +1183,8 @@ bool CCoinsViewMemPool::HaveCoin(const GenericOutputID& output_id) const
             return true;
         }
 
-        return GetMWEBView()->HasCoin(output_id.ToMWEB());
+        auto mweb_view = GetMWEBView();
+        return mweb_view && mweb_view->HasCoin(output_id.ToMWEB());
     } else {
         return base->HaveCoin(output_id);
     }
@@ -1174,6 +1192,11 @@ bool CCoinsViewMemPool::HaveCoin(const GenericOutputID& output_id) const
 
 bool CCoinsViewMemPool::GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const
 {
+    if (auto coin_iter = m_temp_added_mweb.find(output_id); coin_iter != m_temp_added_mweb.end()) {
+        coin = coin_iter->second;
+        return true;
+    }
+
     if (mempool.mapNextTx.find(output_id) != mempool.mapNextTx.end()) {
         return false;
     }
@@ -1191,7 +1214,9 @@ bool CCoinsViewMemPool::GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& c
         return false;
     }
 
-    coin = GetMWEBView()->GetUTXO(output_id);
+    auto mweb_view = GetMWEBView();
+    if (!mweb_view) return false;
+    coin = mweb_view->GetUTXO(output_id);
     return coin != nullptr;
 }
 
