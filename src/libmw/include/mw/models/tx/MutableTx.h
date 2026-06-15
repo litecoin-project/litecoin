@@ -285,7 +285,7 @@ struct MutableTx : public Traits::ISerializable
     BlindingFactor stealth_offset;
     std::vector<MutableInput> inputs;
     std::vector<MutableOutput> outputs;
-    std::vector<MutableKernel> kernels; // MW: TODO - Just store fee, pegins, and pegouts here, rather than having mutable kernels?
+    std::vector<MutableKernel> kernels;
 
     static MutableTx From(const mw::Transaction& tx)
     {

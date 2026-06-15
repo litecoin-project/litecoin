@@ -555,7 +555,7 @@ bool PartiallySignedTransaction::ComputeTimeLock(uint32_t& locktime) const
     return true;
 }
 
-CMutableTransaction PartiallySignedTransaction::GetUnsignedTx() const // MW: TODO - Just Call this ToMutableTx() and add scriptSig to outputs?
+CMutableTransaction PartiallySignedTransaction::GetUnsignedTx() const
 {
     if (tx != std::nullopt) {
         return *tx;
