@@ -170,7 +170,7 @@ AnyOutput CTransaction::GetOutput(const AnyOutputID& output_id) const noexcept
     if (output_id.IsMWEB()) {
         mw::Output output;
         bool has_output = mweb_tx.GetOutput(output_id.ToMWEB(), output);
-        assert(has_output); // MW: TODO - This should fail more gracefully. Maybe just return AnyOutput?
+        assert(has_output);
         return AnyOutput{output};
     } else {
         const COutPoint& outpoint = output_id.ToOutPoint();
@@ -202,7 +202,6 @@ std::vector<AnyInput> CMutableTransaction::GetInputs() const noexcept
         inputs.push_back(txin);
     }
 
-    // MW: TODO - Figure out what to do here
     for (const mw::MutableInput& mweb_input : mweb_tx.inputs) {
         inputs.push_back(mweb_input.output_id);
     }

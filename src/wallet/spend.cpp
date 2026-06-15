@@ -367,7 +367,7 @@ bool FindNonChangeParentOutputDestination(const CWallet& wallet, const CWalletTx
     AssertLockHeld(wallet.cs_wallet);
     const CWalletTx* ptx = &wtx;
     AnyOutputID id = output_id;
-    while (OutputIsChange(wallet, ptx->tx, id) && ptx->GetInputs().size() > 0) {
+    while (OutputIsChange(wallet, *ptx, id) && ptx->GetInputs().size() > 0) {
         AnyInput input = ptx->GetInputs().front();
         const CWalletTx* prev_wtx = wallet.FindPrevTx(input);
         if (prev_wtx == nullptr || !wallet.IsMine(input.GetID())) {

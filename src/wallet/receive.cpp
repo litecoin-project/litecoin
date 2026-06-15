@@ -100,8 +100,7 @@ bool ScriptIsChange(const CWallet& wallet, const CScript& script)
     return false;
 }
 
-// MW: TODO - Should this take a CWalletTx instead of CTransactionRef? If partial_mweb_tx with received_wallet_coin, it could be change
-bool OutputIsChange(const CWallet& wallet, const CTransactionRef& tx, const AnyOutputID& output_id)
+bool OutputIsChange(const CWallet& wallet, const CWalletTx& wtx, const AnyOutputID& output_id)
 {
     AssertLockHeld(wallet.cs_wallet);
     if (output_id.IsMWEB()) {
@@ -110,10 +109,15 @@ bool OutputIsChange(const CWallet& wallet, const CTransactionRef& tx, const AnyO
             return coin.IsChange();
         }
 
+        if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_wallet_coin) {
+            const mw::WalletCoin& received_coin = *wtx.mweb_wtx_info->received_wallet_coin;
+            return received_coin.output_id == output_id.ToMWEB() && received_coin.IsChange();
+        }
+
         return false;
     }
 
-    return ScriptIsChange(wallet, tx->vout[output_id.ToOutPoint().n].scriptPubKey);
+    return ScriptIsChange(wallet, wtx.tx->vout[output_id.ToOutPoint().n].scriptPubKey);
 }
 
 static CAmount OutputGetChange(const CWallet& wallet, const CWalletTx& wtx, const AnyOutputID& output_id)
@@ -122,7 +126,7 @@ static CAmount OutputGetChange(const CWallet& wallet, const CWalletTx& wtx, cons
     const CAmount amount = wallet.GetValue(wtx, output_id);
     if (!MoneyRange(amount))
         throw std::runtime_error(std::string(__func__) + ": value out of range");
-    return (OutputIsChange(wallet, wtx.tx, output_id) ? amount : 0);
+    return (OutputIsChange(wallet, wtx, output_id) ? amount : 0);
 }
 
 CAmount TxGetChange(const CWallet& wallet, const CWalletTx& wtx)
@@ -308,7 +312,7 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
         //   2) the output is to us (received)
         if (nDebit > 0)
         {
-            if (!include_change && OutputIsChange(wallet, wtx.tx, output_id))
+            if (!include_change && OutputIsChange(wallet, wtx, output_id))
                 continue;
         }
         else if (!(fIsMine & filter))
@@ -512,7 +516,7 @@ std::set< std::set<CTxDestination> > GetAddressGroupings(const CWallet& wallet)
             if (any_mine)
             {
                 for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
-                    if (OutputIsChange(wallet, wtx.tx, output_id)) {
+                    if (OutputIsChange(wallet, wtx, output_id)) {
                         CTxDestination address;
                         if (!wallet.ExtractOutputDestination(wtx, output_id, address))
                             continue;

@@ -245,7 +245,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const uint256& txid, const CCo
             return Result::INVALID_ADDRESS_OR_KEY;
         }
 
-        if (!OutputIsChange(wallet, wtx.tx, output_id)) {
+        if (!OutputIsChange(wallet, wtx, output_id)) {
             CRecipient recipient = {dest_addr, wallet.GetValue(wtx, output_id), false};
             recipients.push_back(recipient);
         } else {

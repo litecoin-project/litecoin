@@ -39,6 +39,7 @@ class CCoinControl;
 class CWallet;
 class ReserveDestination;
 enum isminetype : unsigned int;
+struct ChangePosition;
 struct CRecipient;
 struct WalletContext;
 using isminefilter = std::underlying_type<isminetype>::type;
@@ -151,7 +152,7 @@ public:
     virtual util::Result<CTransactionRef> createTransaction(const std::vector<wallet::CRecipient>& recipients,
         const wallet::CCoinControl& coin_control,
         bool sign,
-        int& change_pos,
+        wallet::ChangePosition& change_pos,
         CAmount& fee) = 0;
 
     //! Commit transaction.
@@ -245,9 +246,6 @@ public:
 
     //! Return debit amount if transaction input belongs to wallet.
     virtual CAmount getDebit(const AnyInput& input, wallet::isminefilter filter) = 0;
-
-    //! Return true if the output is a change output.
-    virtual bool isChange(const CTransactionRef& tx, const AnyOutputID& output_id) = 0;
 
     //! Return AvailableCoins + LockedCoins grouped by wallet address.
     //! (put change in one group with wallet address)

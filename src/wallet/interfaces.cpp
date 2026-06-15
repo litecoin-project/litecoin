@@ -31,6 +31,7 @@
 #include <wallet/wallet.h>
 
 #include <memory>
+#include <limits>
 #include <string>
 #include <utility>
 #include <vector>
@@ -330,20 +331,18 @@ public:
     util::Result<CTransactionRef> createTransaction(const std::vector<CRecipient>& recipients,
         const CCoinControl& coin_control,
         bool sign,
-        int& change_pos,
+        ChangePosition& change_pos,
         CAmount& fee) override
     {
         LOCK(m_wallet->cs_wallet);
-        auto res = CreateTransaction(*m_wallet, recipients, change_pos, coin_control, std::nullopt, std::nullopt, sign);
+        const bool use_requested_ltc_change_pos =
+            change_pos.IsLTC() && change_pos.ToLTC() <= static_cast<size_t>(std::numeric_limits<int>::max());
+        const int requested_change_pos = use_requested_ltc_change_pos ? static_cast<int>(change_pos.ToLTC()) : -1;
+        auto res = CreateTransaction(*m_wallet, recipients, requested_change_pos, coin_control, std::nullopt, std::nullopt, sign);
         if (!res) return util::Error{util::ErrorString(res)};
         const auto& txr = *res;
         fee = txr.fee;
-
-        if (txr.change_pos.IsLTC()) {
-            change_pos = (int)txr.change_pos.ToLTC();
-        } else {
-            change_pos = -1;
-        }
+        change_pos = txr.change_pos;
 
         return MakeTransactionRef(txr.tx);
     }
@@ -514,11 +513,6 @@ public:
     {
         LOCK(m_wallet->cs_wallet);
         return m_wallet->GetDebit(input, filter);
-    }
-    bool isChange(const CTransactionRef& tx, const AnyOutputID& output_id) override
-    {
-        LOCK(m_wallet->cs_wallet);
-        return wallet::OutputIsChange(*m_wallet, tx, output_id);
     }
     CoinsList listCoins() override
     {

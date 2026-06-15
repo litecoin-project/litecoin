@@ -25,6 +25,7 @@
 #include <psbt.h>
 #include <util/system.h> // for GetBoolArg
 #include <util/translation.h>
+#include <wallet/change.h>
 #include <wallet/coincontrol.h>
 #include <wallet/wallet.h> // for CRecipient
 
@@ -37,6 +38,7 @@
 #include <QTimer>
 
 using wallet::CCoinControl;
+using wallet::ChangePosition;
 using wallet::CRecipient;
 using wallet::DEFAULT_DISABLE_WALLET;
 
@@ -234,14 +236,14 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
 
     {
         CAmount nFeeRequired = 0;
-        int nChangePosRet = -1;
+        ChangePosition change_pos;
 
         auto& newTx = transaction.getWtx();
-        const auto& res = m_wallet->createTransaction(vecSend, coin_control_copy, !wallet().privateKeysDisabled() /* sign */, nChangePosRet, nFeeRequired);
+        const auto& res = m_wallet->createTransaction(vecSend, coin_control_copy, !wallet().privateKeysDisabled() /* sign */, change_pos, nFeeRequired);
         newTx = res ? *res : nullptr;
         transaction.setTransactionFee(nFeeRequired);
         if (fSubtractFeeFromAmount && newTx)
-            transaction.reassignAmounts(*m_wallet, nChangePosRet);
+            transaction.reassignAmounts(*m_wallet, change_pos);
 
         if(!newTx)
         {

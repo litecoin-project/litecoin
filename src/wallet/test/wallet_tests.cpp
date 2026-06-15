@@ -921,6 +921,52 @@ BOOST_FIXTURE_TEST_CASE(IsSpentPartialMWEB, TestChain100Setup)
     TestUnloadWallet(std::move(wallet));
 }
 
+BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Setup)
+{
+    WalletContext context;
+    context.args = &m_args;
+    context.chain = m_node.chain.get();
+    auto wallet = TestLoadWallet(context);
+
+    int tip_height;
+    uint256 tip_hash;
+    {
+        LOCK(Assert(m_node.chainman)->GetMutex());
+        tip_height = m_node.chainman->ActiveChain().Height();
+        tip_hash = m_node.chainman->ActiveChain().Tip()->GetBlockHash();
+    }
+    {
+        LOCK(wallet->cs_wallet);
+        wallet->SetLastBlockProcessed(tip_height, tip_hash);
+    }
+
+    mw::WalletCoin received_wallet_coin;
+    received_wallet_coin.amount = 1'000'000;
+    received_wallet_coin.output_id = mw::Hash::FromHex("418f6bb03b49b6a0485f20c5e41088d8d0e77ec580c45a216ca2e98c1c4475ee");
+    received_wallet_coin.address_index = mw::CHANGE_INDEX;
+
+    const uint256 partial_hash = MWEB::WalletTxInfo(received_wallet_coin).GetHash();
+    BOOST_REQUIRE(wallet->AddToWallet(
+        MakeTransactionRef(),
+        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin),
+        TxStateConfirmed{tip_hash, tip_height, 0}
+    ));
+
+    {
+        LOCK(wallet->cs_wallet);
+        const CWalletTx* wtx = wallet->GetWalletTx(partial_hash);
+        BOOST_REQUIRE(wtx != nullptr);
+        BOOST_REQUIRE(wtx->IsPartialMWEB());
+        BOOST_REQUIRE(wtx->HasPartialMWEBReceive());
+
+        mw::WalletCoin stored_coin;
+        BOOST_CHECK(!wallet->GetMWEBWalletCoin(received_wallet_coin.output_id, stored_coin));
+        BOOST_CHECK(OutputIsChange(*wallet, *wtx, AnyOutputID{received_wallet_coin.output_id}));
+    }
+
+    TestUnloadWallet(std::move(wallet));
+}
+
 BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100Setup)
 {
     WalletContext context;
