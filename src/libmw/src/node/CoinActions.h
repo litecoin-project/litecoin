@@ -1,14 +1,14 @@
 #pragma once
 
 #include <mw/common/Logger.h>
-#include <mw/models/tx/UTXO.h>
+#include <mw/models/tx/Coin.h>
 #include <unordered_map>
 
 struct CoinAction
 {
-    bool IsSpend() const noexcept { return pUTXO == nullptr; }
+    bool IsSpend() const noexcept { return pCoin == nullptr; }
 
-    mw::UTXO::CPtr pUTXO;
+    mw::Coin::CPtr pCoin;
 };
 
 class CoinsViewUpdates
@@ -16,12 +16,12 @@ class CoinsViewUpdates
 public:
     CoinsViewUpdates() = default;
 
-    void AddUTXO(const mw::UTXO::CPtr& pUTXO)
+    void AddCoin(const mw::Coin::CPtr& pCoin)
     {
-        AddAction(pUTXO->GetOutputID(), CoinAction{pUTXO});
+        AddAction(pCoin->GetOutputID(), CoinAction{pCoin});
     }
 
-    void SpendUTXO(const mw::Hash& output_id)
+    void SpendCoin(const mw::Hash& output_id)
     {
         AddAction(output_id, CoinAction{nullptr});
     }

@@ -18,7 +18,7 @@ void FindCoins(const NodeContext& node, std::map<GenericOutputID, GenericCoin>& 
     CCoinsViewMemPool mempool_view(&chain_view, *node.mempool);
     for (auto& coin_it : coins) {
         if (coin_it.first.IsMWEB()) {
-            mw::UTXO::CPtr coin{nullptr};
+            mw::Coin::CPtr coin{nullptr};
             if (!mempool_view.GetMWEBCoin(coin_it.first.ToMWEB(), coin)) {
                 coin = nullptr;
             }

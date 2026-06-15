@@ -954,7 +954,7 @@ class CCoinsViewMemPool : public CCoinsViewBacked
     * validation, since we can access transaction outputs without submitting them to mempool.
     */
     std::unordered_map<COutPoint, Coin, SaltedOutpointHasher> m_temp_added;
-    std::unordered_map<mw::Hash, mw::UTXO::CPtr, SaltedMWHashHasher> m_temp_added_mweb;
+    std::unordered_map<mw::Hash, mw::Coin::CPtr, SaltedMWHashHasher> m_temp_added_mweb;
 protected:
     const CTxMemPool& mempool;
 
@@ -962,7 +962,7 @@ public:
     CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn);
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
     bool HaveCoin(const GenericOutputID& index) const override;
-    bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const override;
+    bool GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const override;
     /** Add the coins created by this transaction. These coins are only temporarily stored in
      * m_temp_added/m_temp_added_mweb and cannot be flushed to the back end. Only used for package validation. */
     void PackageAddTransaction(const CTransactionRef& tx);

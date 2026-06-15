@@ -1159,7 +1159,7 @@ void CCoinsViewMemPool::PackageAddTransaction(const CTransactionRef& tx)
         if (output.IsMWEB()) {
             m_temp_added_mweb.emplace(
                 output.ToMWEBOutputID(),
-                std::make_shared<mw::UTXO>(mw::UTXO::ForMempool(output.ToMWEBOutput())));
+                std::make_shared<mw::Coin>(mw::Coin::ForMempool(output.ToMWEBOutput())));
         } else {
             m_temp_added.emplace(output.ToOutPoint(), Coin(output.GetTxOut(), MEMPOOL_HEIGHT, false, false));
         }
@@ -1190,7 +1190,7 @@ bool CCoinsViewMemPool::HaveCoin(const GenericOutputID& output_id) const
     }
 }
 
-bool CCoinsViewMemPool::GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const
+bool CCoinsViewMemPool::GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const
 {
     if (auto coin_iter = m_temp_added_mweb.find(output_id); coin_iter != m_temp_added_mweb.end()) {
         coin = coin_iter->second;
@@ -1207,7 +1207,7 @@ bool CCoinsViewMemPool::GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& c
         //assert(!iter->second->mweb_tx.IsNull());
         mw::Output output;
         if (iter->second->mweb_tx.GetOutput(output_id, output)) {
-            coin = std::make_shared<mw::UTXO>(mw::UTXO::ForMempool(std::move(output)));
+            coin = std::make_shared<mw::Coin>(mw::Coin::ForMempool(std::move(output)));
             return true;
         }
 
@@ -1216,7 +1216,7 @@ bool CCoinsViewMemPool::GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& c
 
     auto mweb_view = GetMWEBView();
     if (!mweb_view) return false;
-    coin = mweb_view->GetUTXO(output_id);
+    coin = mweb_view->GetCoin(output_id);
     return coin != nullptr;
 }
 

@@ -1,42 +1,42 @@
 #include <mw/db/CoinDB.h>
 #include "common/Database.h"
 
-static const DBTable UTXO_TABLE = { 'U' };
+static const DBTable COIN_TABLE = { 'U' };
 
 CoinDB::CoinDB(mw::DBWrapper* pDBWrapper, mw::DBBatch* pBatch)
     : m_pDatabase(std::make_unique<Database>(pDBWrapper, pBatch)) { }
 
 CoinDB::~CoinDB() { }
 
-std::unordered_map<mw::Hash, mw::UTXO::CPtr> CoinDB::GetUTXOs(const std::vector<mw::Hash>& output_ids) const
+std::unordered_map<mw::Hash, mw::Coin::CPtr> CoinDB::GetCoins(const std::vector<mw::Hash>& output_ids) const
 {
-    std::unordered_map<mw::Hash, mw::UTXO::CPtr> utxos;
+    std::unordered_map<mw::Hash, mw::Coin::CPtr> coins;
 
     for (const mw::Hash& output_id : output_ids) {
-        auto pUTXO = m_pDatabase->Get<mw::UTXO>(UTXO_TABLE, output_id.ToHex());
-        if (pUTXO != nullptr) {
-            utxos.insert({output_id, pUTXO->item});
+        auto pCoin = m_pDatabase->Get<mw::Coin>(COIN_TABLE, output_id.ToHex());
+        if (pCoin != nullptr) {
+            coins.insert({output_id, pCoin->item});
         }
     }
 
-    return utxos;
+    return coins;
 }
 
-void CoinDB::AddUTXOs(const std::vector<mw::UTXO::CPtr>& utxos)
+void CoinDB::AddCoins(const std::vector<mw::Coin::CPtr>& coins)
 {
-    std::vector<DBEntry<mw::UTXO>> entries;
+    std::vector<DBEntry<mw::Coin>> entries;
     std::transform(
-        utxos.cbegin(), utxos.cend(),
+        coins.cbegin(), coins.cend(),
         std::back_inserter(entries),
-        [](const mw::UTXO::CPtr& pUTXO) { return DBEntry<mw::UTXO>(pUTXO->GetOutputID().ToHex(), pUTXO); }
+        [](const mw::Coin::CPtr& pCoin) { return DBEntry<mw::Coin>(pCoin->GetOutputID().ToHex(), pCoin); }
     );
 
-    m_pDatabase->Put(UTXO_TABLE, entries);
+    m_pDatabase->Put(COIN_TABLE, entries);
 }
 
-void CoinDB::RemoveUTXOs(const std::vector<mw::Hash>& output_ids)
+void CoinDB::RemoveCoins(const std::vector<mw::Hash>& output_ids)
 {
     for (const mw::Hash& output_id : output_ids) {
-        m_pDatabase->Delete(UTXO_TABLE, output_id.ToHex());
+        m_pDatabase->Delete(COIN_TABLE, output_id.ToHex());
     }
 }

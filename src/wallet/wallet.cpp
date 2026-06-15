@@ -15,7 +15,7 @@
 #include <interfaces/wallet.h>
 #include <key.h>
 #include <key_io.h>
-#include <mw/models/tx/UTXO.h>
+#include <mw/models/tx/Coin.h>
 #include <outputtype.h>
 #include <policy/fees.h>
 #include <policy/policy.h>
@@ -2725,8 +2725,8 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
                     return false;
                 }
 
-                // Raw signing only needs the public output fields, so a synthetic UTXO is sufficient here.
-                coins[input_id] = GenericCoin(std::make_shared<const mw::UTXO>(mw::UTXO::ForMempool(prev_output.ToMWEBOutput())));
+                // Raw signing only needs the public output fields, so a synthetic coin is sufficient here.
+                coins[input_id] = GenericCoin(std::make_shared<const mw::Coin>(mw::Coin::ForMempool(prev_output.ToMWEBOutput())));
             } else {
                 mw::WalletCoin coin;
                 if (!GetMWEBWalletCoin(input_id.ToMWEB(), coin)) {

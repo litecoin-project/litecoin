@@ -102,9 +102,9 @@ bool CCoinsViewDB::HaveCoin(const GenericOutputID& output_id) const {
     }
 }
 
-bool CCoinsViewDB::GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const {
+bool CCoinsViewDB::GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const {
     assert(GetMWEBView() != nullptr);
-    coin = GetMWEBView()->GetUTXO(output_id);
+    coin = GetMWEBView()->GetCoin(output_id);
 
     return coin != nullptr;
 }

@@ -40,7 +40,7 @@ bool CCoinsViewBacked::BatchWrite(CCoinsMap& mapCoins, const uint256& hashBlock,
 std::unique_ptr<CCoinsViewCursor> CCoinsViewBacked::Cursor() const { return base->Cursor(); }
 size_t CCoinsViewBacked::EstimateSize() const { return base->EstimateSize(); }
 mw::ICoinsView::Ptr CCoinsViewBacked::GetMWEBView() const { return base->GetMWEBView(); }
-bool CCoinsViewBacked::GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const { return base->GetMWEBCoin(output_id, coin); }
+bool CCoinsViewBacked::GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const { return base->GetMWEBCoin(output_id, coin); }
 
 CCoinsViewCache::CCoinsViewCache(CCoinsView* baseIn) : CCoinsViewBacked(baseIn), cachedCoinsUsage(0), mweb_view(baseIn->GetMWEBView() ? std::make_shared<mw::CoinsViewCache>(baseIn->GetMWEBView()) : nullptr) { }
 
@@ -135,7 +135,7 @@ void AddCoins(CCoinsViewCache& cache, const CTransaction &tx, int nHeight, bool 
         bool overwrite = check_for_overwrite ? cache.HaveCoin(output.GetID()) : fCoinbase;
 
         if (output.IsMWEB()) {
-            cache.GetMWEBCacheView()->AddUTXO(nHeight, output.ToMWEBOutput());
+            cache.GetMWEBCacheView()->AddCoin(nHeight, output.ToMWEBOutput());
         } else {
             cache.AddCoin(output.ToOutPoint(), Coin(output.GetTxOut(), nHeight, fCoinbase, fPegout), overwrite);
         }
@@ -196,14 +196,14 @@ bool CCoinsViewCache::HaveCoin(const GenericOutputID& output_id) const {
     }
 }
 
-bool CCoinsViewCache::GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const {
+bool CCoinsViewCache::GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const {
     auto mweb_cache = GetMWEBCacheView();
     if (mweb_cache == nullptr) {
         return false;
     }
 
     if (mweb_cache->HasCoinInCache(output_id)) {
-        coin = mweb_cache->GetUTXO(output_id);
+        coin = mweb_cache->GetCoin(output_id);
         assert(coin != nullptr);
         return true;
     }

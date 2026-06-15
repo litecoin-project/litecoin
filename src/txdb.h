@@ -70,7 +70,7 @@ public:
     CDBWrapper* GetDB() noexcept { return m_db.get(); }
     void SetMWEBView(const mw::ICoinsView::Ptr& view) { mweb_view = view; }
     mw::ICoinsView::Ptr GetMWEBView() const final { return mweb_view; }
-    bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const final;
+    bool GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const final;
 
     //! Whether an unsupported database format is used.
     bool NeedsUpgrade();

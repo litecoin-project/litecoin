@@ -26,59 +26,59 @@ CoinsViewDB::Ptr CoinsViewDB::Open(
     return std::shared_ptr<CoinsViewDB>(pView);
 }
 
-mw::UTXO::CPtr CoinsViewDB::GetUTXO(const mw::Hash& output_id) const
+mw::Coin::CPtr CoinsViewDB::GetCoin(const mw::Hash& output_id) const
 {
     CoinDB coinDB(GetDatabase().get(), nullptr);
-    return GetUTXO(coinDB, output_id);
+    return GetCoin(coinDB, output_id);
 }
 
-mw::UTXO::CPtr CoinsViewDB::GetUTXO(const CoinDB& coinDB, const mw::Hash& output_id) const
+mw::Coin::CPtr CoinsViewDB::GetCoin(const CoinDB& coinDB, const mw::Hash& output_id) const
 {
     std::vector<uint8_t> value;
 
-    auto utxos_by_hash = coinDB.GetUTXOs({output_id});
-    auto iter = utxos_by_hash.find(output_id);
-    if (iter != utxos_by_hash.cend()) {
+    auto coins_by_hash = coinDB.GetCoins({output_id});
+    auto iter = coins_by_hash.find(output_id);
+    if (iter != coins_by_hash.cend()) {
         return iter->second;
     }
 
     return {};
 }
 
-void CoinsViewDB::AddUTXO(const uint64_t header_height, const mw::Output& output)
+void CoinsViewDB::AddCoin(const uint64_t header_height, const mw::Output& output)
 {
     CoinDB coinDB(GetDatabase().get(), nullptr);
-    AddUTXO(coinDB, output);
+    AddCoin(coinDB, output);
 }
 
-void CoinsViewDB::AddUTXO(CoinDB& coinDB, const mw::Output& output)
+void CoinsViewDB::AddCoin(CoinDB& coinDB, const mw::Output& output)
 {
     mmr::LeafIndex leafIdx = m_pOutputPMMR->Add(output.GetOutputID());
     m_pLeafSet->Add(leafIdx);
 
-    AddUTXO(coinDB, std::make_shared<mw::UTXO>(GetBestHeader()->GetHeight(), std::move(leafIdx), output));
+    AddCoin(coinDB, std::make_shared<mw::Coin>(GetBestHeader()->GetHeight(), std::move(leafIdx), output));
 }
 
-void CoinsViewDB::AddUTXO(CoinDB& coinDB, const mw::UTXO::CPtr& pUTXO)
+void CoinsViewDB::AddCoin(CoinDB& coinDB, const mw::Coin::CPtr& pCoin)
 {
-    coinDB.AddUTXOs(std::vector<mw::UTXO::CPtr>{pUTXO});
+    coinDB.AddCoins(std::vector<mw::Coin::CPtr>{pCoin});
 }
 
-mw::UTXO::CPtr CoinsViewDB::SpendUTXO(const mw::Hash& output_id)
+mw::Coin::CPtr CoinsViewDB::SpendCoin(const mw::Hash& output_id)
 {
     CoinDB coinDB(GetDatabase().get(), nullptr);
-    return SpendUTXO(coinDB, output_id);
+    return SpendCoin(coinDB, output_id);
 }
 
-mw::UTXO::CPtr CoinsViewDB::SpendUTXO(CoinDB& coinDB, const mw::Hash& output_id)
+mw::Coin::CPtr CoinsViewDB::SpendCoin(CoinDB& coinDB, const mw::Hash& output_id)
 {
-    mw::UTXO::CPtr pUTXO = GetUTXO(coinDB, output_id);
-    if (pUTXO == nullptr) {
+    mw::Coin::CPtr pCoin = GetCoin(coinDB, output_id);
+    if (pCoin == nullptr) {
 		ThrowValidation(EConsensusError::UTXO_MISSING);
     }
 
-    coinDB.RemoveUTXOs(std::vector<mw::Hash>{output_id});
-    return pUTXO;
+    coinDB.RemoveCoins(std::vector<mw::Hash>{output_id});
+    return pCoin;
 }
 
 void CoinsViewDB::WriteBatch(const std::unique_ptr<mw::DBBatch>& pBatch, const CoinsViewUpdates& updates, const mw::Header::CPtr& pHeader)
@@ -91,9 +91,9 @@ void CoinsViewDB::WriteBatch(const std::unique_ptr<mw::DBBatch>& pBatch, const C
         const mw::Hash& output_id = actions.first;
         for (const auto& action : actions.second) {
             if (action.IsSpend()) {
-                SpendUTXO(coinDB, output_id);
+                SpendCoin(coinDB, output_id);
             } else {
-                AddUTXO(coinDB, action.pUTXO);
+                AddCoin(coinDB, action.pCoin);
             }
         }
     }

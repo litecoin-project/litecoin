@@ -239,7 +239,7 @@ BITCOIN_TESTS += \
   libmw/test/tests/models/tx/Test_PegOutCoin.cpp \
   libmw/test/tests/models/tx/Test_Transaction.cpp \
   libmw/test/tests/models/tx/Test_TxBody.cpp \
-  libmw/test/tests/models/tx/Test_UTXO.cpp \
+  libmw/test/tests/models/tx/Test_Coin.cpp \
   libmw/test/tests/node/Test_BlockBuilder.cpp \
   libmw/test/tests/node/Test_BlockValidator.cpp \
   libmw/test/tests/node/Test_MineChain.cpp \

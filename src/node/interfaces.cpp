@@ -322,7 +322,7 @@ public:
     {
         LOCK(::cs_main);
         if (output_id.IsMWEB()) {
-            mw::UTXO::CPtr mweb_coin{nullptr};
+            mw::Coin::CPtr mweb_coin{nullptr};
             if (chainman().ActiveChainstate().CoinsTip().GetMWEBCoin(output_id.ToMWEB(), mweb_coin)) {
                 output = GenericOutput{mweb_coin->GetOutput()};
                 return true;

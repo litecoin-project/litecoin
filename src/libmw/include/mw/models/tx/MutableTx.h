@@ -8,14 +8,14 @@
 MW_NAMESPACE
 
 struct MutableInput {
-    // UTXO: public info
+    // Coin: public info
     mw::Hash output_id;
     std::optional<Commitment> commitment;
     std::optional<PublicKey> output_pubkey;
 
-    // UTXO: secrets
+    // Coin: secrets
     std::optional<CAmount> amount; //! The amount being spent.
-    std::optional<SecretKey> spend_key; //! Secret key needed to spend the UTXO.
+    std::optional<SecretKey> spend_key; //! Secret key needed to spend the coin.
     std::optional<BlindingFactor> raw_blind; //! Pre-switch blinding factor.
     std::optional<PublicKey> key_exchange_pubkey; //! Optional key exchange pubkey for deriving shared secrets.
     std::optional<SecretKey> shared_secret; //! Optional shared secret derived from key exchange pubkeys.
@@ -32,7 +32,7 @@ struct MutableInput {
     MutableInput(mw::Hash output_id_)
         : output_id(std::move(output_id_)) { }
 
-    // Builds a MutableInput with the public UTXO fields populated for spending the provided output.
+    // Builds a MutableInput with the public coin fields populated for spending the provided output.
     static MutableInput FromOutput(const mw::Output& output)
     {
         MutableInput input(output.GetOutputID());

@@ -1,6 +1,6 @@
 #pragma once
 
-#include <mw/models/tx/UTXO.h>
+#include <mw/models/tx/Coin.h>
 #include <mw/interfaces/db_interface.h>
 #include <unordered_map>
 
@@ -16,24 +16,24 @@ public:
 	~CoinDB();
 
 	//
-	// Retrieve UTXOs with matching output IDs.
-	// If there are multiple UTXOs for an output ID, the most recent will be returned.
+	// Retrieve coins with matching output IDs.
+	// If there are multiple coins for an output ID, the most recent will be returned.
 	//
-	std::unordered_map<mw::Hash, mw::UTXO::CPtr> GetUTXOs(
+	std::unordered_map<mw::Hash, mw::Coin::CPtr> GetCoins(
 		const std::vector<mw::Hash>& output_ids
 	) const;
 
 	//
-	// Add the UTXOs
+	// Add the coins.
 	//
-	void AddUTXOs(const std::vector<mw::UTXO::CPtr>& utxos);
+	void AddCoins(const std::vector<mw::Coin::CPtr>& coins);
 
 	//
-	// Removes the UTXOs for the given output IDs.
-	// If there are multiple UTXOs for an output ID, the most recent will be removed.
-	// DatabaseException thrown if no UTXOs are found for an output ID.
+	// Removes the coins for the given output IDs.
+	// If there are multiple coins for an output ID, the most recent will be removed.
+	// DatabaseException thrown if no coins are found for an output ID.
 	//
-    void RemoveUTXOs(const std::vector<mw::Hash>& output_ids);
+    void RemoveCoins(const std::vector<mw::Hash>& output_ids);
 
 private:
 	std::unique_ptr<Database> m_pDatabase;

@@ -305,18 +305,18 @@ static bool CheckMWEBInputsForMempoolReorg(const CTransaction& tx, const CTxMemP
             return false;
         }
 
-        mw::UTXO::CPtr utxo;
+        mw::Coin::CPtr coin;
         if (const auto output_iter = pool.mapTxOutputs_MWEB.find(output_id); output_iter != pool.mapTxOutputs_MWEB.end()) {
             mw::Output output;
             if (!output_iter->second->mweb_tx.GetOutput(output_id, output)) {
                 return false;
             }
-            utxo = std::make_shared<mw::UTXO>(mw::UTXO::ForMempool(std::move(output)));
-        } else if (!coins_tip.GetMWEBCoin(output_id, utxo)) {
+            coin = std::make_shared<mw::Coin>(mw::Coin::ForMempool(std::move(output)));
+        } else if (!coins_tip.GetMWEBCoin(output_id, coin)) {
             return false;
         }
 
-        if (utxo->GetReceiverPubKey() != input.GetOutputPubKey() || utxo->GetCommitment() != input.GetCommitment()) {
+        if (coin->GetReceiverPubKey() != input.GetOutputPubKey() || coin->GetCommitment() != input.GetCommitment()) {
             return false;
         }
     }
@@ -488,7 +488,7 @@ public:
 
     mw::ICoinsView::Ptr GetMWEBView() const override { return m_view.GetMWEBView(); }
 
-    bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const override
+    bool GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const override
     {
         return m_view.GetMWEBCoin(output_id, coin);
     }
@@ -1767,8 +1767,8 @@ void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txund
     if (!tx.mweb_tx.IsNull()) {
         // mweb_tx is only non-null for transactions outside of a block (e.g. mempool), so we don't need to update txundo.
         for (const mw::Input& input : tx.mweb_tx.m_transaction->GetInputs()) {
-            mw::UTXO::CPtr spent_utxo = inputs.GetMWEBCacheView()->SpendUTXO(input.GetOutputID()); // MWEB: TODO - SpendUTXO should be made noexcept, and return a nullptr when it fails.
-            assert(spent_utxo != nullptr);
+            mw::Coin::CPtr spent_coin = inputs.GetMWEBCacheView()->SpendCoin(input.GetOutputID()); // MWEB: TODO - SpendCoin should be made noexcept, and return a nullptr when it fails.
+            assert(spent_coin != nullptr);
         }
     }
 }
@@ -4392,13 +4392,13 @@ bool Chainstate::RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& in
             if (inputs.HaveCoin(output.GetOutputID())) {
                 // MWEB: TODO - How should we handle overwrites?
             } else {
-                inputs.GetMWEBCacheView()->AddUTXO(pindex->nHeight, output);
+                inputs.GetMWEBCacheView()->AddCoin(pindex->nHeight, output);
             }
         }
 
         // mweb_tx is only non-null for transactions outside of a block (e.g. mempool), so we don't need to update txundo.
         for (const mw::Input& input : block.mweb_block.m_block->GetInputs()) {
-            inputs.GetMWEBCacheView()->SpendUTXO(input.GetOutputID()); // MWEB: TODO - SpendUTXO should be made noexcept, and return a nullptr when it fails.
+            inputs.GetMWEBCacheView()->SpendCoin(input.GetOutputID()); // MWEB: TODO - SpendCoin should be made noexcept, and return a nullptr when it fails.
         }
     }
 

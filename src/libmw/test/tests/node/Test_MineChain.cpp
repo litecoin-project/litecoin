@@ -30,8 +30,8 @@ BOOST_AUTO_TEST_CASE(MineChain)
     pCachedView->ApplyBlock(block1.GetBlock());
 
     const auto& block1_tx1_output1 = block1_tx1.GetOutputs()[0];
-    BOOST_REQUIRE(pDBView->GetUTXO(block1_tx1_output1.GetOutputID()) == nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_REQUIRE(pDBView->GetCoin(block1_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_REQUIRE(pCachedView->GetCoin(block1_tx1_output1.GetOutputID()) != nullptr);
 
     ///////////////////////
     // Mine Block 2
@@ -42,8 +42,8 @@ BOOST_AUTO_TEST_CASE(MineChain)
     pCachedView->ApplyBlock(block2.GetBlock());
 
     const auto& block2_tx1_output1 = block2_tx1.GetOutputs()[0];
-    BOOST_REQUIRE(pDBView->GetUTXO(block2_tx1_output1.GetOutputID()) == nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block2_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_REQUIRE(pDBView->GetCoin(block2_tx1_output1.GetOutputID()) == nullptr);
+    BOOST_REQUIRE(pCachedView->GetCoin(block2_tx1_output1.GetOutputID()) != nullptr);
 
     ///////////////////////
     // Flush View
@@ -52,10 +52,10 @@ BOOST_AUTO_TEST_CASE(MineChain)
     pCachedView->Flush(pBatch);
     pBatch->Commit();
 
-    BOOST_REQUIRE(pDBView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block1_tx1_output1.GetOutputID()) != nullptr);
-    BOOST_REQUIRE(pDBView->GetUTXO(block2_tx1_output1.GetOutputID()) != nullptr);
-    BOOST_REQUIRE(pCachedView->GetUTXO(block2_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_REQUIRE(pDBView->GetCoin(block1_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_REQUIRE(pCachedView->GetCoin(block1_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_REQUIRE(pDBView->GetCoin(block2_tx1_output1.GetOutputID()) != nullptr);
+    BOOST_REQUIRE(pCachedView->GetCoin(block2_tx1_output1.GetOutputID()) != nullptr);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

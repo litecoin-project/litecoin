@@ -5,24 +5,24 @@
 #include <mw/crypto/Pedersen.h>
 #include <mw/models/tx/TxBody.h>
 #include <mw/models/tx/Transaction.h>
-#include <mw/models/tx/UTXO.h>
+#include <mw/models/tx/Coin.h>
 #include <mw/common/Logger.h>
 #include <cstdlib>
 
 class KernelSumValidator
 {
 public:
-    // Makes sure the sums of all utxo commitments minus the total supply
+    // Makes sure the sums of all coin commitments minus the total supply
     // equals the sum of all kernel excesses and the total offset.
     // This is to be used only when validating the entire state.
     //
-    // Throws a ValidationException if the utxo sum != kernel sum.
+    // Throws a ValidationException if the coin sum != kernel sum.
     static void ValidateState(
-        const std::vector<Commitment>& utxo_commitments,
+        const std::vector<Commitment>& coin_commitments,
         const std::vector<mw::Kernel>& kernels,
         const BlindingFactor& total_offset)
     {
-        // Sum all utxo commitments - expected supply.
+        // Sum all coin commitments - expected supply.
         int64_t total_mweb_supply = 0;
         for (const mw::Kernel& kernel : kernels) {
             total_mweb_supply += kernel.GetSupplyChange();
@@ -35,7 +35,7 @@ public:
 
         ValidateSums(
             {},
-            utxo_commitments,
+            coin_commitments,
             Commitments::From(kernels),
             total_offset,
             total_mweb_supply,
@@ -103,15 +103,15 @@ private:
         const int64_t coins_added,
         const bool allow_infinity)
     {
-        // Calculate UTXO nonce sum
-        Commitment sum_utxo_commitment = AddCommitments(output_commits, input_commits, allow_infinity);
+        // Calculate coin commitment sum.
+        Commitment sum_coin_commitment = AddCommitments(output_commits, input_commits, allow_infinity);
         if (coins_added > 0) {
-            sum_utxo_commitment = AddCommitments(
-                { sum_utxo_commitment }, { Commitment::Transparent(coins_added) }, allow_infinity
+            sum_coin_commitment = AddCommitments(
+                { sum_coin_commitment }, { Commitment::Transparent(coins_added) }, allow_infinity
             );
         } else if (coins_added < 0) {
-            sum_utxo_commitment = AddCommitments(
-                { sum_utxo_commitment, Commitment::Transparent(std::abs(coins_added)) }, {}, allow_infinity
+            sum_coin_commitment = AddCommitments(
+                { sum_coin_commitment, Commitment::Transparent(std::abs(coins_added)) }, {}, allow_infinity
             );
         }
 
@@ -123,10 +123,10 @@ private:
             );
         }
 
-        if (sum_utxo_commitment != sum_excess_commitment) {
+        if (sum_coin_commitment != sum_excess_commitment) {
             LOG_ERROR(
-                "UTXO sum {} does not match kernel excess sum {}.",
-                sum_utxo_commitment,
+                "Coin sum {} does not match kernel excess sum {}.",
+                sum_coin_commitment,
                 sum_excess_commitment
             );
             ThrowValidation(EConsensusError::BLOCK_SUMS);

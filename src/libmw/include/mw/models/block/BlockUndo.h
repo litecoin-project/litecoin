@@ -3,7 +3,7 @@
 #include <mw/common/Macros.h>
 #include <mw/common/Traits.h>
 #include <mw/models/block/Header.h>
-#include <mw/models/tx/UTXO.h>
+#include <mw/models/tx/Coin.h>
 
 MW_NAMESPACE
 
@@ -15,7 +15,7 @@ public:
     //
     // Constructors
     //
-    BlockUndo(const mw::Header::CPtr& pPrevHeader, std::vector<mw::UTXO::CPtr>&& coinsSpent, std::vector<mw::Hash>&& coinsAdded)
+    BlockUndo(const mw::Header::CPtr& pPrevHeader, std::vector<mw::Coin::CPtr>&& coinsSpent, std::vector<mw::Hash>&& coinsAdded)
         : m_pPrevHeader(pPrevHeader), m_coinsSpent(std::move(coinsSpent)), m_coinsAdded(std::move(coinsAdded)) { }
     BlockUndo(const BlockUndo& other) = default;
     BlockUndo(BlockUndo&& other) noexcept = default;
@@ -31,7 +31,7 @@ public:
     // Getters
     //
     const mw::Header::CPtr& GetPreviousHeader() const noexcept { return m_pPrevHeader; }
-    const std::vector<mw::UTXO::CPtr>& GetCoinsSpent() const noexcept { return m_coinsSpent; }
+    const std::vector<mw::Coin::CPtr>& GetCoinsSpent() const noexcept { return m_coinsSpent; }
     const std::vector<mw::Hash>& GetCoinsAdded() const noexcept { return m_coinsAdded; }
 
     //
@@ -44,7 +44,7 @@ public:
 
 private:
     Header::CPtr m_pPrevHeader;
-    std::vector<mw::UTXO::CPtr> m_coinsSpent;
+    std::vector<mw::Coin::CPtr> m_coinsSpent;
     std::vector<mw::Hash> m_coinsAdded;
 };
 

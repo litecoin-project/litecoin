@@ -96,23 +96,22 @@ public:
     }
 };
 
-// A UTXO that could be either an 'mw::UTXO' or a canonical 'Coin'.
-// MW: TODO - Rename mw::UTXO to the MWEB chainstate Coin type.
+// A chainstate coin that could be either an MWEB coin or a canonical Coin.
 class GenericCoin
 {
-    std::variant<std::pair<COutPoint, Coin>, mw::UTXO::CPtr> m_coin;
+    std::variant<std::pair<COutPoint, Coin>, mw::Coin::CPtr> m_coin;
 
 public:
     GenericCoin() = default;
     GenericCoin(COutPoint outpoint, Coin coin) : m_coin(std::make_pair(std::move(outpoint), std::move(coin))) {}
-    GenericCoin(const mw::UTXO::CPtr& mweb_utxo) : m_coin(mweb_utxo) {}
+    GenericCoin(const mw::Coin::CPtr& mweb_coin) : m_coin(mweb_coin) {}
 
-    bool IsMWEB() const noexcept { return std::holds_alternative<mw::UTXO::CPtr>(m_coin); }
+    bool IsMWEB() const noexcept { return std::holds_alternative<mw::Coin::CPtr>(m_coin); }
 
-    mw::UTXO::CPtr ToMWEB() const noexcept
+    mw::Coin::CPtr ToMWEB() const noexcept
     {
         assert(IsMWEB());
-        return std::get<mw::UTXO::CPtr>(m_coin);
+        return std::get<mw::Coin::CPtr>(m_coin);
     }
 
     const Coin& ToLTC() const noexcept
@@ -141,8 +140,8 @@ public:
     GenericOutput ToOutput() const noexcept
     {
         if (IsMWEB()) {
-            mw::UTXO::CPtr utxo = ToMWEB();
-            return utxo != nullptr ? GenericOutput{utxo->GetOutput()} : GenericOutput{mw::Output()}; 
+            mw::Coin::CPtr coin = ToMWEB();
+            return coin != nullptr ? GenericOutput{coin->GetOutput()} : GenericOutput{mw::Output()};
         } else {
             return GenericOutput{ToOutPoint(), ToLTC().out};
         }
@@ -253,7 +252,7 @@ public:
 
     virtual mw::ICoinsView::Ptr GetMWEBView() const { return nullptr; }
     
-    virtual bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const { return false; }
+    virtual bool GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const { return false; }
 };
 
 
@@ -274,7 +273,7 @@ public:
     std::unique_ptr<CCoinsViewCursor> Cursor() const override;
     size_t EstimateSize() const override;
     mw::ICoinsView::Ptr GetMWEBView() const override;
-    bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const override;
+    bool GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const override;
 };
 
 
@@ -316,7 +315,7 @@ public:
     mw::ICoinsView::Ptr GetMWEBView() const final { return mweb_view; }
     mw::CoinsViewCache::Ptr GetMWEBCacheView() const { return mweb_view; }
 
-    bool GetMWEBCoin(const mw::Hash& output_id, mw::UTXO::CPtr& coin) const final;
+    bool GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const final;
 
     /**
      * Check if we have the given utxo already loaded in this cache.

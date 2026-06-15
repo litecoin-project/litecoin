@@ -211,15 +211,15 @@ bool Consensus::CheckTxInputs(const CTransaction& tx, TxValidationState& state, 
     // MWEB: Check MWEB inputs
     if (tx.HasMWEBTx()) {
         for (const mw::Input& input : tx.mweb_tx.m_transaction->GetInputs()) {
-            mw::UTXO::CPtr utxo;
-            if (!inputs.GetMWEBCoin(input.GetOutputID(), utxo)) {
+            mw::Coin::CPtr coin;
+            if (!inputs.GetMWEBCoin(input.GetOutputID(), coin)) {
                 return state.Invalid(TxValidationResult::TX_MISSING_INPUTS, "bad-txns-inputs-missingorspent",
                     strprintf("%s: MWEB inputs missing/spent", __func__));
             }
 
-            if (utxo->GetReceiverPubKey() != input.GetOutputPubKey() || utxo->GetCommitment() != input.GetCommitment()) {
+            if (coin->GetReceiverPubKey() != input.GetOutputPubKey() || coin->GetCommitment() != input.GetCommitment()) {
                 return state.Invalid(TxValidationResult::TX_CONSENSUS, "bad-txns-input-mismatch",
-                                     strprintf("%s: MWEB input doesn't match UTXO", __func__));
+                                     strprintf("%s: MWEB input doesn't match coin", __func__));
             }
         }
 	}

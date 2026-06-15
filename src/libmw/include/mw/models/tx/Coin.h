@@ -8,19 +8,19 @@
 
 MW_NAMESPACE
 
-class UTXO : public Traits::ISerializable
+class Coin : public Traits::ISerializable
 {
     static constexpr int32_t MEMPOOL_BLOCK_HEIGHT{std::numeric_limits<int32_t>::max()};
     static constexpr uint64_t MEMPOOL_LEAF_IDX{std::numeric_limits<uint64_t>::max() / 2};
 
 public:
-    using CPtr = std::shared_ptr<const UTXO>;
+    using CPtr = std::shared_ptr<const Coin>;
 
-    UTXO() : m_blockHeight(0), m_leafIdx(), m_output() { }
-    UTXO(const int32_t blockHeight, mmr::LeafIndex leafIdx, mw::Output output)
+    Coin() : m_blockHeight(0), m_leafIdx(), m_output() { }
+    Coin(const int32_t blockHeight, mmr::LeafIndex leafIdx, mw::Output output)
         : m_blockHeight(blockHeight), m_leafIdx(std::move(leafIdx)), m_output(std::move(output)) { }
 
-    static UTXO ForMempool(mw::Output output) noexcept { return UTXO(MEMPOOL_BLOCK_HEIGHT, mmr::LeafIndex::At(MEMPOOL_LEAF_IDX), std::move(output)); }
+    static Coin ForMempool(mw::Output output) noexcept { return Coin(MEMPOOL_BLOCK_HEIGHT, mmr::LeafIndex::At(MEMPOOL_LEAF_IDX), std::move(output)); }
 
     bool IsInMempool() const noexcept { return m_blockHeight == MEMPOOL_BLOCK_HEIGHT && m_leafIdx.Get() == MEMPOOL_LEAF_IDX; }
     int32_t GetBlockHeight() const noexcept { return m_blockHeight; }
@@ -36,7 +36,7 @@ public:
     const Signature& GetSignature() const noexcept { return m_output.GetSignature(); }
     ProofData BuildProofData() const noexcept { return m_output.BuildProofData(); }
 
-    IMPL_SERIALIZABLE(UTXO, obj)
+    IMPL_SERIALIZABLE(Coin, obj)
     {
         READWRITE(obj.m_blockHeight, obj.m_leafIdx, obj.m_output);
     }
@@ -48,43 +48,43 @@ private:
 };
 
 /// <summary>
-/// MWEB UTXO wrapper that supports serialization into multiple formats.
+/// MWEB coin wrapper that supports serialization into multiple formats.
 /// </summary>
-class NetUTXO
+class NetCoin
 {
 public:
-    static const uint8_t FULL_UTXO = 0x00;
+    static const uint8_t FULL_COIN = 0x00;
     static const uint8_t HASH_ONLY = 0x01;
-    static const uint8_t COMPACT_UTXO = 0x02;
+    static const uint8_t COMPACT_COIN = 0x02;
 
-    NetUTXO() = default;
-    NetUTXO(const uint8_t format, const UTXO::CPtr& utxo)
-        : m_format(format), m_utxo(utxo) { }
+    NetCoin() = default;
+    NetCoin(const uint8_t format, const Coin::CPtr& coin)
+        : m_format(format), m_coin(coin) { }
 
     template <typename Stream>
     inline void Serialize(Stream& s) const
     {
-        s << COMPACTSIZE(m_utxo->GetLeafIndex().Get());
+        s << COMPACTSIZE(m_coin->GetLeafIndex().Get());
 
-        if (m_format == FULL_UTXO) {
-            s << m_utxo->GetOutput();
+        if (m_format == FULL_COIN) {
+            s << m_coin->GetOutput();
         } else if (m_format == HASH_ONLY) {
-            s << m_utxo->GetOutputID();
-        } else if (m_format == COMPACT_UTXO) {
-            s << m_utxo->GetCommitment();
-            s << m_utxo->GetSenderPubKey();
-            s << m_utxo->GetReceiverPubKey();
-            s << m_utxo->GetOutputMessage();
-            s << m_utxo->GetRangeProof()->GetHash();
-            s << m_utxo->GetSignature();
+            s << m_coin->GetOutputID();
+        } else if (m_format == COMPACT_COIN) {
+            s << m_coin->GetCommitment();
+            s << m_coin->GetSenderPubKey();
+            s << m_coin->GetReceiverPubKey();
+            s << m_coin->GetOutputMessage();
+            s << m_coin->GetRangeProof()->GetHash();
+            s << m_coin->GetSignature();
         } else {
-            throw std::ios_base::failure("Unsupported MWEB UTXO serialization format");
+            throw std::ios_base::failure("Unsupported MWEB coin serialization format");
         }
     }
 
 private:
     uint8_t m_format;
-    UTXO::CPtr m_utxo;
+    Coin::CPtr m_coin;
 };
 
 END_NAMESPACE

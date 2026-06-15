@@ -999,7 +999,7 @@ private:
         uint256 block_hash;
         uint64_t start_index;
         uint8_t output_format;
-        std::vector<mw::NetUTXO> utxos;
+        std::vector<mw::NetCoin> utxos;
         std::vector<mw::Hash> proof_hashes;
     };
 
@@ -2398,9 +2398,9 @@ void PeerManagerImpl::ProcessGetMWEBUTXOs(CNode& pfrom, Peer& peer, const GetMWE
     }
 
     static const std::set<uint8_t> supported_formats{
-        mw::NetUTXO::HASH_ONLY,
-        mw::NetUTXO::FULL_UTXO,
-        mw::NetUTXO::COMPACT_UTXO};
+        mw::NetCoin::HASH_ONLY,
+        mw::NetCoin::FULL_COIN,
+        mw::NetCoin::COMPACT_COIN};
     if (supported_formats.count(get_utxos.output_format) == 0) {
         LogPrint(BCLog::NET, "getmwebutxos output_format %u not supported, disconnect peer=%d\n", get_utxos.output_format, pfrom.GetId());
         if (!pfrom.HasPermission(NetPermissionFlags::NoBan)) {
@@ -2467,17 +2467,17 @@ void PeerManagerImpl::ProcessGetMWEBUTXOs(CNode& pfrom, Peer& peer, const GetMWE
         return;
     }
 
-    std::vector<mw::NetUTXO> utxos;
+    std::vector<mw::NetCoin> utxos;
     utxos.reserve(segment.leaves.size());
     for (const mw::Hash& hash : segment.leaves) {
-        mw::UTXO::CPtr utxo = mweb_cache->GetUTXO(hash);
-        if (!utxo) {
+        mw::Coin::CPtr coin = mweb_cache->GetCoin(hash);
+        if (!coin) {
             LogPrint(BCLog::NET, "Could not build segment requested by getmwebutxos from peer=%d\n", pfrom.GetId());
             pfrom.fDisconnect = true;
             return;
         }
 
-        utxos.push_back(mw::NetUTXO(get_utxos.output_format, utxo));
+        utxos.push_back(mw::NetCoin(get_utxos.output_format, coin));
     }
 
     std::vector<mw::Hash> proof_hashes = segment.hashes;

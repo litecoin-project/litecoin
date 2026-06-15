@@ -5,7 +5,7 @@
 #include <mw/models/block/Block.h>
 #include <mw/models/block/BlockUndo.h>
 #include <mw/models/tx/Transaction.h>
-#include <mw/models/tx/UTXO.h>
+#include <mw/models/tx/Coin.h>
 #include <mw/mmr/MMR.h>
 #include <mw/mmr/LeafSet.h>
 #include <mw/interfaces/db_interface.h>
@@ -18,7 +18,7 @@ class CoinsViewUpdates;
 MW_NAMESPACE
 
 //
-// An interface for the various views of the extension block's UTXO set.
+// An interface for the various views of the extension block's coin set.
 // This is similar to CCoinsView in the main codebase, and in fact, each CCoinsView
 // should also hold an instance of a mw::ICoinsView for use with MWEB-related logic.
 //
@@ -40,9 +40,9 @@ public:
     // Virtual functions
     virtual bool IsCache() const noexcept = 0;
 
-    virtual mw::UTXO::CPtr GetUTXO(const mw::Hash& output_id) const = 0;
-    virtual void AddUTXO(const uint64_t header_height, const mw::Output& output) = 0;
-    virtual mw::UTXO::CPtr SpendUTXO(const mw::Hash& output_id) = 0;
+    virtual mw::Coin::CPtr GetCoin(const mw::Hash& output_id) const = 0;
+    virtual void AddCoin(const uint64_t header_height, const mw::Output& output) = 0;
+    virtual mw::Coin::CPtr SpendCoin(const mw::Hash& output_id) = 0;
 
     virtual void WriteBatch(
         const mw::DBBatch::UPtr& pBatch,
@@ -56,9 +56,9 @@ public:
     /// <summary>
     /// Checks if there's an unspent coin in the view with a matching ID.
     /// </summary>
-    /// <param name="output_id">The output ID of the UTXO to look for.</param>
+    /// <param name="output_id">The output ID of the coin to look for.</param>
     /// <returns>True if there's a matching unspent coin. Otherwise, false.</returns>
-    bool HasCoin(const mw::Hash& output_id) const noexcept { return GetUTXO(output_id) != nullptr; }
+    bool HasCoin(const mw::Hash& output_id) const noexcept { return GetCoin(output_id) != nullptr; }
 
     /// <summary>
     /// Checks if there's an unspent coin with a matching ID in the view that has not been flushed to the parent.
@@ -88,9 +88,9 @@ public:
 
     bool IsCache() const noexcept final { return true; }
 
-    mw::UTXO::CPtr GetUTXO(const mw::Hash& output_id) const noexcept final;
-    void AddUTXO(const uint64_t header_height, const mw::Output& output) final;
-    mw::UTXO::CPtr SpendUTXO(const mw::Hash& output_id) final;
+    mw::Coin::CPtr GetCoin(const mw::Hash& output_id) const noexcept final;
+    void AddCoin(const uint64_t header_height, const mw::Output& output) final;
+    mw::Coin::CPtr SpendCoin(const mw::Hash& output_id) final;
 
     /// <summary>
     /// Validates and connects the block to the end of the chain.
@@ -153,9 +153,9 @@ public:
 
     bool IsCache() const noexcept final { return false; }
 
-    mw::UTXO::CPtr GetUTXO(const mw::Hash& output_id) const final;
-    void AddUTXO(const uint64_t header_height, const mw::Output& output) final;
-    mw::UTXO::CPtr SpendUTXO(const mw::Hash& output_id) final;
+    mw::Coin::CPtr GetCoin(const mw::Hash& output_id) const final;
+    void AddCoin(const uint64_t header_height, const mw::Output& output) final;
+    mw::Coin::CPtr SpendCoin(const mw::Hash& output_id) final;
 
     void WriteBatch(
         const mw::DBBatch::UPtr& pBatch,
@@ -179,10 +179,10 @@ private:
         m_pLeafSet(pLeafSet),
         m_pOutputPMMR(pOutputPMMR) { }
 
-    void AddUTXO(CoinDB& coinDB, const mw::Output& output);
-    void AddUTXO(CoinDB& coinDB, const mw::UTXO::CPtr& pUTXO);
-    mw::UTXO::CPtr SpendUTXO(CoinDB& coinDB, const mw::Hash& output_id);
-    mw::UTXO::CPtr GetUTXO(const CoinDB& coinDB, const mw::Hash& output_id) const;
+    void AddCoin(CoinDB& coinDB, const mw::Output& output);
+    void AddCoin(CoinDB& coinDB, const mw::Coin::CPtr& pCoin);
+    mw::Coin::CPtr SpendCoin(CoinDB& coinDB, const mw::Hash& output_id);
+    mw::Coin::CPtr GetCoin(const CoinDB& coinDB, const mw::Hash& output_id) const;
 
     LeafSet::Ptr m_pLeafSet;
     PMMR::Ptr m_pOutputPMMR;
