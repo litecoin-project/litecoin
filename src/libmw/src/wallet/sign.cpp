@@ -331,7 +331,6 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& 
     tx.mweb_tx.kernel_offset = kernel_offset.Total();
     tx.mweb_tx.stealth_offset = stealth_offset.Total();
 
-    // MW: TODO - Should we be sorting here, or should MutableTx.Finalized() take care of it?
     CTransaction finalized_tx(tx);
     try {
         if (finalized_tx.mweb_tx.IsNull()) {

@@ -244,7 +244,6 @@ void CoinsViewCache::WriteBatch(const std::unique_ptr<mw::DBBatch>&, const Coins
     for (const auto& actions : updates.GetActions()) {
         const mw::Hash& output_id = actions.first;
         for (const auto& action : actions.second) {
-            // MW: TODO - This is probably a good place to make sure there's no duplicate outputs
             if (action.IsSpend()) {
                 m_pUpdates->SpendCoin(output_id);
             } else {
