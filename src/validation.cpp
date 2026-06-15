@@ -5216,6 +5216,12 @@ bool ChainstateManager::PopulateAndValidateSnapshot(
 
     const AssumeutxoData& au_data = *maybe_au_data;
 
+    if (DeploymentActiveAt(*snapshot_start_block, *this, Consensus::DEPLOYMENT_MWEB)) {
+        LogPrintf("[snapshot] MWEB-active snapshot base block %s at height %d is not supported\n",
+            base_blockhash.ToString(), base_height);
+        return false;
+    }
+
     COutPoint outpoint;
     Coin coin;
     const uint64_t coins_count = metadata.m_coins_count;
@@ -5363,8 +5369,6 @@ bool ChainstateManager::PopulateAndValidateSnapshot(
         if (DeploymentActiveAt(*index, *this, Consensus::DEPLOYMENT_SEGWIT)) {
             index->nStatus |= BLOCK_OPT_WITNESS;
         }
-		
-		// MW: TODO - Fake MWEB data
 
         m_blockman.m_dirty_blockindex.insert(index);
         // Changes to the block index will be flushed to disk after this call
