@@ -981,8 +981,8 @@ RPCHelpMan signrawtransactionwithwallet()
     EnsureWalletIsUnlocked(*pwallet);
 
     // Fetch previous transactions (inputs):
-    std::map<GenericOutputID, GenericCoin> coins;
-    for (const GenericInput& tx_input : mtx.GetInputs()) {
+    std::map<AnyOutputID, AnyCoin> coins;
+    for (const AnyInput& tx_input : mtx.GetInputs()) {
         coins[tx_input.GetID()]; // Create empty map entry keyed by prevout.
     }
     pwallet->chain().findCoins(coins);
@@ -1445,7 +1445,7 @@ RPCHelpMan sendall()
             if (options.exists("inputs") && options.exists("send_max")) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Cannot combine send_max with specific inputs.");
             } else if (options.exists("inputs")) {
-                for (const GenericInput& input : draft.tx.GetInputs()) {
+                for (const AnyInput& input : draft.tx.GetInputs()) {
                     if (pwallet->IsSpent(input.GetID())) {
                         throw JSONRPCError(RPC_INVALID_PARAMETER, strprintf("Input not available. UTXO (%s) was already spent.", input.ToString()));
                     }
@@ -1456,7 +1456,7 @@ RPCHelpMan sendall()
                     total_input_value += pwallet->GetValue(input.GetID());
                 }
             } else {
-                for (const GenericWalletUTXO& output : AvailableCoins(*pwallet, &coin_control, fee_rate, /*nMinimumAmount=*/0).All()) {
+                for (const AnyWalletUTXO& output : AvailableCoins(*pwallet, &coin_control, fee_rate, /*nMinimumAmount=*/0).All()) {
                     if (!output.IsMWEB()) {
                         CHECK_NONFATAL(output.GetInputBytes() > 0);
                     }
@@ -1476,13 +1476,13 @@ RPCHelpMan sendall()
             }
 
             const std::vector<CRecipient> recipients_to_send = draft.BuildRecipients();
-            const std::vector<GenericInput> selected_inputs = draft.tx.GetInputs();
+            const std::vector<AnyInput> selected_inputs = draft.tx.GetInputs();
             const bool use_txbuilder = std::any_of(
                 recipients_to_send.cbegin(), recipients_to_send.cend(),
                 [](const CRecipient& recipient) { return recipient.IsMWEB(); }
             ) || std::any_of(
                 selected_inputs.cbegin(), selected_inputs.cend(),
-                [](const GenericInput& input) { return input.IsMWEB(); }
+                [](const AnyInput& input) { return input.IsMWEB(); }
             );
 
             const bool lock_unspents{options.exists("lock_unspents") ? options["lock_unspents"].get_bool() : false};
@@ -1494,7 +1494,7 @@ RPCHelpMan sendall()
                 CCoinControl sendall_coin_control = coin_control;
                 sendall_coin_control.m_allow_other_inputs = false;
                 sendall_coin_control.m_signal_bip125_rbf = rbf;
-                for (const GenericInput& input : selected_inputs) {
+                for (const AnyInput& input : selected_inputs) {
                     sendall_coin_control.Select(input.GetID());
                 }
 
@@ -1514,7 +1514,7 @@ RPCHelpMan sendall()
                 draft.tx = std::move(create_result->tx);
 
                 if (lock_unspents) {
-                    for (const GenericInput& input : draft.tx.GetInputs()) {
+                    for (const AnyInput& input : draft.tx.GetInputs()) {
                         pwallet->LockCoin(input.GetID());
                     }
                 }
@@ -1622,7 +1622,7 @@ RPCHelpMan sendall()
             }
 
             if (lock_unspents) {
-                for (const GenericInput& input : draft.tx.GetInputs()) {
+                for (const AnyInput& input : draft.tx.GetInputs()) {
                     pwallet->LockCoin(input.GetID());
                 }
             }

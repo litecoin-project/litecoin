@@ -83,7 +83,7 @@ private:
 
     const PlatformStyle *platformStyle;
 
-    GenericOutputID BuildOutputID(QTreeWidgetItem* item);
+    AnyOutputID BuildOutputID(QTreeWidgetItem* item);
 
     bool IsMWEB(QTreeWidgetItem* item);
     bool IsCanonical(QTreeWidgetItem* item);

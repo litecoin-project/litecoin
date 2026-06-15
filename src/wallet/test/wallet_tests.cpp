@@ -71,10 +71,10 @@ static CMutableTransaction TestSimpleSpend(const CTransaction& from, uint32_t in
     mtx.vin.push_back({CTxIn{from.GetHash(), index}});
     FillableSigningProvider keystore;
     keystore.AddKey(key);
-    std::map<GenericOutputID, GenericCoin> coins;
+    std::map<AnyOutputID, AnyCoin> coins;
     Coin coin;
     coin.out = from.vout[index];
-    coins[mtx.vin[0].prevout] = GenericCoin{mtx.vin[0].prevout, coin};
+    coins[mtx.vin[0].prevout] = AnyCoin{mtx.vin[0].prevout, coin};
     std::map<int, bilingual_str> input_errors;
     BOOST_CHECK(SignTransaction(mtx, &keystore, coins, SIGHASH_ALL, input_errors));
     return mtx;
@@ -578,7 +578,7 @@ BOOST_FIXTURE_TEST_CASE(ListCoinsTest, ListCoinsTestingSetup)
 
     // Confirm ListCoins initially returns 1 coin grouped under coinbaseKey
     // address.
-    std::map<CTxDestination, std::vector<GenericWalletUTXO>> list;
+    std::map<CTxDestination, std::vector<AnyWalletUTXO>> list;
     {
         LOCK(wallet->cs_wallet);
         list = ListCoins(*wallet);
@@ -978,8 +978,8 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
         BOOST_REQUIRE(partial_wtx_2->IsPartialMWEB());
         BOOST_REQUIRE(partial_wtx_1->HasPartialMWEBReceive());
         BOOST_REQUIRE(partial_wtx_2->HasPartialMWEBReceive());
-        BOOST_REQUIRE(wallet->FindWalletTx(GenericOutputID(received_wallet_coin_1.output_id)) == partial_wtx_1);
-        BOOST_REQUIRE(wallet->FindWalletTx(GenericOutputID(received_wallet_coin_2.output_id)) == partial_wtx_2);
+        BOOST_REQUIRE(wallet->FindWalletTx(AnyOutputID(received_wallet_coin_1.output_id)) == partial_wtx_1);
+        BOOST_REQUIRE(wallet->FindWalletTx(AnyOutputID(received_wallet_coin_2.output_id)) == partial_wtx_2);
     }
 
     CMutableTransaction full_tx;
@@ -987,8 +987,8 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
     const auto full_tx_ref = MakeTransactionRef(full_tx);
     const uint256 full_hash = full_tx_ref->GetHash();
     BOOST_REQUIRE(full_tx_ref->HasMWEBTx());
-    BOOST_REQUIRE(full_tx_ref->HasOutput(GenericOutputID(received_wallet_coin_1.output_id)));
-    BOOST_REQUIRE(full_tx_ref->HasOutput(GenericOutputID(received_wallet_coin_2.output_id)));
+    BOOST_REQUIRE(full_tx_ref->HasOutput(AnyOutputID(received_wallet_coin_1.output_id)));
+    BOOST_REQUIRE(full_tx_ref->HasOutput(AnyOutputID(received_wallet_coin_2.output_id)));
 
     BOOST_REQUIRE(wallet->AddToWallet(full_tx_ref, std::nullopt, TxStateInMempool{}));
 
@@ -1005,11 +1005,11 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
         BOOST_CHECK(wtx->state<TxStateInMempool>() != nullptr);
     }
 
-    const CWalletTx* from_first_output = wallet->FindWalletTx(GenericOutputID(received_wallet_coin_1.output_id));
+    const CWalletTx* from_first_output = wallet->FindWalletTx(AnyOutputID(received_wallet_coin_1.output_id));
     BOOST_REQUIRE(from_first_output != nullptr);
     BOOST_CHECK(from_first_output->GetHash() == full_hash);
 
-    const CWalletTx* from_second_output = wallet->FindWalletTx(GenericOutputID(received_wallet_coin_2.output_id));
+    const CWalletTx* from_second_output = wallet->FindWalletTx(AnyOutputID(received_wallet_coin_2.output_id));
     BOOST_REQUIRE(from_second_output != nullptr);
     BOOST_CHECK(from_second_output->GetHash() == full_hash);
 

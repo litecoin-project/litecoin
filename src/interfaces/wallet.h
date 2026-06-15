@@ -124,7 +124,7 @@ public:
     virtual std::vector<WalletAddress> getAddresses() const = 0;
 
     //! Look up destination for output, return whether found.
-    virtual bool extractOutputDestination(const GenericOutput& output, CTxDestination& dest) = 0;
+    virtual bool extractOutputDestination(const AnyOutput& output, CTxDestination& dest) = 0;
 
     //! Get receive requests.
     virtual std::vector<std::string> getAddressReceiveRequests() = 0;
@@ -136,16 +136,16 @@ public:
     virtual bool displayAddress(const CTxDestination& dest) = 0;
 
     //! Lock coin.
-    virtual bool lockCoin(const GenericOutputID& output, const bool write_to_db) = 0;
+    virtual bool lockCoin(const AnyOutputID& output, const bool write_to_db) = 0;
 
     //! Unlock coin.
-    virtual bool unlockCoin(const GenericOutputID& output) = 0;
+    virtual bool unlockCoin(const AnyOutputID& output) = 0;
 
     //! Return whether coin is locked.
-    virtual bool isLockedCoin(const GenericOutputID& output) = 0;
+    virtual bool isLockedCoin(const AnyOutputID& output) = 0;
 
     //! List locked coins.
-    virtual void listLockedCoins(std::vector<GenericOutputID>& outputs) = 0;
+    virtual void listLockedCoins(std::vector<AnyOutputID>& outputs) = 0;
 
     //! Create transaction.
     virtual util::Result<CTransactionRef> createTransaction(const std::vector<wallet::CRecipient>& recipients,
@@ -235,27 +235,27 @@ public:
     virtual CAmount getAvailableBalance(const wallet::CCoinControl& coin_control) = 0;
 
     //! Return whether transaction input belongs to wallet.
-    virtual wallet::isminetype txinIsMine(const GenericInput& input) = 0;
+    virtual wallet::isminetype txinIsMine(const AnyInput& input) = 0;
 
     //! Return whether transaction output belongs to wallet.
-    virtual wallet::isminetype txoutIsMine(const GenericOutput& output) = 0;
+    virtual wallet::isminetype txoutIsMine(const AnyOutput& output) = 0;
 
     //! Return the value of the output.
-    virtual CAmount getValue(const GenericOutput& output) = 0;
+    virtual CAmount getValue(const AnyOutput& output) = 0;
 
     //! Return debit amount if transaction input belongs to wallet.
-    virtual CAmount getDebit(const GenericInput& input, wallet::isminefilter filter) = 0;
+    virtual CAmount getDebit(const AnyInput& input, wallet::isminefilter filter) = 0;
 
     //! Return true if the output is a change output.
-    virtual bool isChange(const CTransactionRef& tx, const GenericOutputID& output_id) = 0;
+    virtual bool isChange(const CTransactionRef& tx, const AnyOutputID& output_id) = 0;
 
     //! Return AvailableCoins + LockedCoins grouped by wallet address.
     //! (put change in one group with wallet address)
-    using CoinsList = std::map<CTxDestination, std::vector<std::tuple<GenericOutputID, WalletTxOut>>>;
+    using CoinsList = std::map<CTxDestination, std::vector<std::tuple<AnyOutputID, WalletTxOut>>>;
     virtual CoinsList listCoins() = 0;
 
     //! Return wallet transaction output information.
-    virtual std::vector<WalletTxOut> getCoins(const std::vector<GenericOutputID>& outputs) = 0;
+    virtual std::vector<WalletTxOut> getCoins(const std::vector<AnyOutputID>& outputs) = 0;
 
     //! Get required fee.
     virtual CAmount getRequiredFee(unsigned int tx_bytes, uint64_t mweb_weight) = 0;
@@ -406,7 +406,7 @@ struct WalletBalances
 
 struct WalletTxIn
 {
-    GenericInput input;
+    AnyInput input;
     wallet::isminetype is_mine;
     CAmount nDebit;
 };
@@ -417,7 +417,7 @@ struct WalletTxOut
     wallet::isminetype is_mine;
     GenericAddress address;
     wallet::isminetype address_is_mine;
-    GenericOutputID output_id;
+    AnyOutputID output_id;
     CAmount nValue;
     int64_t time;
     int depth_in_main_chain = -1;

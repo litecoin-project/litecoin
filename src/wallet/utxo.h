@@ -122,12 +122,12 @@ struct MwebWalletUTXO
     }
 };
 
-struct GenericWalletUTXO
+struct AnyWalletUTXO
 {
-    GenericWalletUTXO(const CWalletUTXO& out) : m_output(out) {}
-    GenericWalletUTXO(const MwebWalletUTXO& out) : m_output(out) {}
+    AnyWalletUTXO(const CWalletUTXO& out) : m_output(out) {}
+    AnyWalletUTXO(const MwebWalletUTXO& out) : m_output(out) {}
 
-    bool operator<(const GenericWalletUTXO& rhs) const
+    bool operator<(const AnyWalletUTXO& rhs) const
     {
         return m_output < rhs.m_output;
     }
@@ -233,7 +233,7 @@ struct GenericWalletUTXO
         return std::get<CWalletUTXO>(m_output).outpoint.hash;
     }
 
-    GenericOutputID GetID() const
+    AnyOutputID GetID() const
     {
         if (IsMWEB()) return std::get<MwebWalletUTXO>(m_output).coin.output_id;
 

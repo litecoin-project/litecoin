@@ -135,9 +135,9 @@ std::string CTransaction::ToString() const
     return str;
 }
 
-std::vector<GenericInput> CTransaction::GetInputs() const noexcept
+std::vector<AnyInput> CTransaction::GetInputs() const noexcept
 {
-    std::vector<GenericInput> inputs;
+    std::vector<AnyInput> inputs;
 
     for (const CTxIn& txin : vin) {
         inputs.push_back(txin);
@@ -150,7 +150,7 @@ std::vector<GenericInput> CTransaction::GetInputs() const noexcept
     return inputs;
 }
 
-bool CTransaction::HasOutput(const GenericOutputID& output_id) const noexcept
+bool CTransaction::HasOutput(const AnyOutputID& output_id) const noexcept
 {
     if (output_id.IsMWEB()) {
         return mweb_tx.GetOutputIDs().count(output_id.ToMWEB()) > 0;
@@ -159,44 +159,44 @@ bool CTransaction::HasOutput(const GenericOutputID& output_id) const noexcept
     }
 }
 
-GenericOutput CTransaction::GetOutput(const size_t index) const noexcept
+AnyOutput CTransaction::GetOutput(const size_t index) const noexcept
 {
     assert(vout.size() > index);
-    return GenericOutput{COutPoint(GetHash(), index), vout[index]};
+    return AnyOutput{COutPoint(GetHash(), index), vout[index]};
 }
 
-GenericOutput CTransaction::GetOutput(const GenericOutputID& output_id) const noexcept
+AnyOutput CTransaction::GetOutput(const AnyOutputID& output_id) const noexcept
 {
     if (output_id.IsMWEB()) {
         mw::Output output;
         bool has_output = mweb_tx.GetOutput(output_id.ToMWEB(), output);
-        assert(has_output); // MW: TODO - This should fail more gracefully. Maybe just return GenericOutput?
-        return GenericOutput{output};
+        assert(has_output); // MW: TODO - This should fail more gracefully. Maybe just return AnyOutput?
+        return AnyOutput{output};
     } else {
         const COutPoint& outpoint = output_id.ToOutPoint();
         assert(vout.size() > outpoint.n);
-        return GenericOutput{outpoint, vout[outpoint.n]};
+        return AnyOutput{outpoint, vout[outpoint.n]};
     }
 }
 
-std::vector<GenericOutput> CTransaction::GetOutputs() const noexcept
+std::vector<AnyOutput> CTransaction::GetOutputs() const noexcept
 {
-    std::vector<GenericOutput> outputs;
+    std::vector<AnyOutput> outputs;
 
     for (size_t n = 0; n < vout.size(); n++) {
-        outputs.push_back(GenericOutput{COutPoint(GetHash(), n), vout[n]});
+        outputs.push_back(AnyOutput{COutPoint(GetHash(), n), vout[n]});
     }
 
     for (const mw::Output& output : mweb_tx.GetOutputs()) {
-        outputs.push_back(GenericOutput{output});
+        outputs.push_back(AnyOutput{output});
     }
 
     return outputs;
 }
 
-std::vector<GenericInput> CMutableTransaction::GetInputs() const noexcept
+std::vector<AnyInput> CMutableTransaction::GetInputs() const noexcept
 {
-    std::vector<GenericInput> inputs;
+    std::vector<AnyInput> inputs;
 
     for (const CTxIn& txin : vin) {
         inputs.push_back(txin);

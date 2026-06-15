@@ -92,9 +92,9 @@ void TxList::List(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx,
 
 void TxList::List_Credit(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx, const wallet::isminefilter& filter_ismine)
 {
-    std::vector<GenericOutput> outputs = wtx.GetOutputs();
+    std::vector<AnyOutput> outputs = wtx.GetOutputs();
     for (size_t i = 0; i < outputs.size(); i++) {
-        const GenericOutput& output = outputs[i];
+        const AnyOutput& output = outputs[i];
         if (!output.IsMWEB() && output.GetScriptPubKey().IsMWEBPegin()) {
             continue;
         }
@@ -173,7 +173,7 @@ void TxList::List_Debit(std::vector<WalletTxRecord>& tx_records, const CWalletTx
 {
     CAmount nTxFee = (CachedTxIsFromMe(m_wallet, wtx, filter_ismine) ? CachedTxGetFee(m_wallet, wtx, filter_ismine) : 0);
 
-    for (const GenericOutput& output : wtx.GetOutputs()) {
+    for (const AnyOutput& output : wtx.GetOutputs()) {
         // If the output is a peg-in script, and we have the MWEB pegin tx, then ignore the peg-in script output.
         // If it's a peg-in script, and we don't have the MWEB pegin tx, treat the output as a spend.
         mw::Hash kernel_id;
@@ -242,7 +242,7 @@ void TxList::List_Debit(std::vector<WalletTxRecord>& tx_records, const CWalletTx
 void TxList::List_SelfSend(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx, const wallet::isminefilter& filter_ismine)
 {
     std::string address;
-    for (const GenericOutput& output : wtx.GetOutputs()) {
+    for (const AnyOutput& output : wtx.GetOutputs()) {
         if (!output.IsMWEB() && output.GetScriptPubKey().IsMWEBPegin()) {
             continue;
         }
@@ -268,13 +268,13 @@ void TxList::List_SelfSend(std::vector<WalletTxRecord>& tx_records, const CWalle
     tx_records.push_back(std::move(tx_record));
 }
 
-wallet::isminetype TxList::IsAddressMine(const CWalletTx& wtx, const GenericOutput& txout)
+wallet::isminetype TxList::IsAddressMine(const CWalletTx& wtx, const AnyOutput& txout)
 {
     CTxDestination dest;
     return m_wallet.ExtractOutputDestination(wtx, txout.GetID(), dest) ? m_wallet.IsMine(dest) : ISMINE_NO;
 }
 
-GenericAddress TxList::GetAddress(const GenericOutput& output)
+GenericAddress TxList::GetAddress(const AnyOutput& output)
 {
     if (!output.IsMWEB()) {
         return output.GetTxOut().scriptPubKey;
@@ -294,7 +294,7 @@ GenericAddress TxList::GetAddress(const GenericOutput& output)
 
 bool TxList::IsAllFromMe(const CWalletTx& wtx)
 {
-    for (const GenericInput& input : wtx.GetInputs()) {
+    for (const AnyInput& input : wtx.GetInputs()) {
         if (!InputIsMine(m_wallet, input)) {
             return false;
         }
@@ -305,7 +305,7 @@ bool TxList::IsAllFromMe(const CWalletTx& wtx)
 
 bool TxList::IsAllToMe(const CWalletTx& wtx)
 {
-    for (const GenericOutput& output : wtx.GetOutputs()) {
+    for (const AnyOutput& output : wtx.GetOutputs()) {
         // If we don't have the MWEB peg-in tx, then we treat it as an output not belonging to ourselves.
         mw::Hash kernel_id;
         if (!output.IsMWEB() && output.GetScriptPubKey().IsMWEBPegin(&kernel_id)) {
@@ -334,13 +334,13 @@ bool TxList::IsAllToMe(const CWalletTx& wtx)
 // We can consider removing it after testing, since only a limited number of testnet wallets should've been impacted.
 bool TxList::IsMine(const CWalletTx& wtx)
 {
-    for (const GenericInput& input : wtx.GetInputs()) {
+    for (const AnyInput& input : wtx.GetInputs()) {
         if (InputIsMine(m_wallet, input)) {
             return true;
         }
     }
 
-    for (const GenericOutputID& output_id : wtx.GetOutputIDs(true)) {
+    for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
         if (m_wallet.IsMine(output_id)) {
             return true;
         }

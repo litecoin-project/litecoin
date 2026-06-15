@@ -50,7 +50,7 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
         // If the transaction is already confirmed in the chain, don't do anything
         // and return early.
         CCoinsViewCache &view = node.chainman->ActiveChainstate().CoinsTip();
-        for (const GenericOutput& o : tx->GetOutputs()) {
+        for (const AnyOutput& o : tx->GetOutputs()) {
             if (view.HaveCoin(o.GetID())) return TransactionError::ALREADY_IN_CHAIN;
         }
 

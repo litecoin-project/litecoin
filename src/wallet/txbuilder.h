@@ -24,7 +24,7 @@ class TxBuilder
     CRecipients m_recipients;
 
     // Mutable fields
-    std::vector<GenericWalletUTXO> m_selected_coins;
+    std::vector<AnyWalletUTXO> m_selected_coins;
     CMutableTransaction m_tx;
     ChangeBuilder m_change;
 
@@ -53,7 +53,7 @@ private:
     
     CAmount CalcSelectionTarget(const TxType& tx_type) const;
 
-    void AddInputs(const std::vector<GenericWalletUTXO>& shuffled_inputs);
+    void AddInputs(const std::vector<AnyWalletUTXO>& shuffled_inputs);
     std::optional<util::Error> AddOutputs(const SelectionResult& selection_result);
     std::optional<util::Error> AddChangeOutput(const SelectionResult& selection_result);
     std::optional<util::Error> AddPeginOutput(const SelectionResult& selection_result);

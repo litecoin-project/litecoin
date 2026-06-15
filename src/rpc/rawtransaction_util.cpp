@@ -168,7 +168,7 @@ static void TxInErrorToJSON(const CTxIn& txin, UniValue& vErrorsRet, const std::
     vErrorsRet.push_back(entry);
 }
 
-void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keystore, std::map<GenericOutputID, GenericCoin>& coins)
+void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keystore, std::map<AnyOutputID, AnyCoin>& coins)
 {
     if (!prevTxsUnival.isNull()) {
         const UniValue& prevTxs = prevTxsUnival.get_array();
@@ -213,7 +213,7 @@ void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keyst
                     newcoin.out.nValue = AmountFromValue(find_value(prevOut, "amount"));
                 }
                 newcoin.nHeight = 1;
-                coins[out] = GenericCoin(out, std::move(newcoin));
+                coins[out] = AnyCoin(out, std::move(newcoin));
             }
 
             // if redeemScript and private keys were given, add redeemScript to the keystore so it can be signed
@@ -289,7 +289,7 @@ void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keyst
     }
 }
 
-void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<GenericOutputID, GenericCoin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result)
+void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<AnyOutputID, AnyCoin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result)
 {
     // Make errors UniValue
     UniValue vErrors(UniValue::VARR);

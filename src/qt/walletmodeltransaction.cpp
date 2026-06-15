@@ -48,7 +48,7 @@ void WalletModelTransaction::setTransactionFee(const CAmount& newFee)
 
 void WalletModelTransaction::reassignAmounts(interfaces::Wallet& wallet, int nChangePosRet)
 {
-    std::vector<GenericOutput> outputs = wtx->GetOutputs();
+    std::vector<AnyOutput> outputs = wtx->GetOutputs();
     std::vector<PegOutCoin> pegouts = wtx->mweb_tx.GetPegOuts();
 
     size_t i = 0;

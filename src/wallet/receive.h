@@ -13,17 +13,17 @@
 #include <wallet/wallet.h>
 
 namespace wallet {
-isminetype InputIsMine(const CWallet& wallet, const GenericInput& input) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
+isminetype InputIsMine(const CWallet& wallet, const AnyInput& input) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 
 /** Returns whether all of the inputs match the filter */
 bool AllInputsMine(const CWallet& wallet, const CWalletTx& wtx, const isminefilter& filter);
 
-CAmount OutputGetCredit(const CWallet& wallet, const CWalletTx& wtx, const GenericOutputID& output_id, const isminefilter& filter);
+CAmount OutputGetCredit(const CWallet& wallet, const CWalletTx& wtx, const AnyOutputID& output_id, const isminefilter& filter);
 CAmount TxGetCredit(const CWallet& wallet, const CWalletTx& wtx, const isminefilter& filter);
 
 bool AddressIsChange(const CWallet& wallet, const GenericAddress& address) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 bool ScriptIsChange(const CWallet& wallet, const CScript& script) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
-bool OutputIsChange(const CWallet& wallet, const CTransactionRef& tx, const GenericOutputID& output_id) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
+bool OutputIsChange(const CWallet& wallet, const CTransactionRef& tx, const AnyOutputID& output_id) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 CAmount TxGetChange(const CWallet& wallet, const CWalletTx& wtx);
 
 CAmount CachedTxGetCredit(const CWallet& wallet, const CWalletTx& wtx, const isminefilter& filter)

@@ -327,9 +327,9 @@ public:
 
     const uint256& GetWitnessHash() const { return tx->GetWitnessHash(); }
     
-    std::vector<GenericInput> GetInputs() const
+    std::vector<AnyInput> GetInputs() const
     {
-        std::vector<GenericInput> inputs = tx->GetInputs();
+        std::vector<AnyInput> inputs = tx->GetInputs();
         if (mweb_wtx_info && mweb_wtx_info->spent_input) {
             inputs.push_back(*mweb_wtx_info->spent_input);
         }
@@ -338,10 +338,10 @@ public:
     }
 
     // MW: TODO - Also return pegout script id?
-    std::vector<GenericOutputID> GetOutputIDs(const bool include_partial_mweb = true) const
+    std::vector<AnyOutputID> GetOutputIDs(const bool include_partial_mweb = true) const
     {
-        std::vector<GenericOutputID> output_ids;
-        for (const GenericOutput& output : tx->GetOutputs()) {
+        std::vector<AnyOutputID> output_ids;
+        for (const AnyOutput& output : tx->GetOutputs()) {
             output_ids.push_back(output.GetID());
         }
 
@@ -353,11 +353,11 @@ public:
     }
     
     // MW: TODO - Check all uses to see if they should also include pegout scripts
-    std::vector<GenericOutput> GetOutputs() const
+    std::vector<AnyOutput> GetOutputs() const
     {
-        std::vector<GenericOutput> outputs = tx->GetOutputs();
+        std::vector<AnyOutput> outputs = tx->GetOutputs();
         if (mweb_wtx_info && mweb_wtx_info->received_wallet_coin) {
-            // MW: TODO - outputs.push_back(GenericOutput{mweb_wtx_info->received_wallet_coin->output_id});
+            // MW: TODO - outputs.push_back(AnyOutput{mweb_wtx_info->received_wallet_coin->output_id});
         }
 
         return outputs;

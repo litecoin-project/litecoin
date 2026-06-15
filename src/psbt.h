@@ -290,12 +290,12 @@ struct PSBTInput
 
     uint32_t m_psbt_version;
 
-    GenericOutputID GetID() const
+    AnyOutputID GetID() const
     {
         if (mweb_output_id.has_value()) {
-            return GenericOutputID{*mweb_output_id};
+            return AnyOutputID{*mweb_output_id};
         } else {
-            return GenericOutputID(COutPoint(prev_txid, prev_out.value_or(0)));
+            return AnyOutputID(COutPoint(prev_txid, prev_out.value_or(0)));
         }
     }
 

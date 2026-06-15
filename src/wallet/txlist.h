@@ -6,7 +6,7 @@
 #include <optional>
 
 // Forward Declarations
-class GenericOutput;
+class AnyOutput;
 
 namespace wallet {
 
@@ -35,8 +35,8 @@ private:
     void List_Debit(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx, const wallet::isminefilter& filter_ismine);
     void List_SelfSend(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx, const wallet::isminefilter& filter_ismine);
 
-    wallet::isminetype IsAddressMine(const CWalletTx& wtx, const GenericOutput& txout);
-    GenericAddress GetAddress(const GenericOutput& output);
+    wallet::isminetype IsAddressMine(const CWalletTx& wtx, const AnyOutput& txout);
+    GenericAddress GetAddress(const AnyOutput& output);
     bool IsAllFromMe(const CWalletTx& wtx);
     bool IsAllToMe(const CWalletTx& wtx);
     bool IsMine(const CWalletTx& wtx);

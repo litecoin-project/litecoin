@@ -93,7 +93,7 @@ bool CCoinsViewDB::GetCoin(const COutPoint &outpoint, Coin &coin) const {
     return m_db->Read(CoinEntry(&outpoint), coin);
 }
 
-bool CCoinsViewDB::HaveCoin(const GenericOutputID& output_id) const {
+bool CCoinsViewDB::HaveCoin(const AnyOutputID& output_id) const {
     if (output_id.IsMWEB()) {
         assert(GetMWEBView() != nullptr);
         return GetMWEBView()->HasCoin(output_id.ToMWEB());

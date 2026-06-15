@@ -330,12 +330,12 @@ std::optional<SelectionResult> KnapsackSolver(std::vector<OutputGroup>& groups, 
 
  ******************************************************************************/
 
-void OutputGroup::Insert(const GenericWalletUTXO& output, size_t ancestors, size_t descendants, bool positive_only) {
+void OutputGroup::Insert(const AnyWalletUTXO& output, size_t ancestors, size_t descendants, bool positive_only) {
     // Filter for positive only here before adding the coin
     if (positive_only && output.GetEffectiveValue() <= 0) return;
 
     m_outputs.push_back(output);
-    GenericWalletUTXO& coin = m_outputs.back();
+    AnyWalletUTXO& coin = m_outputs.back();
 
     fee += coin.GetFee();
 
@@ -376,7 +376,7 @@ CAmount OutputGroup::GetSelectionAmount() const
     return m_subtract_fee_outputs ? m_value : effective_value;
 }
 
-CAmount GetSelectionWaste(const std::set<GenericWalletUTXO>& inputs, CAmount change_cost, CAmount target, bool use_effective_value)
+CAmount GetSelectionWaste(const std::set<AnyWalletUTXO>& inputs, CAmount change_cost, CAmount target, bool use_effective_value)
 {
     // This function should not be called with empty inputs as that would mean the selection failed
     assert(!inputs.empty());
@@ -384,7 +384,7 @@ CAmount GetSelectionWaste(const std::set<GenericWalletUTXO>& inputs, CAmount cha
     // Always consider the cost of spending an input now vs in the future.
     CAmount waste = 0;
     CAmount selected_effective_value = 0;
-    for (const GenericWalletUTXO& coin : inputs) {
+    for (const AnyWalletUTXO& coin : inputs) {
         if (coin.IsMWEB()) waste += MWEB_INPUT_WASTE; // Prefer to spend fewer MWEB inputs
         waste += coin.GetFee() - coin.GetLongTermFee();
         selected_effective_value += use_effective_value ? coin.GetEffectiveValue() : coin.GetValue();
@@ -463,14 +463,14 @@ void SelectionResult::Merge(const SelectionResult& other)
     util::insert(m_selected_inputs, other.m_selected_inputs);
 }
 
-const std::set<GenericWalletUTXO>& SelectionResult::GetInputSet() const
+const std::set<AnyWalletUTXO>& SelectionResult::GetInputSet() const
 {
     return m_selected_inputs;
 }
 
-std::vector<GenericWalletUTXO> SelectionResult::GetShuffledInputVector() const
+std::vector<AnyWalletUTXO> SelectionResult::GetShuffledInputVector() const
 {
-    std::vector<GenericWalletUTXO> coins(m_selected_inputs.begin(), m_selected_inputs.end());
+    std::vector<AnyWalletUTXO> coins(m_selected_inputs.begin(), m_selected_inputs.end());
     Shuffle(coins.begin(), coins.end(), FastRandomContext());
     return coins;
 }

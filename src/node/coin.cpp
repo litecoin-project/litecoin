@@ -9,7 +9,7 @@
 #include <validation.h>
 
 namespace node {
-void FindCoins(const NodeContext& node, std::map<GenericOutputID, GenericCoin>& coins)
+void FindCoins(const NodeContext& node, std::map<AnyOutputID, AnyCoin>& coins)
 {
     assert(node.mempool);
     assert(node.chainman);
@@ -23,7 +23,7 @@ void FindCoins(const NodeContext& node, std::map<GenericOutputID, GenericCoin>& 
                 coin = nullptr;
             }
 
-            coin_it.second = GenericCoin(coin);
+            coin_it.second = AnyCoin(coin);
         } else {
             const COutPoint& outpoint = coin_it.first.ToOutPoint();
             Coin coin;
@@ -32,7 +32,7 @@ void FindCoins(const NodeContext& node, std::map<GenericOutputID, GenericCoin>& 
                 coin.Clear();
             }
 
-            coin_it.second = GenericCoin(outpoint, std::move(coin));
+            coin_it.second = AnyCoin(outpoint, std::move(coin));
         }
     }
 }

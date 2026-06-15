@@ -244,7 +244,7 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
 
     UniValue vout(UniValue::VARR);
     int64_t n = 0;
-    for (const GenericOutput& output : tx.GetOutputs()) {
+    for (const AnyOutput& output : tx.GetOutputs()) {
         UniValue out(UniValue::VOBJ);
 
         if (output.IsMWEB()) {

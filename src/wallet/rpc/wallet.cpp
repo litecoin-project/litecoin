@@ -655,8 +655,8 @@ RPCHelpMan simulaterawtransaction()
         }
 
         // Fetch previous transactions (inputs)
-        std::map<GenericOutputID, GenericCoin> coins;
-        for (const GenericInput& tx_input : mtx.GetInputs()) {
+        std::map<AnyOutputID, AnyCoin> coins;
+        for (const AnyInput& tx_input : mtx.GetInputs()) {
             coins[tx_input.GetID()]; // Create empty map entry keyed by prevout.
         }
         wallet.chain().findCoins(coins);
@@ -689,7 +689,7 @@ RPCHelpMan simulaterawtransaction()
         for (size_t i = 0; i < mtx.vout.size(); ++i) {
             const auto& txout = mtx.vout[i];
             COutPoint outpoint(hash, i);
-            bool is_mine = 0 < (wallet.IsMine(GenericOutput(outpoint, txout)) & filter);
+            bool is_mine = 0 < (wallet.IsMine(AnyOutput(outpoint, txout)) & filter);
             changes += new_utxos[outpoint] = is_mine ? txout.nValue : 0;
         }
     }

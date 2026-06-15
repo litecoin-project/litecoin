@@ -69,7 +69,7 @@ TxSize CalculateMaximumSignedTxSize(const CTransaction &tx, const CWallet *walle
             assert(input.prevout.n < mi->second.tx->vout.size());
             txouts.emplace_back(mi->second.tx->vout.at(input.prevout.n));
         } else if (coin_control) {
-            GenericOutput output;
+            AnyOutput output;
             if (!coin_control->GetExternalOutput(input.prevout, output)) {
                 return TxSize{-1, -1};
             }
@@ -90,9 +90,9 @@ size_t CoinsResult::Size() const
     return size;
 }
 
-std::vector<GenericWalletUTXO> CoinsResult::All() const
+std::vector<AnyWalletUTXO> CoinsResult::All() const
 {
-    std::vector<GenericWalletUTXO> all;
+    std::vector<AnyWalletUTXO> all;
     all.reserve(coins.size());
     for (const auto& it : coins) {
         all.insert(all.end(), it.second.begin(), it.second.end());
@@ -100,10 +100,10 @@ std::vector<GenericWalletUTXO> CoinsResult::All() const
     return all;
 }
 
-const GenericWalletUTXO* CoinsResult::Find(const GenericOutputID& output_id) const
+const AnyWalletUTXO* CoinsResult::Find(const AnyOutputID& output_id) const
 {
     for (const auto& it : coins) {
-        for (const GenericWalletUTXO& coin : it.second) {
+        for (const AnyWalletUTXO& coin : it.second) {
             if (coin.GetID() == output_id) {
                 return &coin;
             }
@@ -117,10 +117,10 @@ void CoinsResult::Clear() {
     coins.clear();
 }
 
-void CoinsResult::Erase(const std::set<GenericOutputID>& coins_to_remove)
+void CoinsResult::Erase(const std::set<AnyOutputID>& coins_to_remove)
 {
     for (auto& [type, vec] : coins) {
-        auto remove_it = std::remove_if(vec.begin(), vec.end(), [&](const GenericWalletUTXO& coin) {
+        auto remove_it = std::remove_if(vec.begin(), vec.end(), [&](const AnyWalletUTXO& coin) {
             return coins_to_remove.count(coin.GetID()) == 1;
         });
         vec.erase(remove_it, vec.end());
@@ -134,7 +134,7 @@ void CoinsResult::Shuffle(FastRandomContext& rng_fast)
     }
 }
 
-void CoinsResult::Add(OutputType type, const GenericWalletUTXO& out)
+void CoinsResult::Add(OutputType type, const AnyWalletUTXO& out)
 {
     coins[type].emplace_back(out);
 }
@@ -235,7 +235,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
 
         bool tx_from_me = CachedTxIsFromMe(wallet, wtx, ISMINE_ALL);
         
-        for (const GenericOutputID& output_id : wtx.GetOutputIDs(true)) {
+        for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
             if (coinControl) {
                 if ((output_id.IsMWEB() && coinControl->fPegIn) || (!output_id.IsMWEB() && coinControl->fPegOut)) {
                     continue;
@@ -362,13 +362,13 @@ CAmount GetAvailableBalance(const CWallet& wallet, const CCoinControl* coinContr
     ).total_amount;
 }
 
-bool FindNonChangeParentOutputDestination(const CWallet& wallet, const CWalletTx& wtx, const GenericOutputID& output_id, CTxDestination& dest)
+bool FindNonChangeParentOutputDestination(const CWallet& wallet, const CWalletTx& wtx, const AnyOutputID& output_id, CTxDestination& dest)
 {
     AssertLockHeld(wallet.cs_wallet);
     const CWalletTx* ptx = &wtx;
-    GenericOutputID id = output_id;
+    AnyOutputID id = output_id;
     while (OutputIsChange(wallet, ptx->tx, id) && ptx->GetInputs().size() > 0) {
-        GenericInput input = ptx->GetInputs().front();
+        AnyInput input = ptx->GetInputs().front();
         const CWalletTx* prev_wtx = wallet.FindPrevTx(input);
         if (prev_wtx == nullptr || !wallet.IsMine(input.GetID())) {
             break;
@@ -379,19 +379,19 @@ bool FindNonChangeParentOutputDestination(const CWallet& wallet, const CWalletTx
     return wallet.ExtractOutputDestination(*ptx, id, dest);
 }
 
-bool FindNonChangeParentOutputDestination(const CWallet& wallet, const uint256& tx_hash, const GenericOutputID& output_id, CTxDestination& dest)
+bool FindNonChangeParentOutputDestination(const CWallet& wallet, const uint256& tx_hash, const AnyOutputID& output_id, CTxDestination& dest)
 {
     AssertLockHeld(wallet.cs_wallet);
     return FindNonChangeParentOutputDestination(wallet, *wallet.GetWalletTx(tx_hash), output_id, dest);
 }
 
-std::map<CTxDestination, std::vector<GenericWalletUTXO>> ListCoins(const CWallet& wallet)
+std::map<CTxDestination, std::vector<AnyWalletUTXO>> ListCoins(const CWallet& wallet)
 {
     AssertLockHeld(wallet.cs_wallet);
 
-    std::map<CTxDestination, std::vector<GenericWalletUTXO>> result;
+    std::map<CTxDestination, std::vector<AnyWalletUTXO>> result;
 
-    for (GenericWalletUTXO& coin : AvailableCoinsListUnspent(wallet).All()) {
+    for (AnyWalletUTXO& coin : AvailableCoinsListUnspent(wallet).All()) {
         if (coin.IsSpendable() || (wallet.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS) && coin.IsSolvable())) {
             CTxDestination address;
             if (FindNonChangeParentOutputDestination(wallet, coin.GetTxHash(), coin.GetID(), address)) {
@@ -400,12 +400,12 @@ std::map<CTxDestination, std::vector<GenericWalletUTXO>> ListCoins(const CWallet
         }
     }
 
-    std::vector<GenericOutputID> lockedCoins;
+    std::vector<AnyOutputID> lockedCoins;
     wallet.ListLockedCoins(lockedCoins);
     // Include watch-only for LegacyScriptPubKeyMan wallets without private keys
     const bool include_watch_only = wallet.GetLegacyScriptPubKeyMan() && wallet.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS);
     const isminetype is_mine_filter = include_watch_only ? ISMINE_WATCH_ONLY : ISMINE_SPENDABLE;
-    for (const GenericOutputID& output_id : lockedCoins) {
+    for (const AnyOutputID& output_id : lockedCoins) {
         const CWalletTx* wtx = wallet.FindWalletTx(output_id);
         if (wtx != nullptr) {
             int depth = wallet.GetTxDepthInMainChain(*wtx);
@@ -432,13 +432,13 @@ std::map<CTxDestination, std::vector<GenericWalletUTXO>> ListCoins(const CWallet
     return result;
 }
 
-std::vector<OutputGroup> GroupOutputs(const CWallet& wallet, const std::vector<GenericWalletUTXO>& outputs, const CoinSelectionParams& coin_sel_params, const CoinEligibilityFilter& filter, bool positive_only)
+std::vector<OutputGroup> GroupOutputs(const CWallet& wallet, const std::vector<AnyWalletUTXO>& outputs, const CoinSelectionParams& coin_sel_params, const CoinEligibilityFilter& filter, bool positive_only)
 {
     std::vector<OutputGroup> groups_out;
 
     if (!coin_sel_params.m_avoid_partial_spends) {
         // Allowing partial spends  means no grouping. Each CWalletUTXO gets its own OutputGroup.
-        for (const GenericWalletUTXO& output : outputs) {
+        for (const AnyWalletUTXO& output : outputs) {
             // Skip outputs we cannot spend
             if (!output.IsSpendable()) continue;
 
@@ -546,7 +546,7 @@ std::optional<SelectionResult> AttemptSelection(const CWallet& wallet, const CAm
     return std::nullopt;
 };
 
-std::optional<SelectionResult> ChooseSelectionResult(const CWallet& wallet, const CAmount& nTargetValue, const CoinEligibilityFilter& eligibility_filter, const std::vector<GenericWalletUTXO>& available_coins, const CoinSelectionParams& coin_selection_params)
+std::optional<SelectionResult> ChooseSelectionResult(const CWallet& wallet, const CAmount& nTargetValue, const CoinEligibilityFilter& eligibility_filter, const std::vector<AnyWalletUTXO>& available_coins, const CoinSelectionParams& coin_selection_params)
 {
     // Vector of results. We will choose the best one based on waste.
     std::vector<SelectionResult> results;
@@ -586,17 +586,17 @@ std::optional<SelectionResult> SelectCoins(const CWallet& wallet, CoinsResult& a
     OutputGroup preset_inputs(coin_selection_params);
 
     // calculate value from preset inputs and store them
-    std::set<GenericOutputID> preset_coins;
+    std::set<AnyOutputID> preset_coins;
 
-    std::vector<GenericOutputID> vPresetInputs;
+    std::vector<AnyOutputID> vPresetInputs;
     coin_control.ListSelected(vPresetInputs);
-    for (const GenericOutputID& output_id : vPresetInputs) {
+    for (const AnyOutputID& output_id : vPresetInputs) {
         if (output_id.IsMWEB()) {
             if (coin_selection_params.m_tx_type == TxType::LTC_TO_LTC) {
                 return std::nullopt;
             }
 
-            const GenericWalletUTXO* coin = available_coins.Find(output_id);
+            const AnyWalletUTXO* coin = available_coins.Find(output_id);
             if (coin == nullptr) {
                 return std::nullopt;
             }
@@ -631,7 +631,7 @@ std::optional<SelectionResult> SelectCoins(const CWallet& wallet, CoinsResult& a
             input_bytes = CalculateMaximumSignedInputSize(txout, &wallet, &coin_control);
         } else {
             // The input is external. We did not find the tx in mapWallet.
-            GenericOutput output;
+            AnyOutput output;
             if (!coin_control.GetExternalOutput(outpoint, output)) {
                 return std::nullopt;
             }

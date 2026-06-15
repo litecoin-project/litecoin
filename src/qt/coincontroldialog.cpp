@@ -197,7 +197,7 @@ void CoinControlDialog::buttonSelectAllClicked()
     CoinControlDialog::updateLabels(m_coin_control, model, this);
 }
 
-GenericOutputID CoinControlDialog::BuildOutputID(QTreeWidgetItem* item)
+AnyOutputID CoinControlDialog::BuildOutputID(QTreeWidgetItem* item)
 {
     if (IsCanonical(item)) {
         return COutPoint(
@@ -392,7 +392,7 @@ void CoinControlDialog::viewItemChanged(QTreeWidgetItem* item, int column)
 {
     if (column == COLUMN_CHECKBOX && item->data(COLUMN_ADDRESS, TxHashRole).toString().length() == 64) // transaction hash is 64 characters (this means it is a child node, so it is not a parent node in tree mode)
     {
-        GenericOutputID output_id = BuildOutputID(item);
+        AnyOutputID output_id = BuildOutputID(item);
 
         if (item->checkState(COLUMN_CHECKBOX) == Qt::Unchecked)
             m_coin_control.UnSelect(output_id);
@@ -410,7 +410,7 @@ void CoinControlDialog::viewItemChanged(QTreeWidgetItem* item, int column)
 // shows count of locked unspent outputs
 void CoinControlDialog::updateLabelLocked()
 {
-    std::vector<GenericOutputID> vOutpts;
+    std::vector<AnyOutputID> vOutpts;
     model->wallet().listLockedCoins(vOutpts);
     if (vOutpts.size() > 0)
     {
@@ -464,7 +464,7 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
     bool fWitness               = false;
     uint64_t mweb_weight        = 0;
 
-    std::vector<GenericOutputID> vCoinControl;
+    std::vector<AnyOutputID> vCoinControl;
     m_coin_control.ListSelected(vCoinControl);
 
     size_t i = 0;
@@ -473,7 +473,7 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
 
         // unselect already spent, very unlikely scenario, this could happen
         // when selected are spent elsewhere, like rpc or another computer
-        const GenericOutputID& outpt = vCoinControl[i++];
+        const AnyOutputID& outpt = vCoinControl[i++];
         if (out.is_spent)
         {
             m_coin_control.UnSelect(outpt);

@@ -72,17 +72,17 @@ public:
         return (setSelected.size() > 0);
     }
 
-    bool IsSelected(const GenericOutputID& output_id) const
+    bool IsSelected(const AnyOutputID& output_id) const
     {
         return (setSelected.count(output_id) > 0);
     }
 
-    bool IsExternalSelected(const GenericOutputID& output_id) const
+    bool IsExternalSelected(const AnyOutputID& output_id) const
     {
         return (m_external_outputs.count(output_id) > 0);
     }
 
-    bool GetExternalOutput(const GenericOutputID& output_id, GenericOutput& output) const
+    bool GetExternalOutput(const AnyOutputID& output_id, AnyOutput& output) const
     {
         const auto ext_it = m_external_outputs.find(output_id);
         if (ext_it == m_external_outputs.end()) {
@@ -92,18 +92,18 @@ public:
         return true;
     }
 
-    void Select(const GenericOutputID& output_id)
+    void Select(const AnyOutputID& output_id)
     {
         setSelected.insert(output_id);
     }
 
-    void SelectExternal(const GenericOutputID& output_id, const GenericOutput& output)
+    void SelectExternal(const AnyOutputID& output_id, const AnyOutput& output)
     {
         setSelected.insert(output_id);
         m_external_outputs.emplace(output_id, output);
     }
 
-    void UnSelect(const GenericOutputID& output_id)
+    void UnSelect(const AnyOutputID& output_id)
     {
         setSelected.erase(output_id);
     }
@@ -113,22 +113,22 @@ public:
         setSelected.clear();
     }
 
-    void ListSelected(std::vector<GenericOutputID>& vOutpoints) const
+    void ListSelected(std::vector<AnyOutputID>& vOutpoints) const
     {
         vOutpoints.assign(setSelected.begin(), setSelected.end());
     }
 
-    void SetInputWeight(const GenericOutputID& output_id, int64_t weight)
+    void SetInputWeight(const AnyOutputID& output_id, int64_t weight)
     {
         m_input_weights[output_id] = weight;
     }
 
-    bool HasInputWeight(const GenericOutputID& output_id) const
+    bool HasInputWeight(const AnyOutputID& output_id) const
     {
         return m_input_weights.count(output_id) > 0;
     }
 
-    int64_t GetInputWeight(const GenericOutputID& output_id) const
+    int64_t GetInputWeight(const AnyOutputID& output_id) const
     {
         auto it = m_input_weights.find(output_id);
         assert(it != m_input_weights.end());
@@ -136,10 +136,10 @@ public:
     }
 
 private:
-    std::set<GenericOutputID> setSelected;
-    std::map<GenericOutputID, GenericOutput> m_external_outputs;
-    //! Map of GenericOutputID's to the maximum weight for that input
-    std::map<GenericOutputID, int64_t> m_input_weights;
+    std::set<AnyOutputID> setSelected;
+    std::map<AnyOutputID, AnyOutput> m_external_outputs;
+    //! Map from AnyOutputID to the maximum weight for that input
+    std::map<AnyOutputID, int64_t> m_input_weights;
 };
 } // namespace wallet
 

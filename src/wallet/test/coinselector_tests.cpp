@@ -28,14 +28,14 @@ BOOST_FIXTURE_TEST_SUITE(coinselector_tests, WalletTestingSetup)
 // we repeat those tests this many times and only complain if all iterations of the test fail
 #define RANDOM_REPEATS 5
 
-typedef std::set<GenericWalletUTXO> CoinSet;
+typedef std::set<AnyWalletUTXO> CoinSet;
 
 static const CoinEligibilityFilter filter_standard(1, 6, 0);
 static const CoinEligibilityFilter filter_confirmed(1, 1, 0);
 static const CoinEligibilityFilter filter_standard_extra(6, 6, 0);
 static int nextLockTime = 0;
 
-static void add_coin(const CAmount& nValue, int nInput, std::vector<GenericWalletUTXO>& set)
+static void add_coin(const CAmount& nValue, int nInput, std::vector<AnyWalletUTXO>& set)
 {
     CMutableTransaction tx;
     tx.vout.resize(nInput + 1);
@@ -109,13 +109,13 @@ static bool EquivalentResult(const SelectionResult& a, const SelectionResult& b)
 static bool EqualResult(const SelectionResult& a, const SelectionResult& b)
 {
     std::pair<CoinSet::iterator, CoinSet::iterator> ret = std::mismatch(a.GetInputSet().begin(), a.GetInputSet().end(), b.GetInputSet().begin(),
-        [](const GenericWalletUTXO& a, const GenericWalletUTXO& b) {
+        [](const AnyWalletUTXO& a, const AnyWalletUTXO& b) {
             return a.GetID() == b.GetID();
         });
     return ret.first == a.GetInputSet().end() && ret.second == b.GetInputSet().end();
 }
 
-static CAmount make_hard_case(int utxos, std::vector<GenericWalletUTXO>& utxo_pool)
+static CAmount make_hard_case(int utxos, std::vector<AnyWalletUTXO>& utxo_pool)
 {
     utxo_pool.clear();
     CAmount target = 0;
@@ -127,7 +127,7 @@ static CAmount make_hard_case(int utxos, std::vector<GenericWalletUTXO>& utxo_po
     return target;
 }
 
-inline std::vector<OutputGroup>& GroupCoins(const std::vector<GenericWalletUTXO>& available_coins)
+inline std::vector<OutputGroup>& GroupCoins(const std::vector<AnyWalletUTXO>& available_coins)
 {
     static std::vector<OutputGroup> static_groups;
     static_groups.clear();
@@ -138,7 +138,7 @@ inline std::vector<OutputGroup>& GroupCoins(const std::vector<GenericWalletUTXO>
     return static_groups;
 }
 
-inline std::vector<OutputGroup>& KnapsackGroupOutputs(const std::vector<GenericWalletUTXO>& available_coins, CWallet& wallet, const CoinEligibilityFilter& filter)
+inline std::vector<OutputGroup>& KnapsackGroupOutputs(const std::vector<AnyWalletUTXO>& available_coins, CWallet& wallet, const CoinEligibilityFilter& filter)
 {
     FastRandomContext rand{};
     CoinSelectionParams coin_selection_params{
@@ -165,7 +165,7 @@ BOOST_AUTO_TEST_CASE(bnb_search_test)
 {
     FastRandomContext rand{};
     // Setup
-    std::vector<GenericWalletUTXO> utxo_pool;
+    std::vector<AnyWalletUTXO> utxo_pool;
     SelectionResult expected_result(CAmount(0), SelectionAlgorithm::BNB);
 
     /////////////////////////
@@ -970,7 +970,7 @@ BOOST_AUTO_TEST_CASE(SelectCoins_effective_value_test)
     cc.m_allow_other_inputs = false;
     CWalletUTXO output = available_coins.All().at(0).GetLTC();
     cc.SetInputWeight(output.outpoint, 148);
-    cc.SelectExternal(output.outpoint, GenericOutput{output.outpoint, output.txout});
+    cc.SelectExternal(output.outpoint, AnyOutput{output.outpoint, output.txout});
 
     const auto result = SelectCoins(*wallet, available_coins, target, cc, cs_params);
     BOOST_CHECK(!result);
@@ -996,7 +996,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_coinsresult_test, BasicTestingSetup)
     {
         // First test case, check that 'CoinsResult::Erase' function works as expected.
         // By trying to erase two elements from the 'available_coins' object.
-        std::set<GenericOutputID> outs_to_remove;
+        std::set<AnyOutputID> outs_to_remove;
         auto coins = available_coins.All();
         for (int i = 0; i < 2; i++) {
             outs_to_remove.emplace(coins[i].GetLTC().outpoint);
@@ -1006,7 +1006,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_coinsresult_test, BasicTestingSetup)
         // Check that the elements were actually removed.
         const auto& updated_coins = available_coins.All();
         for (const auto& out: outs_to_remove) {
-            auto it = std::find_if(updated_coins.begin(), updated_coins.end(), [&out](const GenericWalletUTXO& coin) {
+            auto it = std::find_if(updated_coins.begin(), updated_coins.end(), [&out](const AnyWalletUTXO& coin) {
                 return coin.GetID() == out;
             });
             BOOST_CHECK(it == updated_coins.end());

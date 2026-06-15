@@ -55,7 +55,7 @@ namespace wallet {
 // All members of the classes in this namespace are intentionally public, as the
 // classes themselves are private.
 namespace {
-WalletTxIn MakeWalletTxIn(const CWallet& wallet, const GenericInput& input) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
+WalletTxIn MakeWalletTxIn(const CWallet& wallet, const AnyInput& input) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
 {
     WalletTxIn wtxin;
     wtxin.input = input;
@@ -67,7 +67,7 @@ WalletTxIn MakeWalletTxIn(const CWallet& wallet, const GenericInput& input) EXCL
 //! Construct wallet TxOut struct.
 WalletTxOut MakeWalletTxOut(const CWallet& wallet,
     const CWalletTx& wtx,
-    const GenericOutputID& output_id,
+    const AnyOutputID& output_id,
     int depth) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
 {
     WalletTxOut result;
@@ -99,7 +99,7 @@ WalletTxOut MakeWalletTxOut(const CWallet& wallet,
 }
 
 WalletTxOut MakeWalletTxOut(const CWallet& wallet,
-    const GenericWalletUTXO& output) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
+    const AnyWalletUTXO& output) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
 {
     WalletTxOut result;
     result.address = output.GetAddress();
@@ -132,7 +132,7 @@ WalletTx MakeWalletTx(CWallet& wallet, const CWalletTx& wtx)
     //
     // Inputs
     //
-    std::vector<GenericInput> inputs = wtx.GetInputs();
+    std::vector<AnyInput> inputs = wtx.GetInputs();
     result.inputs.reserve(inputs.size());
     for (const auto& input : inputs) {
         result.inputs.push_back(MakeWalletTxIn(wallet, input));
@@ -141,7 +141,7 @@ WalletTx MakeWalletTx(CWallet& wallet, const CWalletTx& wtx)
     //
     // Outputs
     //
-    for (const GenericOutputID& output_id : wtx.GetOutputIDs()) {
+    for (const AnyOutputID& output_id : wtx.GetOutputIDs()) {
         // MWEB Peg-in output pubkey scripts are anyone-can-spend, so don't really have an owner.
         // In order for peg-ins to your own address to show up as SendToSelf txs, we need to filter these out.
         if (!output_id.IsMWEB() && wtx.tx->vout[output_id.ToOutPoint().n].scriptPubKey.IsMWEBPegin()) {
@@ -276,7 +276,7 @@ public:
         });
         return result;
     }
-    bool extractOutputDestination(const GenericOutput& output, CTxDestination& dest) override
+    bool extractOutputDestination(const AnyOutput& output, CTxDestination& dest) override
     {
         LOCK(m_wallet->cs_wallet);
         if (output.IsMWEB()) {
@@ -305,24 +305,24 @@ public:
         LOCK(m_wallet->cs_wallet);
         return m_wallet->DisplayAddress(dest);
     }
-    bool lockCoin(const GenericOutputID& output, const bool write_to_db) override
+    bool lockCoin(const AnyOutputID& output, const bool write_to_db) override
     {
         LOCK(m_wallet->cs_wallet);
         std::unique_ptr<WalletBatch> batch = write_to_db ? std::make_unique<WalletBatch>(m_wallet->GetDatabase()) : nullptr;
         return m_wallet->LockCoin(output, batch.get());
     }
-    bool unlockCoin(const GenericOutputID& output) override
+    bool unlockCoin(const AnyOutputID& output) override
     {
         LOCK(m_wallet->cs_wallet);
         std::unique_ptr<WalletBatch> batch = std::make_unique<WalletBatch>(m_wallet->GetDatabase());
         return m_wallet->UnlockCoin(output, batch.get());
     }
-    bool isLockedCoin(const GenericOutputID& output) override
+    bool isLockedCoin(const AnyOutputID& output) override
     {
         LOCK(m_wallet->cs_wallet);
         return m_wallet->IsLockedCoin(output);
     }
-    void listLockedCoins(std::vector<GenericOutputID>& outputs) override
+    void listLockedCoins(std::vector<AnyOutputID>& outputs) override
     {
         LOCK(m_wallet->cs_wallet);
         return m_wallet->ListLockedCoins(outputs);
@@ -495,27 +495,27 @@ public:
     {
         return GetAvailableBalance(*m_wallet, &coin_control);
     }
-    isminetype txinIsMine(const GenericInput& input) override
+    isminetype txinIsMine(const AnyInput& input) override
     {
         LOCK(m_wallet->cs_wallet);
         return InputIsMine(*m_wallet, input);
     }
-    isminetype txoutIsMine(const GenericOutput& output) override
+    isminetype txoutIsMine(const AnyOutput& output) override
     {
         LOCK(m_wallet->cs_wallet);
         return m_wallet->IsMine(output);
     }
-    CAmount getValue(const GenericOutput& txout) override
+    CAmount getValue(const AnyOutput& txout) override
     {
         LOCK(m_wallet->cs_wallet);
         return m_wallet->GetValue(txout);
     }
-    CAmount getDebit(const GenericInput& input, isminefilter filter) override
+    CAmount getDebit(const AnyInput& input, isminefilter filter) override
     {
         LOCK(m_wallet->cs_wallet);
         return m_wallet->GetDebit(input, filter);
     }
-    bool isChange(const CTransactionRef& tx, const GenericOutputID& output_id) override
+    bool isChange(const CTransactionRef& tx, const AnyOutputID& output_id) override
     {
         LOCK(m_wallet->cs_wallet);
         return wallet::OutputIsChange(*m_wallet, tx, output_id);
@@ -532,12 +532,12 @@ public:
         }
         return result;
     }
-    std::vector<WalletTxOut> getCoins(const std::vector<GenericOutputID>& outputs) override
+    std::vector<WalletTxOut> getCoins(const std::vector<AnyOutputID>& outputs) override
     {
         LOCK(m_wallet->cs_wallet);
         std::vector<WalletTxOut> result;
         result.reserve(outputs.size());
-        for (const GenericOutputID& output_id : outputs) {
+        for (const AnyOutputID& output_id : outputs) {
             result.emplace_back();
             auto wtx = m_wallet->FindWalletTx(output_id);
             if (wtx != nullptr) {

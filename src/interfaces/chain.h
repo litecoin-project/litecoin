@@ -23,7 +23,7 @@ class CFeeRate;
 class CRPCCommand;
 class CScheduler;
 class Coin;
-class GenericCoin;
+class AnyCoin;
 class uint256;
 enum class MemPoolRemovalReason;
 enum class RBFTransactionState;
@@ -175,7 +175,7 @@ public:
     //! Look up unspent output information. Returns coins in the mempool and in
     //! the current chain UTXO set. Iterates through all the keys in the map and
     //! populates the values.
-    virtual void findCoins(std::map<GenericOutputID, GenericCoin>& coins) = 0;
+    virtual void findCoins(std::map<AnyOutputID, AnyCoin>& coins) = 0;
 
     //! Estimate fraction of total transactions verified if blocks up to
     //! the specified block hash are verified.

@@ -173,7 +173,7 @@ static std::vector<RPCArg> CreateTxDoc()
     };
 }
 
-static void UpdatePSBTMWEBInput(const GenericCoin& coin, PSBTInput& input)
+static void UpdatePSBTMWEBInput(const AnyCoin& coin, PSBTInput& input)
 {
     if (!input.IsMWEB() || coin.IsNull() || !coin.IsMWEB()) {
         return;
@@ -208,7 +208,7 @@ PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std
     // If we can't find the corresponding full transaction for all of our inputs,
     // this will be used to find just the utxos for the segwit inputs for which
     // the full transaction isn't found
-    std::map<GenericOutputID, GenericCoin> coins;
+    std::map<AnyOutputID, AnyCoin> coins;
 
     // Fetch previous transactions:
     // First, look in the txindex and the mempool
@@ -250,7 +250,7 @@ PartiallySignedTransaction ProcessPSBT(const std::string& psbt_string, const std
 
             // If there are still missing utxos, add them if they were found in the utxo set
             if (!input.non_witness_utxo) {
-                const GenericCoin& coin = coins.at(input.GetOutPoint());
+                const AnyCoin& coin = coins.at(input.GetOutPoint());
                 if (!coin.IsNull() && IsSegWitOutput(provider, coin.ToLTC().out.scriptPubKey)) {
                     input.witness_utxo = coin.ToLTC().out;
                 }
@@ -785,8 +785,8 @@ static RPCHelpMan signrawtransactionwithkey()
     }
 
     // Fetch previous transactions (inputs):
-    std::map<GenericOutputID, GenericCoin> coins;
-    for (const GenericInput& tx_input : mtx.GetInputs()) {
+    std::map<AnyOutputID, AnyCoin> coins;
+    for (const AnyInput& tx_input : mtx.GetInputs()) {
         coins[tx_input.GetID()]; // Create empty map entry keyed by prevout.
     }
     NodeContext& node = EnsureAnyNodeContext(request.context);

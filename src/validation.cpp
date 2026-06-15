@@ -481,7 +481,7 @@ public:
 
     bool GetCoin(const COutPoint&, Coin&) const override { return false; }
 
-    bool HaveCoin(const GenericOutputID& output_id) const override
+    bool HaveCoin(const AnyOutputID& output_id) const override
     {
         return output_id.IsMWEB() && m_view.HaveCoin(output_id);
     }
@@ -520,7 +520,7 @@ public:
          * additions if the associated transaction ends up being rejected by
          * the mempool.
          */
-        std::vector<GenericOutputID>& m_coins_to_uncache;
+        std::vector<AnyOutputID>& m_coins_to_uncache;
         const bool m_test_accept;
         /** Whether we allow transactions to replace mempool transactions by BIP125 rules. If false,
          * any transaction spending the same inputs as a transaction in the mempool is considered
@@ -538,7 +538,7 @@ public:
 
         /** Parameters for single transaction mempool validation. */
         static ATMPArgs SingleAccept(const CChainParams& chainparams, int64_t accept_time,
-                                     bool bypass_limits, std::vector<GenericOutputID>& coins_to_uncache,
+                                     bool bypass_limits, std::vector<AnyOutputID>& coins_to_uncache,
                                      bool test_accept) {
             return ATMPArgs{/* m_chainparams */ chainparams,
                             /* m_accept_time */ accept_time,
@@ -553,7 +553,7 @@ public:
 
         /** Parameters for test package mempool validation through testmempoolaccept. */
         static ATMPArgs PackageTestAccept(const CChainParams& chainparams, int64_t accept_time,
-                                          std::vector<GenericOutputID>& coins_to_uncache) {
+                                          std::vector<AnyOutputID>& coins_to_uncache) {
             return ATMPArgs{/* m_chainparams */ chainparams,
                             /* m_accept_time */ accept_time,
                             /* m_bypass_limits */ false,
@@ -567,7 +567,7 @@ public:
 
         /** Parameters for child-with-unconfirmed-parents package validation. */
         static ATMPArgs PackageChildWithParents(const CChainParams& chainparams, int64_t accept_time,
-                                                std::vector<GenericOutputID>& coins_to_uncache) {
+                                                std::vector<AnyOutputID>& coins_to_uncache) {
             return ATMPArgs{/* m_chainparams */ chainparams,
                             /* m_accept_time */ accept_time,
                             /* m_bypass_limits */ false,
@@ -598,7 +598,7 @@ public:
         ATMPArgs(const CChainParams& chainparams,
                  int64_t accept_time,
                  bool bypass_limits,
-                 std::vector<GenericOutputID>& coins_to_uncache,
+                 std::vector<AnyOutputID>& coins_to_uncache,
                  bool test_accept,
                  bool allow_replacement,
                  bool package_submission,
@@ -761,7 +761,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // Copy/alias what we need out of args
     const int64_t nAcceptTime = args.m_accept_time;
     const bool bypass_limits = args.m_bypass_limits;
-    std::vector<GenericOutputID>& coins_to_uncache = args.m_coins_to_uncache;
+    std::vector<AnyOutputID>& coins_to_uncache = args.m_coins_to_uncache;
 
     // Alias what we need out of ws
     TxValidationState& state = ws.m_state;
@@ -817,7 +817,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     }
 
     // Check for conflicts with in-memory transactions
-    for (const GenericInput& txin : tx.GetInputs())
+    for (const AnyInput& txin : tx.GetInputs())
     {
         const CTransaction* ptxConflicting = m_pool.GetConflictTx(txin.GetID());
         if (ptxConflicting) {
@@ -854,7 +854,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     const CCoinsViewCache& coins_cache = m_active_chainstate.CoinsTip();
 
     // do all inputs exist?
-    for (const GenericInput& txin : tx.GetInputs()) {
+    for (const AnyInput& txin : tx.GetInputs()) {
         if (!coins_cache.HaveCoinInCache(txin.GetID())) {
             coins_to_uncache.push_back(txin.GetID());
         }
@@ -864,7 +864,7 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
         // later (via coins_to_uncache) if this tx turns out to be invalid.
         if (!m_view.HaveCoin(txin.GetID())) {
             // Are inputs missing because we already have the tx?
-            for (const GenericOutput& txout : tx.GetOutputs()) {
+            for (const AnyOutput& txout : tx.GetOutputs()) {
                 // Optimistically just do efficient check of cache for outputs
                 if (coins_cache.HaveCoinInCache(txout.GetID())) {
                     return state.Invalid(TxValidationResult::TX_CONFLICT, "txn-already-known");
@@ -1424,14 +1424,14 @@ PackageMempoolAcceptResult MemPoolAccept::AcceptPackage(const Package& package, 
     // This should be connecting directly to CoinsTip, not to m_viewmempool, because we specifically
     // require inputs to be confirmed if they aren't in the package.
     m_view.SetBackend(m_active_chainstate.CoinsTip());
-    const auto package_or_confirmed = [this, &unconfirmed_parent_txids, &unconfirmed_mweb_output_ids](const GenericInput& input) {
+    const auto package_or_confirmed = [this, &unconfirmed_parent_txids, &unconfirmed_mweb_output_ids](const AnyInput& input) {
         if (input.IsMWEB()) {
             return unconfirmed_mweb_output_ids.count(input.ToMWEB()) > 0 || m_view.HaveCoin(input.GetID());
         } else {
             return unconfirmed_parent_txids.count(input.GetTxIn().prevout.hash) > 0 || m_view.HaveCoin(input.GetID());
         }
     };
-    std::vector<GenericInput> child_inputs = child->GetInputs();
+    std::vector<AnyInput> child_inputs = child->GetInputs();
     if (!std::all_of(child_inputs.cbegin(), child_inputs.cend(), package_or_confirmed)) {
         package_state.Invalid(PackageValidationResult::PCKG_POLICY, "package-not-child-with-unconfirmed-parents");
         return PackageMempoolAcceptResult(package_state, {});
@@ -1529,7 +1529,7 @@ MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTra
     assert(active_chainstate.GetMempool() != nullptr);
     CTxMemPool& pool{*active_chainstate.GetMempool()};
 
-    std::vector<GenericOutputID> coins_to_uncache;
+    std::vector<AnyOutputID> coins_to_uncache;
     auto args = MemPoolAccept::ATMPArgs::SingleAccept(chainparams, accept_time, bypass_limits, coins_to_uncache, test_accept);
     const MempoolAcceptResult result = MemPoolAccept(pool, active_chainstate).AcceptSingleTransaction(tx, args);
     if (result.m_result_type != MempoolAcceptResult::ResultType::VALID) {
@@ -1538,7 +1538,7 @@ MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTra
         // number of invalid transactions that attempt to overrun the in-memory coins cache
         // (`CCoinsViewCache::cacheCoins`).
 
-        for (const GenericOutputID& output_id : coins_to_uncache)
+        for (const AnyOutputID& output_id : coins_to_uncache)
             active_chainstate.CoinsTip().Uncache(output_id);
     }
     // After we've (potentially) uncached entries, ensure our coins cache is still within its size limits
@@ -1554,7 +1554,7 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
     assert(!package.empty());
     assert(std::all_of(package.cbegin(), package.cend(), [](const auto& tx){return tx != nullptr;}));
 
-    std::vector<GenericOutputID> coins_to_uncache;
+    std::vector<AnyOutputID> coins_to_uncache;
     const CChainParams& chainparams = active_chainstate.m_params;
     const auto result = [&]() EXCLUSIVE_LOCKS_REQUIRED(cs_main) {
         AssertLockHeld(cs_main);
@@ -1569,7 +1569,7 @@ PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxM
 
     // Uncache coins pertaining to transactions that were not submitted to the mempool.
     if (test_accept || result.m_state.IsInvalid()) {
-        for (const GenericOutputID& output_id : coins_to_uncache) {
+        for (const AnyOutputID& output_id : coins_to_uncache) {
             active_chainstate.CoinsTip().Uncache(output_id);
         }
     }

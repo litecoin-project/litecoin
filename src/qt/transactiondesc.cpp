@@ -492,7 +492,7 @@ QString TransactionDesc::toHTML_Debug(interfaces::Node& node, interfaces::Wallet
     for (const interfaces::WalletTxIn& wtxin : wtx.inputs) {
         strHTML += "<li>";
 
-        GenericOutput prevout;
+        AnyOutput prevout;
         if (node.getUnspentOutput(wtxin.input.GetID(), prevout)) {
             CTxDestination address;
             if (wallet.extractOutputDestination(prevout, address)) {

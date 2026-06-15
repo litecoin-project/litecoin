@@ -575,10 +575,10 @@ private:
                                           uint64_t limitDescendantSize,
                                           std::string &errString) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
-    void removeConflict(const GenericOutputID& input_id, const CTransaction* tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
+    void removeConflict(const AnyOutputID& input_id, const CTransaction* tx) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
 public:
-    std::map<GenericOutputID, const CTransaction*> mapNextTx GUARDED_BY(cs);
+    std::map<AnyOutputID, const CTransaction*> mapNextTx GUARDED_BY(cs);
 
     /**
      * Maps MWEB output IDs to mempool transactions that create them.
@@ -650,7 +650,7 @@ public:
     void _clear() EXCLUSIVE_LOCKS_REQUIRED(cs); //lock free
     bool CompareDepthAndScore(const uint256& hasha, const uint256& hashb, bool wtxid=false);
     void queryHashes(std::vector<uint256>& vtxid) const;
-    bool isSpent(const GenericOutputID& output_id) const;
+    bool isSpent(const AnyOutputID& output_id) const;
     unsigned int GetTransactionsUpdated() const;
     void AddTransactionsUpdated(unsigned int n);
     /**
@@ -665,13 +665,13 @@ public:
     void ClearPrioritisation(const uint256& hash) EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Get the transaction in the pool that spends the same prevout */
-    const CTransaction* GetConflictTx(const GenericOutputID& input_id) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    const CTransaction* GetConflictTx(const AnyOutputID& input_id) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Returns an iterator to the given hash, if found */
     std::optional<txiter> GetIter(const uint256& txid) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Returns an iterator to the transaction the input spends from, if found */
-    std::optional<txiter> GetIter(const GenericOutputID& input_id) const EXCLUSIVE_LOCKS_REQUIRED(cs);
+    std::optional<txiter> GetIter(const AnyOutputID& input_id) const EXCLUSIVE_LOCKS_REQUIRED(cs);
 
     /** Translate a set of hashes into a set of pool iterators to avoid repeated lookups */
     setEntries GetIterSet(const std::set<uint256>& hashes) const EXCLUSIVE_LOCKS_REQUIRED(cs);
@@ -961,7 +961,7 @@ protected:
 public:
     CCoinsViewMemPool(CCoinsView* baseIn, const CTxMemPool& mempoolIn);
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
-    bool HaveCoin(const GenericOutputID& index) const override;
+    bool HaveCoin(const AnyOutputID& index) const override;
     bool GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const override;
     /** Add the coins created by this transaction. These coins are only temporarily stored in
      * m_temp_added/m_temp_added_mweb and cannot be flushed to the back end. Only used for package validation. */

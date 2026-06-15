@@ -411,12 +411,12 @@ RPCHelpMan listlockunspent()
 
     LOCK(pwallet->cs_wallet);
 
-    std::vector<GenericOutputID> vOutpts;
+    std::vector<AnyOutputID> vOutpts;
     pwallet->ListLockedCoins(vOutpts);
 
     UniValue ret(UniValue::VARR);
 
-    for (const GenericOutputID& output_id : vOutpts) {
+    for (const AnyOutputID& output_id : vOutpts) {
         UniValue o(UniValue::VOBJ);
         
         if (output_id.IsOutPoint()) {
@@ -641,7 +641,7 @@ RPCHelpMan listunspent()
     pwallet->BlockUntilSyncedToCurrentChain();
 
     UniValue results(UniValue::VARR);
-    std::vector<GenericWalletUTXO> vecOutputs;
+    std::vector<AnyWalletUTXO> vecOutputs;
     {
         CCoinControl cctl;
         cctl.m_avoid_address_reuse = false;
@@ -656,7 +656,7 @@ RPCHelpMan listunspent()
 
     const bool avoid_reuse = pwallet->IsWalletFlagSet(WALLET_FLAG_AVOID_REUSE);
 
-    for (const GenericWalletUTXO& output_coin : vecOutputs) {
+    for (const AnyWalletUTXO& output_coin : vecOutputs) {
         CTxDestination address;
         bool fValidAddress = output_coin.GetDestination(address);
 

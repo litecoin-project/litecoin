@@ -320,14 +320,14 @@ bool WalletBatch::WriteMWEBNextSenderKeyIndex(const CKeyID& master_scan_keyid, u
 
 class SerializableOutputIndex
 {
-    GenericOutputID m_id;
+    AnyOutputID m_id;
 
 public:
     SerializableOutputIndex() = default;
-    SerializableOutputIndex(GenericOutputID id)
+    SerializableOutputIndex(AnyOutputID id)
         : m_id(std::move(id)) { }
 
-    const GenericOutputID& Get() { return m_id; }
+    const AnyOutputID& Get() { return m_id; }
 
     template <typename Stream>
     inline void Serialize(Stream& s) const {
@@ -346,7 +346,7 @@ public:
         s >> type;
 
         if (type > 1) {
-            throw std::ios_base::failure("Invalid GenericOutputID type");
+            throw std::ios_base::failure("Invalid AnyOutputID type");
         }
 
         if (type == 0) {
@@ -361,12 +361,12 @@ public:
     }
 };
 
-bool WalletBatch::WriteLockedUTXO(const GenericOutputID& output)
+bool WalletBatch::WriteLockedUTXO(const AnyOutputID& output)
 {
     return WriteIC(std::make_pair(DBKeys::LOCKED_UTXO, SerializableOutputIndex(output)), uint8_t{'1'});
 }
 
-bool WalletBatch::EraseLockedUTXO(const GenericOutputID& output)
+bool WalletBatch::EraseLockedUTXO(const AnyOutputID& output)
 {
     return EraseIC(std::make_pair(DBKeys::LOCKED_UTXO, SerializableOutputIndex(output)));
 }

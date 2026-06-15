@@ -172,15 +172,15 @@ Result CreateRateBumpTransaction(CWallet& wallet, const uint256& txid, const CCo
 
     // Retrieve all of the UTXOs and add them to coin control
     // While we're here, calculate the input amount
-    std::map<GenericOutputID, GenericCoin> coins;
+    std::map<AnyOutputID, AnyCoin> coins;
     CAmount input_value = 0;
     std::vector<CTxOut> spent_outputs;
-    for (const GenericInput& tx_input : wtx.GetInputs()) {
+    for (const AnyInput& tx_input : wtx.GetInputs()) {
         coins[tx_input.GetID()]; // Create empty map entry keyed by prevout.
     }
     wallet.chain().findCoins(coins);
-    for (const GenericInput& tx_input : wtx.GetInputs()) {
-        const GenericCoin& coin = coins.at(tx_input.GetID());
+    for (const AnyInput& tx_input : wtx.GetInputs()) {
+        const AnyCoin& coin = coins.at(tx_input.GetID());
         if (coin.IsNull()) {
             errors.push_back(Untranslated(strprintf("%s is already spent", tx_input.GetID().ToString())));
             return Result::MISC_ERROR;
@@ -204,8 +204,8 @@ Result CreateRateBumpTransaction(CWallet& wallet, const uint256& txid, const CCo
     PrecomputedTransactionData txdata;
     txdata.Init(*wtx.tx, std::move(spent_outputs), /* force=*/ true);
     size_t i = 0;
-    for (const GenericInput& tx_input : wtx.GetInputs()) {
-        const GenericCoin& coin = coins.at(tx_input.GetID());
+    for (const AnyInput& tx_input : wtx.GetInputs()) {
+        const AnyCoin& coin = coins.at(tx_input.GetID());
 
         if (new_coin_control.IsExternalSelected(tx_input.GetID())) {
             if (tx_input.IsMWEB()) {
@@ -239,7 +239,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const uint256& txid, const CCo
     // While we're here, calculate the output amount
     std::vector<CRecipient> recipients;
     CAmount output_value = 0;
-    for (const GenericOutputID& output_id : wtx.GetOutputIDs(false)) {
+    for (const AnyOutputID& output_id : wtx.GetOutputIDs(false)) {
         GenericAddress dest_addr;
         if (!wallet.ExtractOutputAddress(wtx, output_id, dest_addr)) {
             return Result::INVALID_ADDRESS_OR_KEY;

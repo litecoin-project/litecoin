@@ -16,7 +16,7 @@ std::vector<uint256> CCoinsView::GetHeadBlocks() const { return std::vector<uint
 bool CCoinsView::BatchWrite(CCoinsMap& mapCoins, const uint256& hashBlock, const mw::CoinsViewCache::Ptr& derivedView) { return false; }
 std::unique_ptr<CCoinsViewCursor> CCoinsView::Cursor() const { return nullptr; }
 
-bool CCoinsView::HaveCoin(const GenericOutputID& output_id) const
+bool CCoinsView::HaveCoin(const AnyOutputID& output_id) const
 {
     if (output_id.IsMWEB()) {
         auto mweb_view = GetMWEBView();
@@ -32,7 +32,7 @@ bool CCoinsView::HaveCoin(const GenericOutputID& output_id) const
 
 CCoinsViewBacked::CCoinsViewBacked(CCoinsView *viewIn) : base(viewIn) { }
 bool CCoinsViewBacked::GetCoin(const COutPoint &outpoint, Coin &coin) const { return base->GetCoin(outpoint, coin); }
-bool CCoinsViewBacked::HaveCoin(const GenericOutputID& output_id) const { return base->HaveCoin(output_id); }
+bool CCoinsViewBacked::HaveCoin(const AnyOutputID& output_id) const { return base->HaveCoin(output_id); }
 uint256 CCoinsViewBacked::GetBestBlock() const { return base->GetBestBlock(); }
 std::vector<uint256> CCoinsViewBacked::GetHeadBlocks() const { return base->GetHeadBlocks(); }
 void CCoinsViewBacked::SetBackend(CCoinsView &viewIn) { base = &viewIn; }
@@ -125,7 +125,7 @@ void CCoinsViewCache::EmplaceCoinInternalDANGER(COutPoint&& outpoint, Coin&& coi
 void AddCoins(CCoinsViewCache& cache, const CTransaction &tx, int nHeight, bool check_for_overwrite) {
     bool fCoinbase = tx.IsCoinBase();
     size_t i = 0;
-    for (const GenericOutput& output : tx.GetOutputs()) {
+    for (const AnyOutput& output : tx.GetOutputs()) {
         // MWEB: The first output in the HogEx transaction is the HogAddr.
         // The HogAddr is always spent in the next HogEx, so should not be subjected to pegout maturity rules.
         bool fPegout = tx.IsHogEx() && i > 0;
@@ -176,7 +176,7 @@ const Coin& CCoinsViewCache::AccessCoin(const COutPoint &outpoint) const {
     }
 }
 
-bool CCoinsViewCache::HaveCoin(const GenericOutputID& output_id) const {
+bool CCoinsViewCache::HaveCoin(const AnyOutputID& output_id) const {
     if (output_id.IsMWEB()) {
         auto mweb_cache = GetMWEBCacheView();
         if (mweb_cache) {
@@ -215,7 +215,7 @@ bool CCoinsViewCache::GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coi
     return base->GetMWEBCoin(output_id, coin);
 }
 
-bool CCoinsViewCache::HaveCoinInCache(const GenericOutputID& output_id) const {
+bool CCoinsViewCache::HaveCoinInCache(const AnyOutputID& output_id) const {
     if (output_id.IsOutPoint()) {
         CCoinsMap::const_iterator it = cacheCoins.find(output_id.ToOutPoint());
         return (it != cacheCoins.end() && !it->second.coin.IsSpent());
@@ -309,7 +309,7 @@ bool CCoinsViewCache::Flush() {
     return fOk;
 }
 
-void CCoinsViewCache::Uncache(const GenericOutputID& output_id)
+void CCoinsViewCache::Uncache(const AnyOutputID& output_id)
 {
     if (output_id.IsOutPoint()) {
         const COutPoint& outpoint = output_id.ToOutPoint();
@@ -334,7 +334,7 @@ unsigned int CCoinsViewCache::GetCacheSize() const {
 bool CCoinsViewCache::HaveInputs(const CTransaction& tx) const
 {
     if (!tx.IsCoinBase()) {
-        for (const GenericInput& input : tx.GetInputs()) {
+        for (const AnyInput& input : tx.GetInputs()) {
             if (!HaveCoin(input.GetID())) {
                 return false;
             }

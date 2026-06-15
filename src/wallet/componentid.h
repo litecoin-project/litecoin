@@ -26,7 +26,7 @@ public:
     GenericComponentID(COutPoint outpoint) : m_value(std::move(outpoint)) {}
     GenericComponentID(mw::Hash hash) : m_value(std::move(hash)) {}
     GenericComponentID(PegoutIndex pegout_idx) : m_value(std::move(pegout_idx)) {}
-    GenericComponentID(const GenericOutputID& output_id)
+    GenericComponentID(const AnyOutputID& output_id)
     {
         if (output_id.IsMWEB()) {
             m_value = output_id.ToMWEB();

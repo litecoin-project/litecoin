@@ -97,14 +97,14 @@ public:
 };
 
 // A chainstate coin that could be either an MWEB coin or a canonical Coin.
-class GenericCoin
+class AnyCoin
 {
     std::variant<std::pair<COutPoint, Coin>, mw::Coin::CPtr> m_coin;
 
 public:
-    GenericCoin() = default;
-    GenericCoin(COutPoint outpoint, Coin coin) : m_coin(std::make_pair(std::move(outpoint), std::move(coin))) {}
-    GenericCoin(const mw::Coin::CPtr& mweb_coin) : m_coin(mweb_coin) {}
+    AnyCoin() = default;
+    AnyCoin(COutPoint outpoint, Coin coin) : m_coin(std::make_pair(std::move(outpoint), std::move(coin))) {}
+    AnyCoin(const mw::Coin::CPtr& mweb_coin) : m_coin(mweb_coin) {}
 
     bool IsMWEB() const noexcept { return std::holds_alternative<mw::Coin::CPtr>(m_coin); }
 
@@ -137,13 +137,13 @@ public:
 
     bool IsSpent() const noexcept { return IsNull(); }
 
-    GenericOutput ToOutput() const noexcept
+    AnyOutput ToOutput() const noexcept
     {
         if (IsMWEB()) {
             mw::Coin::CPtr coin = ToMWEB();
-            return coin != nullptr ? GenericOutput{coin->GetOutput()} : GenericOutput{mw::Output()};
+            return coin != nullptr ? AnyOutput{coin->GetOutput()} : AnyOutput{mw::Output()};
         } else {
-            return GenericOutput{ToOutPoint(), ToLTC().out};
+            return AnyOutput{ToOutPoint(), ToLTC().out};
         }
     }
 };
@@ -226,7 +226,7 @@ public:
     virtual bool GetCoin(const COutPoint &outpoint, Coin &coin) const;
 
     //! Just check whether a given outpoint is unspent.
-    virtual bool HaveCoin(const GenericOutputID& index) const;
+    virtual bool HaveCoin(const AnyOutputID& index) const;
 
     //! Retrieve the block hash whose state this CCoinsView currently represents
     virtual uint256 GetBestBlock() const;
@@ -265,7 +265,7 @@ protected:
 public:
     CCoinsViewBacked(CCoinsView *viewIn);
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
-    bool HaveCoin(const GenericOutputID& index) const override;
+    bool HaveCoin(const AnyOutputID& index) const override;
     uint256 GetBestBlock() const override;
     std::vector<uint256> GetHeadBlocks() const override;
     virtual void SetBackend(CCoinsView &viewIn);
@@ -303,7 +303,7 @@ public:
 
     // Standard CCoinsView methods
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
-    bool HaveCoin(const GenericOutputID& outpoint) const override;
+    bool HaveCoin(const AnyOutputID& outpoint) const override;
     uint256 GetBestBlock() const override;
     void SetBestBlock(const uint256 &hashBlock);
     void SetBackend(CCoinsView& viewIn) override;
@@ -322,7 +322,7 @@ public:
      * The semantics are the same as HaveCoin(), but no calls to
      * the backing CCoinsView are made.
      */
-    bool HaveCoinInCache(const GenericOutputID& outpoint) const;
+    bool HaveCoinInCache(const AnyOutputID& outpoint) const;
 
     /**
      * Return a reference to Coin in the cache, or coinEmpty if not found. This is
@@ -369,7 +369,7 @@ public:
      * Removes the UTXO with the given outpoint from the cache, if it is
      * not modified.
      */
-    void Uncache(const GenericOutputID& outpoint);
+    void Uncache(const AnyOutputID& outpoint);
 
     //! Calculate the size of the cache (in number of transaction outputs)
     unsigned int GetCacheSize() const;

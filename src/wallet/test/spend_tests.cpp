@@ -122,7 +122,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_duplicated_preset_inputs_test, TestChain100Setup)
 
     LOCK(wallet->cs_wallet);
     auto available_coins = AvailableCoins(*wallet);
-    std::vector<GenericWalletUTXO> coins = available_coins.All();
+    std::vector<AnyWalletUTXO> coins = available_coins.All();
     // Preselect the first 3 UTXO (150 BTC total)
     std::set<COutPoint> preset_inputs = {coins[0].GetLTC().outpoint, coins[1].GetLTC().outpoint, coins[2].GetLTC().outpoint};
 

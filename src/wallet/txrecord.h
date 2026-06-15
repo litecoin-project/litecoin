@@ -53,7 +53,7 @@ struct TxRecordStatus {
 class WalletTxRecord
 {
 public:
-    WalletTxRecord(const CWallet* pWallet, const CWalletTx* wtx, const GenericOutputID& output_id)
+    WalletTxRecord(const CWallet* pWallet, const CWalletTx* wtx, const AnyOutputID& output_id)
         : m_pWallet(pWallet), m_wtx(wtx), index(std::make_optional(output_id.IsMWEB() ? GenericComponentID(output_id.ToMWEB()) : GenericComponentID(output_id.ToOutPoint()))) {}
     WalletTxRecord(const CWallet* pWallet, const CWalletTx* wtx, const PegoutIndex& pegout_index)
         : m_pWallet(pWallet), m_wtx(wtx), index(std::make_optional(GenericComponentID(pegout_index))) {}

@@ -111,7 +111,7 @@ util::Result<CreatedTransactionResult> TxBuilder::Build(const std::optional<int3
         return util::Error{ErrorString(result)};
     }
     
-    std::vector<GenericWalletUTXO> selected_coins = result->GetShuffledInputVector();
+    std::vector<AnyWalletUTXO> selected_coins = result->GetShuffledInputVector();
     TRACE5(coin_selection, selected_coins, m_wallet.GetName().c_str(), GetAlgorithmName(result->GetAlgo()).c_str(), result->GetTarget(), result->GetWaste(), result->GetSelectedValue());
 
     // Add selected inputs
@@ -253,7 +253,7 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
     return util::Error{_("Insufficient funds")};
 }
 
-void TxBuilder::AddInputs(const std::vector<GenericWalletUTXO>& shuffled_inputs)
+void TxBuilder::AddInputs(const std::vector<AnyWalletUTXO>& shuffled_inputs)
 {
     m_selected_coins = shuffled_inputs;
 
@@ -266,7 +266,7 @@ void TxBuilder::AddInputs(const std::vector<GenericWalletUTXO>& shuffled_inputs)
     // and in the spirit of "smallest possible change from prior
     // behavior."
     const uint32_t nSequence{m_coin_control.m_signal_bip125_rbf.value_or(m_wallet.m_signal_rbf) ? MAX_BIP125_RBF_SEQUENCE : CTxIn::MAX_SEQUENCE_NONFINAL};
-    for (const GenericWalletUTXO& utxo : shuffled_inputs) {
+    for (const AnyWalletUTXO& utxo : shuffled_inputs) {
         if (utxo.IsMWEB()) {
             m_tx.mweb_tx.inputs.push_back(mw::MutableInput::FromWalletCoin(utxo.GetMWEB().coin));
         } else {
@@ -437,7 +437,7 @@ std::optional<util::Error> TxBuilder::UpdatePeginOutput(const SelectionResult& s
             pegin_amount += mweb_output.amount.value_or(0);
         }
 
-        for (const GenericWalletUTXO& input : selection_result.GetInputSet()) {
+        for (const AnyWalletUTXO& input : selection_result.GetInputSet()) {
             if (input.IsMWEB()) {
                 pegin_amount -= input.GetValue();
             }
@@ -449,7 +449,7 @@ std::optional<util::Error> TxBuilder::UpdatePeginOutput(const SelectionResult& s
         m_tx.mweb_tx.SetPeginAmount(pegin_amount);
     } else {
         CAmount pegin_amount{0};
-        for (const GenericWalletUTXO& input : selection_result.GetInputSet()) {
+        for (const AnyWalletUTXO& input : selection_result.GetInputSet()) {
             if (!input.IsMWEB()) {
                 pegin_amount += input.GetValue();
             }
@@ -713,7 +713,7 @@ CAmount TxBuilder::GetFeePaid() const
 {
     const CAmount ltc_input_sum = std::accumulate(
         m_selected_coins.cbegin(), m_selected_coins.cend(), CAmount{0},
-        [](CAmount sum, const GenericWalletUTXO& coin) { return coin.IsMWEB() ? sum : (sum + coin.GetValue()); }
+        [](CAmount sum, const AnyWalletUTXO& coin) { return coin.IsMWEB() ? sum : (sum + coin.GetValue()); }
     );
     const CAmount ltc_output_sum = std::accumulate(
         m_tx.vout.cbegin(), m_tx.vout.cend(), CAmount{0},
@@ -726,7 +726,7 @@ CAmount TxBuilder::GetFeePaid() const
 
     const CAmount mweb_input_sum = std::accumulate(
         m_selected_coins.cbegin(), m_selected_coins.cend(), CAmount{0},
-        [](CAmount sum, const GenericWalletUTXO& coin) { return coin.IsMWEB() ? (sum + coin.GetValue()) : sum; }
+        [](CAmount sum, const AnyWalletUTXO& coin) { return coin.IsMWEB() ? (sum + coin.GetValue()) : sum; }
     );
     const CAmount mweb_pegin = m_tx.mweb_tx.GetPeginAmount().value_or(0);
     const CAmount mweb_output_sum = std::accumulate(

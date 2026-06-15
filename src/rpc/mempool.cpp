@@ -293,7 +293,7 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
 
     const CTransaction& tx = e.GetTx();
     std::set<std::string> setDepends;
-    for (const GenericInput& input : tx.GetInputs())
+    for (const AnyInput& input : tx.GetInputs())
     {
         auto txiter = pool.GetIter(input.GetID());
         if (txiter.has_value())

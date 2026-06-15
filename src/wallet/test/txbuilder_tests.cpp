@@ -58,7 +58,7 @@ public:
 
     std::pair<CWalletTx*, CMutableTransaction> AddTx(
         const std::vector<CRecipient>& recipients,
-        const std::vector<GenericWalletUTXO>& select_coins,
+        const std::vector<AnyWalletUTXO>& select_coins,
         std::optional<CTxDestination> change_address,
         const std::optional<int32_t>& nVersion = std::nullopt,
         const std::optional<uint32_t>& nLockTime = std::nullopt)
@@ -102,7 +102,7 @@ public:
 
     util::Result<CreatedTransactionResult> BuildTx(
         const std::vector<CRecipient>& recipients,
-        const std::vector<GenericWalletUTXO>& select_coins,
+        const std::vector<AnyWalletUTXO>& select_coins,
         std::optional<CTxDestination> change_address,
         bool sign)
     {
@@ -119,16 +119,16 @@ public:
         return TxBuilder::New(m_wallet, coin_control, recipients, std::nullopt)->Build(std::nullopt, std::nullopt, sign);
     }
 
-    std::vector<GenericWalletUTXO> AvailableCoinsByType(OutputType type)
+    std::vector<AnyWalletUTXO> AvailableCoinsByType(OutputType type)
     {
         LOCK(m_wallet.cs_wallet);
         auto coins = AvailableCoins(m_wallet).coins;
-        std::vector<GenericWalletUTXO> coins_by_type = coins[type];
+        std::vector<AnyWalletUTXO> coins_by_type = coins[type];
         if (type == OutputType::MWEB) {
             coins_by_type.erase(
                 std::remove_if(
                     coins_by_type.begin(), coins_by_type.end(),
-                    [](const GenericWalletUTXO& coin) { return coin.GetMWEB().coin.IsChange(); }
+                    [](const AnyWalletUTXO& coin) { return coin.GetMWEB().coin.IsChange(); }
                 ),
                 coins_by_type.end()
             );
@@ -136,11 +136,11 @@ public:
         return coins_by_type;
     }
 
-    std::vector<GenericWalletUTXO> AvailableLTCCoins()
+    std::vector<AnyWalletUTXO> AvailableLTCCoins()
     {
         LOCK(m_wallet.cs_wallet);
-        std::vector<GenericWalletUTXO> coins;
-        for (const GenericWalletUTXO& coin : AvailableCoins(m_wallet).All()) {
+        std::vector<AnyWalletUTXO> coins;
+        for (const AnyWalletUTXO& coin : AvailableCoins(m_wallet).All()) {
             if (!coin.IsMWEB()) {
                 coins.push_back(coin);
             }
@@ -191,7 +191,7 @@ public:
     {
         LOCK(m_wallet.cs_wallet);
         CTxDestination dest;
-        BOOST_REQUIRE(m_wallet.ExtractOutputDestination(wtx, GenericOutputID{output_id}, dest));
+        BOOST_REQUIRE(m_wallet.ExtractOutputDestination(wtx, AnyOutputID{output_id}, dest));
         return dest;
     }
 
@@ -244,23 +244,23 @@ public:
     {
         LOCK(m_wallet.cs_wallet);
         auto coins = AvailableCoins(m_wallet).coins;
-        std::vector<GenericWalletUTXO> mweb_coins = coins[OutputType::MWEB];
+        std::vector<AnyWalletUTXO> mweb_coins = coins[OutputType::MWEB];
         mweb_coins.erase(
             std::remove_if(
                 mweb_coins.begin(), mweb_coins.end(),
-                [](const GenericWalletUTXO& coin) { return coin.GetMWEB().coin.IsChange(); }
+                [](const AnyWalletUTXO& coin) { return coin.GetMWEB().coin.IsChange(); }
             ),
             mweb_coins.end()
         );
-        auto fn = [](const GenericWalletUTXO& utxo) { return utxo.GetValue(); };
+        auto fn = [](const AnyWalletUTXO& utxo) { return utxo.GetValue(); };
         ExpectAmounts(coins[OutputType::BECH32], fn, ltc, true);
         ExpectAmounts(mweb_coins, fn, mweb, true);
     }
 
-    GenericWalletUTXO SmallestCoin(const std::vector<GenericWalletUTXO>& coins)
+    AnyWalletUTXO SmallestCoin(const std::vector<AnyWalletUTXO>& coins)
     {
         BOOST_REQUIRE(!coins.empty());
-        return *std::min_element(coins.begin(), coins.end(), [](const GenericWalletUTXO& a, const GenericWalletUTXO& b) { return a.GetValue() < b.GetValue(); });
+        return *std::min_element(coins.begin(), coins.end(), [](const AnyWalletUTXO& a, const AnyWalletUTXO& b) { return a.GetValue() < b.GetValue(); });
     }
 
     static constexpr auto voutfn = [](const CTxOut& utxo) { return utxo.nValue; };
@@ -547,7 +547,7 @@ BOOST_AUTO_TEST_CASE(WalletSignTransactionFinalizesPureMWEBSpend)
     const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
     AddTx({{existing_mweb_addr, 5 * COIN, false}}, {}, std::nullopt);
 
-    const GenericWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
+    const AnyWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
     const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
     auto tx_result = BuildTx({{recipient_addr, 2 * COIN, false}}, {mweb_coin}, std::nullopt, false);
     BOOST_REQUIRE(tx_result);
@@ -574,8 +574,8 @@ BOOST_AUTO_TEST_CASE(MixedPeginSubtractFeeRefreshesPegInAmount)
     const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
     AddTx({{existing_mweb_addr, 5 * COIN, false}}, {}, std::nullopt);
 
-    const GenericWalletUTXO ltc_coin = SmallestCoin(AvailableLTCCoins());
-    const GenericWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
+    const AnyWalletUTXO ltc_coin = SmallestCoin(AvailableLTCCoins());
+    const AnyWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
     const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
 
     const CAmount selected_value = ltc_coin.GetValue() + mweb_coin.GetValue();

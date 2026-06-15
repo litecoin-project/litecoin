@@ -39,20 +39,20 @@ TxSize CalculateMaximumSignedTxSize(const CTransaction& tx, const CWallet* walle
  * allow easy interaction with the struct.
  */
 struct CoinsResult {
-    std::map<OutputType, std::vector<GenericWalletUTXO>> coins;
+    std::map<OutputType, std::vector<AnyWalletUTXO>> coins;
 
     /** Concatenate and return all COutputs as one vector */
-    std::vector<GenericWalletUTXO> All() const;
+    std::vector<AnyWalletUTXO> All() const;
 
-    const GenericWalletUTXO* Find(const GenericOutputID& output_idx) const;
+    const AnyWalletUTXO* Find(const AnyOutputID& output_idx) const;
 
     /** The following methods are provided so that CoinsResult can mimic a vector,
      * i.e., methods can work with individual OutputType vectors or on the entire object */
     size_t Size() const;
     void Clear();
-    void Erase(const std::set<GenericOutputID>& coins_to_remove);
+    void Erase(const std::set<AnyOutputID>& coins_to_remove);
     void Shuffle(FastRandomContext& rng_fast);
-    void Add(OutputType type, const GenericWalletUTXO& out);
+    void Add(OutputType type, const AnyWalletUTXO& out);
 
     /** Sum of all available coins */
     CAmount total_amount{0};
@@ -81,15 +81,15 @@ CAmount GetAvailableBalance(const CWallet& wallet, const CCoinControl* coinContr
 /**
  * Find non-change parent output.
  */
-bool FindNonChangeParentOutputDestination(const CWallet& wallet, const CWalletTx& wtx, const GenericOutputID& output_id, CTxDestination& dest) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
-bool FindNonChangeParentOutputDestination(const CWallet& wallet, const uint256& tx_hash, const GenericOutputID& output_id, CTxDestination& dest) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
+bool FindNonChangeParentOutputDestination(const CWallet& wallet, const CWalletTx& wtx, const AnyOutputID& output_id, CTxDestination& dest) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
+bool FindNonChangeParentOutputDestination(const CWallet& wallet, const uint256& tx_hash, const AnyOutputID& output_id, CTxDestination& dest) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 
 /**
  * Return list of available coins and locked coins grouped by non-change output address.
  */
-std::map<CTxDestination, std::vector<GenericWalletUTXO>> ListCoins(const CWallet& wallet) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
+std::map<CTxDestination, std::vector<AnyWalletUTXO>> ListCoins(const CWallet& wallet) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet);
 
-std::vector<OutputGroup> GroupOutputs(const CWallet& wallet, const std::vector<GenericWalletUTXO>& outputs, const CoinSelectionParams& coin_sel_params, const CoinEligibilityFilter& filter, bool positive_only);
+std::vector<OutputGroup> GroupOutputs(const CWallet& wallet, const std::vector<AnyWalletUTXO>& outputs, const CoinSelectionParams& coin_sel_params, const CoinEligibilityFilter& filter, bool positive_only);
 /**
  * Attempt to find a valid input set that preserves privacy by not mixing OutputTypes.
  * `ChooseSelectionResult()` will be called on each OutputType individually and the best
@@ -121,7 +121,7 @@ std::optional<SelectionResult> AttemptSelection(const CWallet& wallet, const CAm
  * returns                               If successful, a SelectionResult containing the input set
  *                                       If failed, a nullopt
  */
-std::optional<SelectionResult> ChooseSelectionResult(const CWallet& wallet, const CAmount& nTargetValue, const CoinEligibilityFilter& eligibility_filter, const std::vector<GenericWalletUTXO>& available_coins,
+std::optional<SelectionResult> ChooseSelectionResult(const CWallet& wallet, const CAmount& nTargetValue, const CoinEligibilityFilter& eligibility_filter, const std::vector<AnyWalletUTXO>& available_coins,
                         const CoinSelectionParams& coin_selection_params);
 
 /**

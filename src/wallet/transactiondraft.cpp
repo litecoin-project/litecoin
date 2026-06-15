@@ -153,14 +153,14 @@ FundTransactionResult TransactionDraft::FundTransaction(CWallet& wallet, const i
 
     // Fetch specified UTXOs from the UTXO set to get the scriptPubKeys and values of the outputs being selected
     // and to match with the given solving_data. Only used for non-wallet outputs.
-    std::map<GenericOutputID, GenericCoin> coins;
-    for (const GenericInput& input : tx.GetInputs()) {
+    std::map<AnyOutputID, AnyCoin> coins;
+    for (const AnyInput& input : tx.GetInputs()) {
         coins[input.GetID()]; // Create empty map entry keyed by prevout.
     }
     wallet.chain().findCoins(coins);
 
-    for (const GenericInput& input : tx.GetInputs()) {
-        const GenericOutputID input_idx = input.GetID();
+    for (const AnyInput& input : tx.GetInputs()) {
+        const AnyOutputID input_idx = input.GetID();
         if (wallet.IsMine(input_idx)) {
             // The input was found in the wallet, so select as internal
             coinControl.Select(input_idx);
@@ -188,7 +188,7 @@ FundTransactionResult TransactionDraft::FundTransaction(CWallet& wallet, const i
     tx.vout = res->tx.vout;
 
     // Add new txins while keeping original txin scriptSig/order.
-    for (const GenericInput& tx_input : res->tx.GetInputs()) {
+    for (const AnyInput& tx_input : res->tx.GetInputs()) {
         if (!coinControl.IsSelected(tx_input.GetID()) && !tx_input.IsMWEB()) {
             tx.vin.push_back(tx_input.GetTxIn());
         }

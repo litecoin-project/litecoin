@@ -149,7 +149,7 @@ struct CoinEligibilityFilter
 struct OutputGroup
 {
     /** The list of UTXOs contained in this output group. */
-    std::vector<GenericWalletUTXO> m_outputs;
+    std::vector<AnyWalletUTXO> m_outputs;
     /** Whether the UTXOs were sent by the wallet to itself. This is relevant because we may want at
      * least a certain number of confirmations on UTXOs received from outside wallets while trusting
      * our own UTXOs more. */
@@ -186,7 +186,7 @@ struct OutputGroup
         m_subtract_fee_outputs(params.m_subtract_fee_outputs)
     {}
 
-    void Insert(const GenericWalletUTXO& output, size_t ancestors, size_t descendants, bool positive_only);
+    void Insert(const AnyWalletUTXO& output, size_t ancestors, size_t descendants, bool positive_only);
     bool EligibleForSpending(const CoinEligibilityFilter& eligibility_filter, const TxType& tx_type) const;
     CAmount GetSelectionAmount() const;
 
@@ -219,7 +219,7 @@ struct OutputGroup
  * @param[in] use_effective_value Whether to use the input's effective value (when true) or the real value (when false).
  * @return The waste
  */
-[[nodiscard]] CAmount GetSelectionWaste(const std::set<GenericWalletUTXO>& inputs, CAmount change_cost, CAmount target, bool use_effective_value = true);
+[[nodiscard]] CAmount GetSelectionWaste(const std::set<AnyWalletUTXO>& inputs, CAmount change_cost, CAmount target, bool use_effective_value = true);
 
 
 /** Choose a random change target for each transaction to make it harder to fingerprint the Core
@@ -252,7 +252,7 @@ struct SelectionResult
 {
 private:
     /** Set of inputs selected by the algorithm to use in the transaction */
-    std::set<GenericWalletUTXO> m_selected_inputs;
+    std::set<AnyWalletUTXO> m_selected_inputs;
     /** The target the algorithm selected for. Equal to the recipient amount plus non-input fees */
     CAmount m_target;
     /** The algorithm used to produce this result */
@@ -284,9 +284,9 @@ public:
     void Merge(const SelectionResult& other);
 
     /** Get m_selected_inputs */
-    const std::set<GenericWalletUTXO>& GetInputSet() const;
+    const std::set<AnyWalletUTXO>& GetInputSet() const;
     /** Get the vector of COutputs that will be used to fill in a CTransaction's vin */
-    std::vector<GenericWalletUTXO> GetShuffledInputVector() const;
+    std::vector<AnyWalletUTXO> GetShuffledInputVector() const;
 
     bool operator<(SelectionResult other) const;
 

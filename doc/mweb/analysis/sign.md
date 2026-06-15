@@ -14,7 +14,7 @@ There are 2 `SignTransaction` functions in `CWallet`. They are both public, with
 
 1. `SignTransaction(mtx, coins, sighash, input_errors)` just calls `SignTransaction` for each spkman.
 ```cpp
-bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const
+bool CWallet::SignTransaction(CMutableTransaction& tx, const std::map<AnyOutputID, AnyCoin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const
 {
     // Try to sign with all ScriptPubKeyMans
     for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
@@ -37,10 +37,10 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
     AssertLockHeld(cs_wallet);
 
     // Build coins map
-    std::map<GenericOutputID, GenericCoin> coins;
-    for (const GenericInput& tx_input : tx.GetInputs()) {
+    std::map<AnyOutputID, AnyCoin> coins;
+    for (const AnyInput& tx_input : tx.GetInputs()) {
         const CWalletTx* wtx = FindPrevTx(tx_input);
-        GenericOutputID input_id = tx_input.GetID();
+        AnyOutputID input_id = tx_input.GetID();
         if (wtx == nullptr || !wtx->HasOutput(input_id)) {
             return false;
         }
@@ -51,7 +51,7 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
         } else {
             const COutPoint& outpoint = input_id.ToOutPoint();
             const bool is_pegout = wtx->IsHogEx(); // If the previous tx was a hogex, the coin must have been a pegout
-            coins[input_id] = GenericCoin(outpoint, Coin(wtx->tx->vout[outpoint.n], prev_height, wtx->IsCoinBase(), is_pegout)); 
+            coins[input_id] = AnyCoin(outpoint, Coin(wtx->tx->vout[outpoint.n], prev_height, wtx->IsCoinBase(), is_pegout));
         }
     }
     std::map<int, bilingual_str> input_errors;
@@ -65,7 +65,7 @@ bool CWallet::SignTransaction(CMutableTransaction& tx) const
 
 1. `LegacyScriptPubKeyMan::SignTransaction` - Simple passthrough to `::SignTransaction()`:
 ```cpp
-bool LegacyScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const
+bool LegacyScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const std::map<AnyOutputID, AnyCoin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const
 {
     return ::SignTransaction(tx, this, coins, sighash, input_errors);
 }
@@ -74,7 +74,7 @@ bool LegacyScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const std::
 
 2. `DescriptorScriptPubKeyMan::SignTransaction` - Loads signing providers, merges keys, then calls `::SignTransaction()`:
 ```cpp
-bool DescriptorScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const
+bool DescriptorScriptPubKeyMan::SignTransaction(CMutableTransaction& tx, const std::map<AnyOutputID, AnyCoin>& coins, int sighash, std::map<int, bilingual_str>& input_errors) const
 {
     std::unique_ptr<FlatSigningProvider> keys = std::make_unique<FlatSigningProvider>();
     for (const auto& coin_pair : coins) {
@@ -104,7 +104,7 @@ Logic:
 3. Verify scripts/signatures
 
 ```cpp
-bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<GenericOutputID, GenericCoin>& coins, int nHashType, std::map<int, bilingual_str>& input_errors)
+bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<AnyOutputID, AnyCoin>& coins, int nHashType, std::map<int, bilingual_str>& input_errors)
 {
     bool fHashSingle = ((nHashType & ~SIGHASH_ANYONECANPAY) == SIGHASH_SINGLE);
 

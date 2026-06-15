@@ -300,8 +300,8 @@ public:
     bool WriteDescriptorCacheItems(const uint256& desc_id, const DescriptorCache& cache);
     bool WriteMWEBNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t next_index);
 
-    bool WriteLockedUTXO(const GenericOutputID& output);
-    bool EraseLockedUTXO(const GenericOutputID& output);
+    bool WriteLockedUTXO(const AnyOutputID& output);
+    bool EraseLockedUTXO(const AnyOutputID& output);
 
     /// Write destination data key,value tuple to database
     bool WriteDestData(const std::string &address, const std::string &key, const std::string &value);

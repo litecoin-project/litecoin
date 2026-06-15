@@ -70,7 +70,7 @@ public:
      *
      * @see https://gcc.gnu.org/onlinedocs/gcc-9.2.0/libstdc++/manual/manual/unordered_associative.html
      */
-    size_t operator()(const GenericOutputID& output_id) const noexcept {
+    size_t operator()(const AnyOutputID& output_id) const noexcept {
         if (output_id.IsMWEB()) {
             return SipHashUint256(k0, k1, uint256(output_id.ToMWEB().vec()));
         } else {
