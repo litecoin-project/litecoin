@@ -1184,9 +1184,9 @@ void UpdatePSBTOutput(const SigningProvider& provider, PartiallySignedTransactio
     psbt_out.FromSignatureData(sigdata);
 }
 
-util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys, const SecretKey& rewind_key, const mw::SenderKeyGenerator& generate_sender_key)
+util::Result<std::map<mw::Hash, mw::WalletCoin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys, const SecretKey& rewind_key, const mw::SenderKeyGenerator& generate_sender_key)
 {
-    std::map<mw::Hash, mw::Coin> coins_by_output_id;
+    std::map<mw::Hash, mw::WalletCoin> wallet_coins_by_output_id;
 
     // Finalize MWEB outputs and kernels
     CMutableTransaction mtx = psbtx.GetUnsignedTx();
@@ -1213,7 +1213,7 @@ util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransac
 
     ClearTxModifiable(psbtx);
 
-    coins_by_output_id = mweb_result->coins_by_output_id;
+    wallet_coins_by_output_id = mweb_result->wallet_coins_by_output_id;
 
     size_t idx = 0;
     for (PSBTInput& psbt_input : psbtx.inputs) {
@@ -1288,7 +1288,7 @@ util::Result<std::map<mw::Hash, mw::Coin>> PSBTSignMWEBTx(PartiallySignedTransac
     psbtx.mweb_tx_offset = mtx.mweb_tx.kernel_offset.IsNull() ? std::nullopt : std::make_optional(mtx.mweb_tx.kernel_offset);
     psbtx.mweb_stealth_offset = mtx.mweb_tx.stealth_offset.IsNull() ? std::nullopt : std::make_optional(mtx.mweb_tx.stealth_offset);
 
-    return coins_by_output_id;
+    return wallet_coins_by_output_id;
 }
 
 PrecomputedTransactionData PrecomputePSBTData(const PartiallySignedTransaction& psbt)

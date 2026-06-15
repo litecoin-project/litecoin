@@ -268,7 +268,7 @@ void TxBuilder::AddInputs(const std::vector<GenericWalletUTXO>& shuffled_inputs)
     const uint32_t nSequence{m_coin_control.m_signal_bip125_rbf.value_or(m_wallet.m_signal_rbf) ? MAX_BIP125_RBF_SEQUENCE : CTxIn::MAX_SEQUENCE_NONFINAL};
     for (const GenericWalletUTXO& utxo : shuffled_inputs) {
         if (utxo.IsMWEB()) {
-            m_tx.mweb_tx.inputs.push_back(mw::MutableInput::FromCoin(utxo.GetMWEB().coin));
+            m_tx.mweb_tx.inputs.push_back(mw::MutableInput::FromWalletCoin(utxo.GetMWEB().coin));
         } else {
             m_tx.vin.push_back(CTxIn(utxo.GetID().ToOutPoint(), CScript(), nSequence));
         }
@@ -622,8 +622,8 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
     }
 
     // Stage all signed coins so output amounts are available once the tx is committed.
-    if (!sign_tx_result->coins_by_output_id.empty()) {
-        m_wallet.GetMWWallet()->StageCoins(sign_tx_result->coins_by_output_id);
+    if (!sign_tx_result->wallet_coins_by_output_id.empty()) {
+        m_wallet.GetMWWallet()->StageWalletCoins(sign_tx_result->wallet_coins_by_output_id);
     }
     m_wallet.GetMWWallet()->StageOutputAddresses(GetMWEBOutputAddresses(m_tx.mweb_tx));
 

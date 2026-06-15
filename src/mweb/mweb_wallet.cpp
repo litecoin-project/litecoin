@@ -15,7 +15,7 @@ using namespace MWEB;
 namespace {
 static constexpr uint64_t SENDER_KEY_LOOKAHEAD = 1000;
 
-void MergeSenderMetadata(mw::Coin& target, const mw::Coin& source)
+void MergeSenderMetadata(mw::WalletCoin& target, const mw::WalletCoin& source)
 {
     if (source.sender_key && !target.sender_key) {
         target.sender_key = source.sender_key;
@@ -34,7 +34,7 @@ void MergeSenderMetadata(mw::Coin& target, const mw::Coin& source)
     }
 }
 
-std::optional<SecretKey> DeriveSharedSecretFromSenderData(const mw::Coin& coin, const StealthAddress& address)
+std::optional<SecretKey> DeriveSharedSecretFromSenderData(const mw::WalletCoin& coin, const StealthAddress& address)
 {
     if (!coin.sender_key || coin.amount < 0 || !MoneyRange(coin.amount)) {
         return std::nullopt;
@@ -71,8 +71,8 @@ void Wallet::UpgradeCoins(const mw::Keychain::Ptr& keychain)
         wallet::CWalletTx* wtx = &entry.second;
         RewindOutputs(*wtx->tx);
 
-        if (wtx->mweb_wtx_info && wtx->mweb_wtx_info->received_coin) {
-            mw::Coin& coin = *wtx->mweb_wtx_info->received_coin;
+        if (wtx->mweb_wtx_info && wtx->mweb_wtx_info->received_wallet_coin) {
+            mw::WalletCoin& coin = *wtx->mweb_wtx_info->received_wallet_coin;
             if (!coin.HasSpendKey()) {
                 coin.spend_key = keychain->CalculateOutputSpendKey(coin);
 
@@ -81,7 +81,7 @@ void Wallet::UpgradeCoins(const mw::Keychain::Ptr& keychain)
                     m_coins[coin.output_id] = coin;
 
                     wallet::WalletBatch batch(m_pWallet->GetDatabase());
-                    batch.WriteMWEBCoin(coin);
+                    batch.WriteMWEBWalletCoin(coin);
                     batch.WriteTx(*wtx);
                     m_pWallet->MarkDirty();
                 }
@@ -90,13 +90,13 @@ void Wallet::UpgradeCoins(const mw::Keychain::Ptr& keychain)
     }
 }
 
-std::vector<mw::Coin> Wallet::RewindOutputs(const CTransaction& tx)
+std::vector<mw::WalletCoin> Wallet::RewindOutputs(const CTransaction& tx)
 {
-    std::vector<mw::Coin> coins;
+    std::vector<mw::WalletCoin> coins;
 
     if (tx.HasMWEBTx()) {
         for (const mw::Output& output : tx.mweb_tx.m_transaction->GetOutputs()) {
-            mw::Coin mweb_coin;
+            mw::WalletCoin mweb_coin;
             if (RewindOutput(output, mweb_coin)) {
                 coins.push_back(mweb_coin);
             }
@@ -106,14 +106,14 @@ std::vector<mw::Coin> Wallet::RewindOutputs(const CTransaction& tx)
     return coins;
 }
 
-bool Wallet::RewindOutput(const mw::Output& output, mw::Coin& coin)
+bool Wallet::RewindOutput(const mw::Output& output, mw::WalletCoin& coin)
 {
     coin.Reset();
-    mw::Coin sent_coin;
+    mw::WalletCoin sent_coin;
     const bool sent_by_me = RewindOutputSentByMe(output, sent_coin);
 
-    mw::Coin existing_coin;
-    if (GetCoin(output.GetOutputID(), existing_coin)) {
+    mw::WalletCoin existing_coin;
+    if (GetWalletCoin(output.GetOutputID(), existing_coin)) {
         coin = existing_coin;
 
         if (sent_by_me) {
@@ -128,16 +128,16 @@ bool Wallet::RewindOutput(const mw::Output& output, mw::Coin& coin)
         }
 
         if (coin.IsMine()) {
-            UpgradeCoinSpendKey(coin);
+            UpgradeWalletCoinSpendKey(coin);
             m_coins[coin.output_id] = coin;
-            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBCoin(coin);
+            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
             m_pWallet->MarkDirty();
             return true;
         }
 
         if (sent_by_me) {
             m_coins[coin.output_id] = coin;
-            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBCoin(coin);
+            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
             m_pWallet->MarkDirty();
             return false;
         }
@@ -147,10 +147,10 @@ bool Wallet::RewindOutput(const mw::Output& output, mw::Coin& coin)
         if (keychain->RewindOutput(output, coin)) {
             if (sent_by_me) {
                 MergeSenderMetadata(coin, sent_coin);
-                UpgradeCoinSpendKey(coin);
+                UpgradeWalletCoinSpendKey(coin);
             }
             m_coins[coin.output_id] = coin;
-            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBCoin(coin);
+            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
             m_pWallet->MarkDirty();
             return true;
         }
@@ -160,13 +160,13 @@ bool Wallet::RewindOutput(const mw::Output& output, mw::Coin& coin)
         coin = sent_coin;
         if (RecoverOwnedOutputFromSenderData(output, coin)) {
             m_coins[coin.output_id] = coin;
-            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBCoin(coin);
+            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
             m_pWallet->MarkDirty();
             return true;
         }
 
         m_coins[coin.output_id] = coin;
-        wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBCoin(coin);
+        wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
         m_pWallet->MarkDirty();
     }
 
@@ -186,7 +186,7 @@ bool Wallet::IsChange(const StealthAddress& address) const
     return false;
 }
 
-bool Wallet::GetStealthAddress(const mw::Coin& coin, StealthAddress& address) const
+bool Wallet::GetStealthAddress(const mw::WalletCoin& coin, StealthAddress& address) const
 {
     if (coin.HasAddress()) {
         address = *coin.address;
@@ -225,23 +225,23 @@ bool Wallet::GetStealthAddress(const uint32_t index, StealthAddress& address) co
     return true;
 }
 
-void Wallet::LoadToWallet(const mw::Coin& coin)
+void Wallet::LoadToWallet(const mw::WalletCoin& coin)
 {
     m_coins[coin.output_id] = coin;
 }
 
-void Wallet::SaveToWallet(const std::vector<mw::Coin>& coins)
+void Wallet::SaveToWallet(const std::vector<mw::WalletCoin>& coins)
 {
     wallet::WalletBatch batch(m_pWallet->GetDatabase());
-    for (const mw::Coin& coin : coins) {
+    for (const mw::WalletCoin& coin : coins) {
         m_coins[coin.output_id] = coin;
-        batch.WriteMWEBCoin(coin);
+        batch.WriteMWEBWalletCoin(coin);
     }
 }
 
-void Wallet::StageCoins(const std::map<mw::Hash, mw::Coin>& coins_by_output_id)
+void Wallet::StageWalletCoins(const std::map<mw::Hash, mw::WalletCoin>& wallet_coins_by_output_id)
 {
-    for (const auto& [output_id, coin] : coins_by_output_id) {
+    for (const auto& [output_id, coin] : wallet_coins_by_output_id) {
         m_staged_coins[output_id] = coin;
     }
 }
@@ -251,7 +251,7 @@ void Wallet::StageOutputAddresses(const std::map<mw::Hash, StealthAddress>& addr
     for (const auto& [output_id, address] : addresses_by_output_id) {
         auto staged_coin = m_staged_coins.find(output_id);
         if (staged_coin != m_staged_coins.end()) {
-            mw::Coin& coin = staged_coin->second;
+            mw::WalletCoin& coin = staged_coin->second;
             coin.address = address;
             if (IsChange(address)) {
                 coin.address_index = mw::CHANGE_INDEX;
@@ -274,7 +274,7 @@ void Wallet::StageOutputAddresses(const std::map<mw::Hash, StealthAddress>& addr
                 if (!coin.shared_secret) {
                     coin.shared_secret = DeriveSharedSecretFromSenderData(coin, address);
                 }
-                UpgradeCoinSpendKey(coin);
+                UpgradeWalletCoinSpendKey(coin);
             }
         }
     }
@@ -290,13 +290,13 @@ void Wallet::SaveStagedCoinsToWallet(const std::set<mw::Hash>& output_ids)
         }
 
         m_coins[output_id] = iter->second;
-        batch.WriteMWEBCoin(iter->second);
+        batch.WriteMWEBWalletCoin(iter->second);
         m_pWallet->MarkDirty();
         m_staged_coins.erase(iter);
     }
 }
 
-bool Wallet::GetCoin(const mw::Hash& output_id, mw::Coin& coin) const
+bool Wallet::GetWalletCoin(const mw::Hash& output_id, mw::WalletCoin& coin) const
 {
     auto iter = m_coins.find(output_id);
     if (iter != m_coins.end()) {
@@ -429,7 +429,7 @@ bool Wallet::AdvanceNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t
     return true;
 }
 
-bool Wallet::RewindOutputSentByMe(const mw::Output& output, mw::Coin& coin)
+bool Wallet::RewindOutputSentByMe(const mw::Output& output, mw::WalletCoin& coin)
 {
     const std::optional<SenderKeyMatch> match = FindSenderKey(output.GetSenderPubKey());
     if (!match) {
@@ -473,7 +473,7 @@ bool Wallet::RewindOutputSentByMe(const mw::Output& output, mw::Coin& coin)
     return true;
 }
 
-bool Wallet::RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::Coin& coin) const
+bool Wallet::RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::WalletCoin& coin) const
 {
     if (!coin.HasSharedSecret()) {
         return false;
@@ -499,14 +499,14 @@ bool Wallet::RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::Coin
         coin.address = address;
         coin.address_index = *address_index;
         coin.master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
-        UpgradeCoinSpendKey(coin);
+        UpgradeWalletCoinSpendKey(coin);
         return true;
     }
 
     return false;
 }
 
-bool Wallet::UpgradeCoinSpendKey(mw::Coin& coin) const
+bool Wallet::UpgradeWalletCoinSpendKey(mw::WalletCoin& coin) const
 {
     if (coin.HasSpendKey()) {
         return true;

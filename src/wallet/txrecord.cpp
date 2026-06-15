@@ -102,9 +102,9 @@ std::string WalletTxRecord::GetTxString() const
     assert(m_wtx != nullptr);
 
     if (m_wtx->IsPartialMWEB()) {
-        if (m_wtx->mweb_wtx_info->received_coin) {
-            const mw::Coin& received_coin = *m_wtx->mweb_wtx_info->received_coin;
-            return strprintf("MWEB Output(ID=%s, amount=%d)", received_coin.output_id.ToHex(), received_coin.amount);
+        if (m_wtx->mweb_wtx_info->received_wallet_coin) {
+            const mw::WalletCoin& received_wallet_coin = *m_wtx->mweb_wtx_info->received_wallet_coin;
+            return strprintf("MWEB Output(ID=%s, amount=%d)", received_wallet_coin.output_id.ToHex(), received_wallet_coin.amount);
         } else if (m_wtx->mweb_wtx_info->spent_input) {
             return strprintf("MWEB Input(ID=%s)\n", m_wtx->mweb_wtx_info->spent_input->ToHex());
         }

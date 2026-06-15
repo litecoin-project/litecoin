@@ -164,7 +164,7 @@ bool WalletBatch::WriteCScript(const uint160& hash, const CScript& redeemScript)
     return WriteIC(std::make_pair(DBKeys::CSCRIPT, hash), redeemScript, false);
 }
 
-bool WalletBatch::WriteMWEBCoin(const mw::Coin& coin)
+bool WalletBatch::WriteMWEBWalletCoin(const mw::WalletCoin& coin)
 {
     return WriteIC(std::make_pair(DBKeys::COIN, coin.output_id), coin, true);
 }
@@ -463,7 +463,7 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 return false;
             }
         } else if (strType == DBKeys::COIN) {
-            mw::Coin coin;
+            mw::WalletCoin coin;
             ssValue >> coin;
             pwallet->GetMWWallet()->LoadToWallet(coin);
             return true;

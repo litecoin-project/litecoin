@@ -2,7 +2,7 @@
 
 #include <mw/models/crypto/SecretKey.h>
 #include <mw/models/tx/Output.h>
-#include <mw/models/wallet/Coin.h>
+#include <mw/models/wallet/WalletCoin.h>
 #include <mw/models/wallet/StealthAddress.h>
 #include <cstdint>
 #include <memory>
@@ -34,13 +34,13 @@ public:
     // will not be able to calculate the coin's output key.
     // It will still calculate the shared_secret though, which can be
     // used to calculate the spend key when the wallet becomes unlocked.
-    bool RewindOutput(const mw::Output& output, mw::Coin& coin) const;
+    bool RewindOutput(const mw::Output& output, mw::WalletCoin& coin) const;
 
     // Calculates the output secret key for the given coin.
     // If the address is known, it first attempts to lookup the subaddress spend key in the wallet DB.
     // Otherwise, if the address index is known, it calculates from the keychain's master spend key.
     // Returns std::nullopt when the required private key is unavailable.
-    std::optional<SecretKey> CalculateOutputSpendKey(const mw::Coin& coin) const;
+    std::optional<SecretKey> CalculateOutputSpendKey(const mw::WalletCoin& coin) const;
 
     // Calculates the StealthAddress at the given index.
     // Requires that keychain be unlocked and not watch-only.

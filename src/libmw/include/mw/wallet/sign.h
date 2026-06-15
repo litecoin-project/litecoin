@@ -3,7 +3,7 @@
 #include <mw/common/Macros.h>
 #include <mw/models/crypto/SecretKey.h>
 #include <mw/models/tx/Transaction.h>
-#include <mw/models/wallet/Coin.h>
+#include <mw/models/wallet/WalletCoin.h>
 
 #include <coins.h>
 #include <primitives/transaction.h>
@@ -17,8 +17,8 @@ using SenderKeyGenerator = std::function<util::Result<SecretKey>()>;
 
 struct SignTxResult
 {
-    //! Contains a mw::Coin for each output that was signed for the MutableTx, mapped to the output's ID.
-    std::map<mw::Hash, mw::Coin> coins_by_output_id;
+    //! Contains a mw::WalletCoin for each output that was signed for the MutableTx, mapped to the output's ID.
+    std::map<mw::Hash, mw::WalletCoin> wallet_coins_by_output_id;
 };
 
 /// <summary>

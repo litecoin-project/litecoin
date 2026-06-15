@@ -4,7 +4,7 @@
 
 #include <key_io.h>
 #include <mw/models/tx/Output.h>
-#include <mw/models/wallet/Coin.h>
+#include <mw/models/wallet/WalletCoin.h>
 #include <mw/models/wallet/StealthAddress.h>
 #include <validation.h>
 #include <wallet/scriptpubkeyman.h>
@@ -179,11 +179,11 @@ public:
         return *m_wallet.GetMWWallet();
     }
 
-    mw::Coin GetMWEBWalletCoin(const mw::Hash& output_id)
+    mw::WalletCoin GetMWEBWalletCoin(const mw::Hash& output_id)
     {
         LOCK(m_wallet.cs_wallet);
-        mw::Coin coin;
-        BOOST_REQUIRE(m_wallet.GetCoin(output_id, coin));
+        mw::WalletCoin coin;
+        BOOST_REQUIRE(m_wallet.GetMWEBWalletCoin(output_id, coin));
         return coin;
     }
 
@@ -534,7 +534,7 @@ BOOST_AUTO_TEST_CASE(MWEBSentExternalOutputKeepsRecipientAddress)
     const std::optional<mw::Hash> output_id = recipient_output->CalcOutputID();
     BOOST_REQUIRE(output_id.has_value());
 
-    const mw::Coin coin = GetMWEBWalletCoin(*output_id);
+    const mw::WalletCoin coin = GetMWEBWalletCoin(*output_id);
     BOOST_REQUIRE(coin.address.has_value());
     BOOST_CHECK(*coin.address == recipient_addr);
 
@@ -636,7 +636,7 @@ BOOST_AUTO_TEST_CASE(MWEBSenderKeyScanAdvancesNextIndex)
         std::vector<uint8_t>{}
     );
 
-    mw::Coin coin;
+    mw::WalletCoin coin;
     BOOST_CHECK(!MWEBWallet().RewindOutput(output, coin));
     BOOST_CHECK(!coin.IsMine());
     BOOST_REQUIRE(coin.sender_key.has_value());
@@ -645,8 +645,8 @@ BOOST_AUTO_TEST_CASE(MWEBSenderKeyScanAdvancesNextIndex)
     BOOST_REQUIRE(coin.blind.has_value());
     BOOST_REQUIRE(coin.shared_secret.has_value());
 
-    mw::Coin stored_coin;
-    BOOST_REQUIRE(MWEBWallet().GetCoin(output.GetOutputID(), stored_coin));
+    mw::WalletCoin stored_coin;
+    BOOST_REQUIRE(MWEBWallet().GetWalletCoin(output.GetOutputID(), stored_coin));
     BOOST_CHECK(stored_coin == coin);
 
     util::Result<SecretKey> next_sender_key = MWEBWallet().GenerateSenderKey();

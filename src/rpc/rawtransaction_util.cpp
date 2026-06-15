@@ -289,7 +289,6 @@ void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keyst
     }
 }
 
-// MW: TODO - input_errors should be keyed by GenericOutputID
 void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<GenericOutputID, GenericCoin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result)
 {
     // Make errors UniValue

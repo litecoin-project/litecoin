@@ -188,7 +188,7 @@ public:
     int64_t nOrderPos; //!< position in ordered transaction list
     std::multimap<int64_t, CWalletTx*>::const_iterator m_it_wtxOrdered;
     
-    std::optional<MWEB::WalletTxInfo> mweb_wtx_info; // MWEB: Received mw::Coin or Hash of spent MWEB coin
+    std::optional<MWEB::WalletTxInfo> mweb_wtx_info; // MWEB: Received mw::WalletCoin or Hash of spent MWEB coin
     std::vector<std::pair<mw::Hash, size_t>> pegout_indices; // MWEB: For HogEx transactions, output indices of pegouts belonging to this wallet
 
     // memory only
@@ -345,8 +345,8 @@ public:
             output_ids.push_back(output.GetID());
         }
 
-        if (include_partial_mweb && mweb_wtx_info && mweb_wtx_info->received_coin) {
-            output_ids.push_back(mweb_wtx_info->received_coin->output_id);
+        if (include_partial_mweb && mweb_wtx_info && mweb_wtx_info->received_wallet_coin) {
+            output_ids.push_back(mweb_wtx_info->received_wallet_coin->output_id);
         }
 
         return output_ids;
@@ -356,8 +356,8 @@ public:
     std::vector<GenericOutput> GetOutputs() const
     {
         std::vector<GenericOutput> outputs = tx->GetOutputs();
-        if (mweb_wtx_info && mweb_wtx_info->received_coin) {
-            // MW: TODO - outputs.push_back(GenericOutput{mweb_wtx_info->received_coin->output_id});
+        if (mweb_wtx_info && mweb_wtx_info->received_wallet_coin) {
+            // MW: TODO - outputs.push_back(GenericOutput{mweb_wtx_info->received_wallet_coin->output_id});
         }
 
         return outputs;
@@ -371,7 +371,7 @@ public:
     // MW: TODO - Rename this and provide accurate description
     bool HasPartialMWEBReceive() const
     {
-        return mweb_wtx_info && mweb_wtx_info->received_coin;
+        return mweb_wtx_info && mweb_wtx_info->received_wallet_coin;
     }
 
     // Disable copying of CWalletTx objects to prevent bugs where instances get

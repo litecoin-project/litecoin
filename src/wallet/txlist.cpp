@@ -133,7 +133,7 @@ void TxList::List_Credit(std::vector<WalletTxRecord>& tx_records, const CWalletT
     }
 
     if (wtx.HasPartialMWEBReceive()) {
-        const mw::Coin& mweb_coin = *wtx.mweb_wtx_info->received_coin;
+        const mw::WalletCoin& mweb_coin = *wtx.mweb_wtx_info->received_wallet_coin;
 
         wallet::isminetype ismine = m_wallet.IsMine(mweb_coin.output_id);
         if (ismine & filter_ismine) {
@@ -280,8 +280,8 @@ GenericAddress TxList::GetAddress(const GenericOutput& output)
         return output.GetTxOut().scriptPubKey;
     }
 
-    mw::Coin coin;
-    if (m_wallet.GetCoin(output.ToMWEBOutputID(), coin)) {
+    mw::WalletCoin coin;
+    if (m_wallet.GetMWEBWalletCoin(output.ToMWEBOutputID(), coin)) {
         StealthAddress addr;
         if (m_wallet.GetMWWallet()->GetStealthAddress(coin, addr)) {
             return addr;

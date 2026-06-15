@@ -7,7 +7,7 @@
 
 MW_NAMESPACE
 
-bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
+bool Keychain::RewindOutput(const mw::Output& output, mw::WalletCoin& coin) const
 {
     if (!m_spk_man) {
         return false;
@@ -65,7 +65,7 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::Coin& coin) const
     return true;
 }
 
-std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::Coin& coin) const
+std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::WalletCoin& coin) const
 {
     // If we already calculated the spend key, there's no need to calculate it again.
     if (coin.HasSpendKey()) {

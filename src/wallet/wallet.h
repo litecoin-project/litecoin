@@ -899,7 +899,7 @@ public:
 
     // MWEB: BEGIN
     bool CompleteMWEBInputData(CMutableTransaction& tx, const std::map<GenericOutputID, GenericCoin>& coins = {}) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
-    bool GetCoin(const mw::Hash& output_id, mw::Coin& coin) const;
+    bool GetMWEBWalletCoin(const mw::Hash& output_id, mw::WalletCoin& coin) const;
 
     CAmount GetValue(const CWalletTx& wtx, const GenericOutputID& output_id) const;
     CAmount GetValue(const GenericOutputID& output_id) const;

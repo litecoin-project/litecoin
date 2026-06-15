@@ -1466,7 +1466,7 @@ RPCHelpMan sendall()
                     }
 
                     if (output.IsMWEB()) {
-                        draft.tx.mweb_tx.inputs.push_back(mw::MutableInput::FromCoin(output.GetMWEB().coin));
+                        draft.tx.mweb_tx.inputs.push_back(mw::MutableInput::FromWalletCoin(output.GetMWEB().coin));
                     } else {
                         CTxIn input(output.GetTxHash(), output.GetID().ToOutPoint().n, CScript(), rbf ? MAX_BIP125_RBF_SEQUENCE : CTxIn::SEQUENCE_FINAL);
                         draft.tx.vin.push_back(std::move(input));

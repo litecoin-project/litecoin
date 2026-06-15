@@ -35,7 +35,7 @@ static constexpr uint32_t UNKNOWN_INDEX{std::numeric_limits<uint32_t>::max()};
 /// <summary>
 /// Represents an output owned by the wallet, or one sent by the wallet.
 /// </summary>
-struct Coin : public Traits::ISerializable {
+struct WalletCoin : public Traits::ISerializable {
     static constexpr uint8_t LATEST_VERSION = 3;
 
     // Index of the subaddress this coin was received at.
@@ -72,7 +72,7 @@ struct Coin : public Traits::ISerializable {
     // The id the master scan key used to generate the stealth address.
     std::optional<CKeyID> master_scan_key_id;
 
-    bool operator==(const Coin& rhs) const
+    bool operator==(const WalletCoin& rhs) const
     {
         return std::tie(address_index, spend_key, blind, amount, output_id, sender_key, address, shared_secret, master_scan_key_id) ==
             std::tie(rhs.address_index, rhs.spend_key, rhs.blind, rhs.amount, rhs.output_id, rhs.sender_key, rhs.address, rhs.shared_secret, rhs.master_scan_key_id);
@@ -124,13 +124,13 @@ struct Coin : public Traits::ISerializable {
     //  - bool has_master_key_id
     //    * byte[20] master_scan_key_id - skip if has_master_key_id is false
     //
-    IMPL_SERIALIZABLE(Coin, obj)
+    IMPL_SERIALIZABLE(WalletCoin, obj)
     {
         // Always serialize using the latest version
         uint8_t version = LATEST_VERSION;
         READWRITE(version);
         if (version > LATEST_VERSION) {
-            throw std::ios_base::failure("Unsupported Coin version");
+            throw std::ios_base::failure("Unsupported WalletCoin version");
         }
 
         READWRITE(VARINT(obj.address_index));

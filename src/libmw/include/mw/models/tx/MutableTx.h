@@ -1,7 +1,7 @@
 #pragma once
 
 #include <mw/models/tx/Transaction.h>
-#include <mw/models/wallet/Coin.h>
+#include <mw/models/wallet/WalletCoin.h>
 #include <mw/models/wallet/StealthAddress.h>
 #include <optional>
 
@@ -44,7 +44,7 @@ struct MutableInput {
         return input;
     }
 
-    static MutableInput FromCoin(const mw::Coin& coin)
+    static MutableInput FromWalletCoin(const mw::WalletCoin& coin)
     {
         MutableInput input(coin.output_id);
         input.amount = coin.amount;

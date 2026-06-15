@@ -181,7 +181,7 @@ static constexpr std::array<DerivationVector, 4> DERIVATION_VECTORS{{
 }};
 
 void CheckRewoundCoin(
-    const mw::Coin& coin,
+    const mw::WalletCoin& coin,
     const mw::Output& output,
     const uint32_t address_index,
     const uint64_t amount,
@@ -208,9 +208,9 @@ void CheckRewoundCoin(
 
 void CheckNotRewound(const mw::Keychain& keychain, const mw::Output& output)
 {
-    mw::Coin coin;
+    mw::WalletCoin coin;
     coin.Reset();
-    mw::Coin unchanged;
+    mw::WalletCoin unchanged;
     unchanged.Reset();
 
     BOOST_CHECK(!keychain.RewindOutput(output, coin));
@@ -311,7 +311,7 @@ BOOST_AUTO_TEST_CASE(RewindOutput_OwnedKeychainOutputs)
 
     for (const uint64_t amount : {AMOUNT_ZERO, AMOUNT_ONE, AMOUNT_LARGE}) {
         const mw::Output output = CreateOutput(address, amount);
-        mw::Coin coin;
+        mw::WalletCoin coin;
         coin.Reset();
         BOOST_REQUIRE(full_keychain.RewindOutput(output, coin));
         CheckRewoundCoin(coin, output, TEST_ADDRESS_INDEX, amount, address, /*expect_spend_key=*/true);
@@ -319,13 +319,13 @@ BOOST_AUTO_TEST_CASE(RewindOutput_OwnedKeychainOutputs)
 
     const mw::Output output = CreateOutput(address, AMOUNT_LARGE);
     mw::Keychain spend_pubkey_only(&spk_man, ScanSecret(), PublicKey::From(SpendSecret()));
-    mw::Coin watch_only_coin;
+    mw::WalletCoin watch_only_coin;
     watch_only_coin.Reset();
     BOOST_REQUIRE(spend_pubkey_only.RewindOutput(output, watch_only_coin));
     CheckRewoundCoin(watch_only_coin, output, TEST_ADDRESS_INDEX, AMOUNT_LARGE, address, /*expect_spend_key=*/false);
 
     mw::Keychain scan_only(&spk_man, ScanSecret(), std::optional<PublicKey>{std::nullopt});
-    mw::Coin scan_only_coin;
+    mw::WalletCoin scan_only_coin;
     scan_only_coin.Reset();
     BOOST_REQUIRE(scan_only.RewindOutput(output, scan_only_coin));
     CheckRewoundCoin(scan_only_coin, output, TEST_ADDRESS_INDEX, AMOUNT_LARGE, address, /*expect_spend_key=*/false);
@@ -342,7 +342,7 @@ BOOST_AUTO_TEST_CASE(RewindOutput_CustomKeyOutputs)
         spk_man.AddMetadata(custom_address, std::nullopt);
 
         mw::Keychain keychain(&spk_man, ScanSecret(), std::optional<PublicKey>{std::nullopt});
-        mw::Coin coin;
+        mw::WalletCoin coin;
         coin.Reset();
         BOOST_REQUIRE(keychain.RewindOutput(output, coin));
         CheckRewoundCoin(coin, output, mw::CUSTOM_KEY, AMOUNT_ONE, custom_address, /*expect_spend_key=*/false);
@@ -355,7 +355,7 @@ BOOST_AUTO_TEST_CASE(RewindOutput_CustomKeyOutputs)
         spk_man.AddKey(custom_address, CustomSpendSecret());
 
         mw::Keychain keychain(&spk_man, ScanSecret(), std::optional<PublicKey>{std::nullopt});
-        mw::Coin coin;
+        mw::WalletCoin coin;
         coin.Reset();
         BOOST_REQUIRE(keychain.RewindOutput(output, coin));
         CheckRewoundCoin(coin, output, mw::CUSTOM_KEY, AMOUNT_ONE, custom_address, /*expect_spend_key=*/true);

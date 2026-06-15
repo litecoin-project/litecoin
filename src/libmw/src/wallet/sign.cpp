@@ -123,7 +123,7 @@ static util::Result<SignInputResult> SignInput(MutableInput& input) noexcept
 struct SignOutputResult {
     BlindingFactor output_blind{};
     SecretKey ephemeral_key{};
-    mw::Coin coin{};
+    mw::WalletCoin coin{};
 };
 
 struct FinalizedPegIn
@@ -168,7 +168,7 @@ static util::Result<SignOutputResult> SignOutput(MutableOutput& output, const mw
     output.Update(finalized);
 
     // Populate Coin
-    mw::Coin coin;
+    mw::WalletCoin coin;
     coin.blind = raw_blind;
     coin.amount = *output.amount;
     coin.output_id = finalized.GetOutputID();
@@ -308,7 +308,7 @@ util::Result<mw::SignTxResult> SignTx(CMutableTransaction& tx, const SecretKey& 
         const SignOutputResult& signed_output = sign_output_result.value();
         kernel_offset.Add(signed_output.output_blind);
         stealth_offset.Add(signed_output.ephemeral_key);
-        result.coins_by_output_id[*output.CalcOutputID()] = signed_output.coin;
+        result.wallet_coins_by_output_id[*output.CalcOutputID()] = signed_output.coin;
     }
 
     // Sign inputs

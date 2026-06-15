@@ -946,25 +946,25 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
         .AddOutput(3'000'000)
         .Build();
 
-    mw::Coin received_coin_1;
-    received_coin_1.amount = full_mweb_tx.GetOutputs()[0].GetAmount();
-    received_coin_1.output_id = full_mweb_tx.GetOutputs()[0].GetOutputID();
+    mw::WalletCoin received_wallet_coin_1;
+    received_wallet_coin_1.amount = full_mweb_tx.GetOutputs()[0].GetAmount();
+    received_wallet_coin_1.output_id = full_mweb_tx.GetOutputs()[0].GetOutputID();
 
-    mw::Coin received_coin_2;
-    received_coin_2.amount = full_mweb_tx.GetOutputs()[1].GetAmount();
-    received_coin_2.output_id = full_mweb_tx.GetOutputs()[1].GetOutputID();
+    mw::WalletCoin received_wallet_coin_2;
+    received_wallet_coin_2.amount = full_mweb_tx.GetOutputs()[1].GetAmount();
+    received_wallet_coin_2.output_id = full_mweb_tx.GetOutputs()[1].GetOutputID();
 
-    const uint256 partial_hash_1 = MWEB::WalletTxInfo(received_coin_1).GetHash();
-    const uint256 partial_hash_2 = MWEB::WalletTxInfo(received_coin_2).GetHash();
+    const uint256 partial_hash_1 = MWEB::WalletTxInfo(received_wallet_coin_1).GetHash();
+    const uint256 partial_hash_2 = MWEB::WalletTxInfo(received_wallet_coin_2).GetHash();
 
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
-        std::make_optional<MWEB::WalletTxInfo>(received_coin_1),
+        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin_1),
         TxStateConfirmed{tip_hash, tip_height, 0}
     ));
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
-        std::make_optional<MWEB::WalletTxInfo>(received_coin_2),
+        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin_2),
         TxStateConfirmed{tip_hash, tip_height, 0}
     ));
 
@@ -978,8 +978,8 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
         BOOST_REQUIRE(partial_wtx_2->IsPartialMWEB());
         BOOST_REQUIRE(partial_wtx_1->HasPartialMWEBReceive());
         BOOST_REQUIRE(partial_wtx_2->HasPartialMWEBReceive());
-        BOOST_REQUIRE(wallet->FindWalletTx(GenericOutputID(received_coin_1.output_id)) == partial_wtx_1);
-        BOOST_REQUIRE(wallet->FindWalletTx(GenericOutputID(received_coin_2.output_id)) == partial_wtx_2);
+        BOOST_REQUIRE(wallet->FindWalletTx(GenericOutputID(received_wallet_coin_1.output_id)) == partial_wtx_1);
+        BOOST_REQUIRE(wallet->FindWalletTx(GenericOutputID(received_wallet_coin_2.output_id)) == partial_wtx_2);
     }
 
     CMutableTransaction full_tx;
@@ -987,8 +987,8 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
     const auto full_tx_ref = MakeTransactionRef(full_tx);
     const uint256 full_hash = full_tx_ref->GetHash();
     BOOST_REQUIRE(full_tx_ref->HasMWEBTx());
-    BOOST_REQUIRE(full_tx_ref->HasOutput(GenericOutputID(received_coin_1.output_id)));
-    BOOST_REQUIRE(full_tx_ref->HasOutput(GenericOutputID(received_coin_2.output_id)));
+    BOOST_REQUIRE(full_tx_ref->HasOutput(GenericOutputID(received_wallet_coin_1.output_id)));
+    BOOST_REQUIRE(full_tx_ref->HasOutput(GenericOutputID(received_wallet_coin_2.output_id)));
 
     BOOST_REQUIRE(wallet->AddToWallet(full_tx_ref, std::nullopt, TxStateInMempool{}));
 
@@ -1005,11 +1005,11 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
         BOOST_CHECK(wtx->state<TxStateInMempool>() != nullptr);
     }
 
-    const CWalletTx* from_first_output = wallet->FindWalletTx(GenericOutputID(received_coin_1.output_id));
+    const CWalletTx* from_first_output = wallet->FindWalletTx(GenericOutputID(received_wallet_coin_1.output_id));
     BOOST_REQUIRE(from_first_output != nullptr);
     BOOST_CHECK(from_first_output->GetHash() == full_hash);
 
-    const CWalletTx* from_second_output = wallet->FindWalletTx(GenericOutputID(received_coin_2.output_id));
+    const CWalletTx* from_second_output = wallet->FindWalletTx(GenericOutputID(received_wallet_coin_2.output_id));
     BOOST_REQUIRE(from_second_output != nullptr);
     BOOST_CHECK(from_second_output->GetHash() == full_hash);
 

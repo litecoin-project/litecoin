@@ -100,13 +100,13 @@ bool ScriptIsChange(const CWallet& wallet, const CScript& script)
     return false;
 }
 
-// MW: TODO - Should this take a CWalletTx instead of CTransactionRef? If partial_mweb_tx with received_coin, it could be change
+// MW: TODO - Should this take a CWalletTx instead of CTransactionRef? If partial_mweb_tx with received_wallet_coin, it could be change
 bool OutputIsChange(const CWallet& wallet, const CTransactionRef& tx, const GenericOutputID& output_id)
 {
     AssertLockHeld(wallet.cs_wallet);
     if (output_id.IsMWEB()) {
-        mw::Coin coin;
-        if (wallet.GetCoin(output_id.ToMWEB(), coin)) {
+        mw::WalletCoin coin;
+        if (wallet.GetMWEBWalletCoin(output_id.ToMWEB(), coin)) {
             return coin.IsChange();
         }
 
@@ -261,8 +261,8 @@ CAmount CachedTxGetFee(const CWallet& wallet, const CWalletTx& wtx, const ismine
             nValueOut += wallet.GetValue(wtx, output_id);
         }
 
-        if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_coin) {
-            nValueOut += wtx.mweb_wtx_info->received_coin->amount;
+        if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_wallet_coin) {
+            nValueOut += wtx.mweb_wtx_info->received_wallet_coin->amount;
         }
 
         for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {

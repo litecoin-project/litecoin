@@ -1,7 +1,7 @@
 #pragma once
 
 #include <consensus/amount.h>
-#include <mw/models/wallet/Coin.h>
+#include <mw/models/wallet/WalletCoin.h>
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <script/address.h>
@@ -108,7 +108,7 @@ public:
 
 struct MwebWalletUTXO
 {
-    mw::Coin coin;
+    mw::WalletCoin coin;
     int depth;
     StealthAddress address;
     bool spendable;

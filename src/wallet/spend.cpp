@@ -273,8 +273,8 @@ CoinsResult AvailableCoins(const CWallet& wallet,
                     continue;
                 }
 
-                mw::Coin mweb_coin;
-                if (!wallet.GetCoin(output_id.ToMWEB(), mweb_coin)) {
+                mw::WalletCoin mweb_coin;
+                if (!wallet.GetMWEBWalletCoin(output_id.ToMWEB(), mweb_coin)) {
                     continue;
                 }
 
@@ -413,8 +413,8 @@ std::map<CTxDestination, std::vector<GenericWalletUTXO>> ListCoins(const CWallet
                 CTxDestination address;
                 if (FindNonChangeParentOutputDestination(wallet, *wtx, output_id, address)) {
                     if (output_id.IsMWEB()) {
-                        mw::Coin coin;
-                        if (wallet.GetCoin(output_id.ToMWEB(), coin) && coin.IsMine() && coin.HasSpendKey()) {
+                        mw::WalletCoin coin;
+                        if (wallet.GetMWEBWalletCoin(output_id.ToMWEB(), coin) && coin.IsMine() && coin.HasSpendKey()) {
                             StealthAddress stealth_address;
                             wallet.GetMWWallet()->GetStealthAddress(coin, stealth_address);
                             result[address].emplace_back(MwebWalletUTXO{coin, depth, stealth_address, /*spendable=*/true, /*solvable=*/true, CachedTxIsFromMe(wallet, *wtx, ISMINE_ALL), wtx->GetHash()});
@@ -601,8 +601,8 @@ std::optional<SelectionResult> SelectCoins(const CWallet& wallet, CoinsResult& a
                 return std::nullopt;
             }
 
-            mw::Coin mweb_coin;
-            if (!wallet.GetCoin(output_id.ToMWEB(), mweb_coin) || !mweb_coin.IsMine()) {
+            mw::WalletCoin mweb_coin;
+            if (!wallet.GetMWEBWalletCoin(output_id.ToMWEB(), mweb_coin) || !mweb_coin.IsMine()) {
                 return std::nullopt;
             }
 
