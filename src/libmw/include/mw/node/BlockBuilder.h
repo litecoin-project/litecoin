@@ -5,6 +5,7 @@
 #include <mw/models/tx/PegInCoin.h>
 #include <mw/node/CoinsView.h>
 #include <memory>
+#include <set>
 
 MW_NAMESPACE
 
@@ -32,6 +33,7 @@ private:
     mw::CoinsViewCache::Ptr m_pCoinsView;
 
     std::vector<Transaction::CPtr> m_stagedTxs;
+    std::set<Hash> m_stagedInputs;
     std::set<Hash> m_stagedOutputs;
 };
 

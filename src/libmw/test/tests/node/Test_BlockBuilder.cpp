@@ -8,6 +8,7 @@
 
 #include <test_framework/Miner.h>
 #include <test_framework/TestMWEB.h>
+#include <test_framework/TxBuilder.h>
 
 using namespace mw;
 
@@ -61,6 +62,46 @@ BOOST_AUTO_TEST_CASE(BlockBuilder)
         std::vector<PegOutCoin>{}
     );
     BOOST_CHECK(block_valid);
+}
+
+BOOST_AUTO_TEST_CASE(BlockBuilderAllowsSpendOfStagedOutput)
+{
+    auto db_view = CoinsViewDB::Open(m_path_root, nullptr, GetDB());
+    auto cached_view = std::make_shared<CoinsViewCache>(db_view);
+
+    auto block_builder = std::make_shared<mw::BlockBuilder>(150, cached_view);
+
+    test::Tx pegin_tx = test::Tx::CreatePegIn(1000);
+    BOOST_CHECK(block_builder->AddTransaction(
+        pegin_tx.GetTransaction(),
+        { pegin_tx.GetPegInCoin() }
+    ));
+
+    test::Tx spend_tx = test::TxBuilder()
+        .AddInput(pegin_tx.GetOutputs().front())
+        .AddOutput(900)
+        .AddPegoutKernel(100, 0)
+        .Build();
+    BOOST_CHECK(block_builder->AddTransaction(spend_tx.GetTransaction(), {}));
+}
+
+BOOST_AUTO_TEST_CASE(BlockBuilderRejectsDuplicateStagedInputs)
+{
+    auto db_view = CoinsViewDB::Open(m_path_root, nullptr, GetDB());
+    auto cached_view = std::make_shared<CoinsViewCache>(db_view);
+
+    test::Miner miner(m_path_root);
+    test::Tx pegin_tx = test::Tx::CreatePegIn(1000);
+    auto block = miner.MineBlock(150, { pegin_tx });
+    cached_view->ApplyBlock(block.GetBlock());
+
+    auto block_builder = std::make_shared<mw::BlockBuilder>(151, cached_view);
+
+    test::Tx spend_tx1 = test::Tx::CreatePegOut(pegin_tx.GetOutputs().front());
+    BOOST_CHECK(block_builder->AddTransaction(spend_tx1.GetTransaction(), {}));
+
+    test::Tx spend_tx2 = test::Tx::CreatePegOut(pegin_tx.GetOutputs().front());
+    BOOST_CHECK(!block_builder->AddTransaction(spend_tx2.GetTransaction(), {}));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

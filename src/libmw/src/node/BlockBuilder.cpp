@@ -78,10 +78,10 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
 
     // Make sure all inputs are available.
     for (const mw::Input& input : pTransaction->GetInputs()) {
-        //if (m_stagedInputs.count(input.GetOutputID()) > 0) { // MW: TODO - Is this necessary, or are duplicate output checks enough?
-        //    LOG_ERROR("Input {} already staged", input.GetOutputID());
-        //    return false;
-        //}
+        if (m_stagedInputs.count(input.GetOutputID()) > 0) {
+            LOG_ERROR("Input {} already staged", input.GetOutputID());
+            return false;
+        }
 
         if (!m_pCoinsView->HasCoin(input.GetOutputID()) && m_stagedOutputs.count(input.GetOutputID()) == 0) {
             LOG_ERROR("Input {} not found on chain", input.GetOutputID());
@@ -104,6 +104,11 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
 
     m_stagedTxs.push_back(pTransaction);
     m_weight += weight;
+
+    for (const mw::Input& input : pTransaction->GetInputs()) {
+        auto inserted = m_stagedInputs.insert(input.GetOutputID());
+        assert(inserted.second);
+    }
 
     for (const mw::Output& output : pTransaction->GetOutputs()) {
         auto inserted = m_stagedOutputs.insert(output.GetOutputID());
