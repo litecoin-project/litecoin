@@ -104,9 +104,11 @@ public:
         const std::vector<CRecipient>& recipients,
         const std::vector<AnyWalletUTXO>& select_coins,
         std::optional<CTxDestination> change_address,
-        bool sign)
+        bool sign,
+        bool allow_other_inputs = false)
     {
         CCoinControl coin_control;
+        coin_control.m_allow_other_inputs = allow_other_inputs;
         if (!select_coins.empty()) {
             for (const auto& coin : select_coins) {
                 coin_control.Select(coin.GetID());
@@ -477,6 +479,138 @@ BOOST_AUTO_TEST_CASE(MultipleRecipientsSubtractFeeFromOutputsTest)
 BOOST_AUTO_TEST_CASE(MultipleRecipientsCustomChangeTest)
 {
     MultipleRecipientsTest(false, true);
+}
+
+BOOST_AUTO_TEST_CASE(MWEBRecipientWithExplicitLTCChangeBuildsPeginPegout)
+{
+    const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
+    const CTxDestination ltc_change = NewDestination(OutputType::BECH32);
+
+    auto tx_result = BuildTx({{recipient_addr, 5 * COIN, false}}, ltc_change, true);
+    BOOST_REQUIRE(tx_result);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_REQUIRE(!tx.vin.empty());
+    BOOST_CHECK(tx.mweb_tx.inputs.empty());
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.outputs.size(), 1U);
+    BOOST_REQUIRE(tx.mweb_tx.outputs[0].address.has_value());
+    BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == recipient_addr);
+
+    BOOST_REQUIRE(tx_result->change_pos.IsPegout());
+    BOOST_CHECK_EQUAL(tx_result->change_pos.ToPegout().idx, 0U);
+
+    const auto pegouts = tx.mweb_tx.GetPegOutCoins();
+    BOOST_REQUIRE_EQUAL(pegouts.size(), 1U);
+    BOOST_CHECK(GenericAddress(pegouts[0].GetScriptPubKey()) == ltc_change);
+    BOOST_CHECK_GT(pegouts[0].GetAmount(), 0);
+
+    BOOST_REQUIRE(!tx.vout.empty());
+    BOOST_CHECK(tx.vout.back().scriptPubKey.IsMWEBPegin());
+    BOOST_REQUIRE(tx.mweb_tx.GetPeginAmount().has_value());
+    BOOST_CHECK_EQUAL(tx.vout.back().nValue, *tx.mweb_tx.GetPeginAmount());
+    BOOST_CHECK_GT(*tx.mweb_tx.GetPeginAmount(), tx.mweb_tx.outputs[0].amount.value_or(0) + pegouts[0].GetAmount());
+}
+
+BOOST_AUTO_TEST_CASE(MWEBRecipientWithExplicitLTCChangeSelectedMWEBBuildsPegout)
+{
+    const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
+    AddTx({{existing_mweb_addr, 5 * COIN, false}}, {}, std::nullopt);
+
+    const AnyWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
+    const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
+    const CTxDestination ltc_change = NewDestination(OutputType::BECH32);
+
+    auto tx_result = BuildTx({{recipient_addr, 2 * COIN, false}}, {mweb_coin}, ltc_change, true);
+    BOOST_REQUIRE(tx_result);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_CHECK(tx.vin.empty());
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.inputs.size(), 1U);
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.outputs.size(), 1U);
+    BOOST_REQUIRE(tx.mweb_tx.outputs[0].address.has_value());
+    BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == recipient_addr);
+
+    const auto pegouts = tx.mweb_tx.GetPegOutCoins();
+    BOOST_REQUIRE_EQUAL(pegouts.size(), 1U);
+    BOOST_CHECK(GenericAddress(pegouts[0].GetScriptPubKey()) == ltc_change);
+    BOOST_CHECK_GT(pegouts[0].GetAmount(), 0);
+    BOOST_REQUIRE(tx_result->change_pos.IsPegout());
+    BOOST_CHECK_EQUAL(tx_result->change_pos.ToPegout().idx, 0U);
+}
+
+BOOST_AUTO_TEST_CASE(MWEBRecipientWithSelectedLTCInputBuildsPegin)
+{
+    const AnyWalletUTXO ltc_coin = SmallestCoin(AvailableLTCCoins());
+    const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
+
+    auto tx_result = BuildTx({{recipient_addr, 5 * COIN, false}}, {ltc_coin}, std::nullopt, true);
+    BOOST_REQUIRE(tx_result);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_REQUIRE_EQUAL(tx.vin.size(), 1U);
+    BOOST_CHECK(tx.mweb_tx.inputs.empty());
+    BOOST_REQUIRE_EQUAL(tx.vout.size(), 1U);
+    BOOST_CHECK(tx.vout.back().scriptPubKey.IsMWEBPegin());
+    BOOST_REQUIRE(tx_result->change_pos.IsMWEB());
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.outputs.size(), 2U);
+    BOOST_REQUIRE(tx.mweb_tx.outputs[0].address.has_value());
+    BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == recipient_addr);
+}
+
+BOOST_AUTO_TEST_CASE(MWEBRecipientWithExplicitLTCChangeCanUseMWEBAndLTCInputs)
+{
+    const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
+    AddTx({{existing_mweb_addr, 1 * COIN, false}}, {}, std::nullopt);
+
+    const AnyWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
+    const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
+    const CTxDestination ltc_change = NewDestination(OutputType::BECH32);
+
+    auto tx_result = BuildTx({{recipient_addr, 20 * COIN, false}}, {mweb_coin}, ltc_change, true, /*allow_other_inputs=*/true);
+    BOOST_REQUIRE(tx_result);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_REQUIRE(!tx.vin.empty());
+    BOOST_REQUIRE_GE(tx.mweb_tx.inputs.size(), 1U);
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.outputs.size(), 1U);
+    BOOST_REQUIRE(tx.mweb_tx.outputs[0].address.has_value());
+    BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == recipient_addr);
+
+    const auto pegouts = tx.mweb_tx.GetPegOutCoins();
+    BOOST_REQUIRE_EQUAL(pegouts.size(), 1U);
+    BOOST_CHECK(GenericAddress(pegouts[0].GetScriptPubKey()) == ltc_change);
+    BOOST_REQUIRE(tx_result->change_pos.IsPegout());
+    BOOST_CHECK_EQUAL(tx_result->change_pos.ToPegout().idx, 0U);
+
+    BOOST_REQUIRE_EQUAL(tx.vout.size(), 1U);
+    BOOST_CHECK(tx.vout.back().scriptPubKey.IsMWEBPegin());
+    BOOST_REQUIRE(tx.mweb_tx.GetPeginAmount().has_value());
+    BOOST_CHECK_EQUAL(tx.vout.back().nValue, *tx.mweb_tx.GetPeginAmount());
+}
+
+BOOST_AUTO_TEST_CASE(LTCRecipientWithExplicitLTCChangeSelectedMWEBBuildsPegout)
+{
+    const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
+    AddTx({{existing_mweb_addr, 5 * COIN, false}}, {}, std::nullopt);
+
+    const AnyWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
+    const CTxDestination recipient_addr = NewDestination(OutputType::BECH32);
+    const CTxDestination ltc_change = NewDestination(OutputType::BECH32);
+
+    auto tx_result = BuildTx({{recipient_addr, 1 * COIN, false}}, {mweb_coin}, ltc_change, true);
+    BOOST_REQUIRE(tx_result);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_CHECK(tx.vin.empty());
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.inputs.size(), 1U);
+    BOOST_CHECK(tx.mweb_tx.outputs.empty());
+
+    const auto pegouts = tx.mweb_tx.GetPegOutCoins();
+    BOOST_REQUIRE_EQUAL(pegouts.size(), 2U);
+    BOOST_CHECK(GenericAddress(pegouts[0].GetScriptPubKey()) == recipient_addr);
+    BOOST_CHECK(GenericAddress(pegouts[1].GetScriptPubKey()) == ltc_change);
+    BOOST_REQUIRE(tx_result->change_pos.IsPegout());
+    BOOST_CHECK_EQUAL(tx_result->change_pos.ToPegout().idx, 1U);
 }
 
 BOOST_AUTO_TEST_CASE(MWEBChangePositionTracksChangeWhenAddressMatchesRecipient)

@@ -25,13 +25,20 @@ struct MWEBChangePosition
     std::optional<mw::Hash> hash;
 };
 
+struct PegoutChangePosition
+{
+    // The position of the change pegout in the flattened pegout list.
+    size_t idx;
+};
+
 struct ChangePosition
 {
-    std::optional<std::variant<size_t, MWEBChangePosition>> position;
+    std::optional<std::variant<size_t, MWEBChangePosition, PegoutChangePosition>> position;
 
     ChangePosition() = default;
     ChangePosition(const size_t i) : position(std::make_optional(i)) {}
     ChangePosition(MWEBChangePosition mweb_pos) : position(std::make_optional(std::move(mweb_pos))) {}
+    ChangePosition(PegoutChangePosition pegout_pos) : position(std::make_optional(std::move(pegout_pos))) {}
 
     bool operator==(const size_t i) const noexcept { return IsLTC() && ToLTC() == i; }
     bool operator==(const mw::Hash& id) const noexcept { return IsMWEB() && ToMWEB().hash == id; }
@@ -51,6 +58,12 @@ struct ChangePosition
         assert(IsMWEB());
         return std::get<MWEBChangePosition>(*position);
     }
+    bool IsPegout() const noexcept { return position.has_value() && std::holds_alternative<PegoutChangePosition>(*position); }
+    const PegoutChangePosition& ToPegout() const noexcept
+    {
+        assert(IsPegout());
+        return std::get<PegoutChangePosition>(*position);
+    }
 };
 
 struct ChangeBuilder
@@ -65,11 +78,23 @@ struct ChangeBuilder
 
     ChangeParams BuildMWEBParams(const CoinSelectionParams& coin_selection_params) const;
     ChangeParams BuildLTCParams(const CWallet& wallet, const CoinSelectionParams& coin_selection_params, const CRecipients& recipients) const;
+    ChangeParams BuildPegoutParams(const CWallet& wallet, const CoinSelectionParams& coin_selection_params, const CRecipients& recipients) const;
     std::optional<ChangeParams> BuildParams(const CWallet& wallet, const CCoinControl& coin_control, const CoinSelectionParams& coin_selection_params, const CRecipients& recipients) const;
 
     static bool ChangeBelongsOnMWEB(const TxType& tx_type, const CTxDestination& dest_change);
+    static bool ChangeBelongsOnPegout(const TxType& tx_type, const CTxDestination& dest_change);
 
     const ChangePosition& GetPosition() const noexcept { return change_position; }
+
+private:
+    enum class ChangePlacement {
+        LTC,
+        MWEB,
+        PEGOUT,
+    };
+
+    static std::optional<ChangePlacement> GetChangePlacement(const TxType& tx_type, const CTxDestination& dest_change);
+    static size_t GetChangeSpendSize(const CWallet& wallet, const CTxOut& change_prototype_txout);
 };
 
 } // namespace wallet

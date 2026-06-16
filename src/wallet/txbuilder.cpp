@@ -61,6 +61,42 @@ std::map<mw::Hash, StealthAddress> GetMWEBOutputAddresses(const mw::MutableTx& t
     return addresses;
 }
 
+struct SelectedInputTypes {
+    bool ltc{false};
+    bool mweb{false};
+};
+
+SelectedInputTypes GetSelectedInputTypes(const CCoinControl& coin_control)
+{
+    SelectedInputTypes selected;
+
+    std::vector<AnyOutputID> selected_inputs;
+    coin_control.ListSelected(selected_inputs);
+    for (const AnyOutputID& input : selected_inputs) {
+        if (input.IsMWEB()) {
+            selected.mweb = true;
+        } else {
+            selected.ltc = true;
+        }
+    }
+
+    return selected;
+}
+
+bool SelectionHasLTCInput(const SelectionResult& result)
+{
+    return std::any_of(result.GetInputSet().cbegin(), result.GetInputSet().cend(), [](const AnyWalletUTXO& coin) {
+        return !coin.IsMWEB();
+    });
+}
+
+bool SelectionHasMWEBInput(const SelectionResult& result)
+{
+    return std::any_of(result.GetInputSet().cbegin(), result.GetInputSet().cend(), [](const AnyWalletUTXO& coin) {
+        return coin.IsMWEB();
+    });
+}
+
 } // namespace
 
 TxBuilder::Ptr TxBuilder::New(const CWallet& wallet, const CCoinControl& coin_control, const std::vector<CRecipient>& recipients, const std::optional<int>& change_position)
@@ -202,7 +238,48 @@ util::Result<CreatedTransactionResult> TxBuilder::Build(const std::optional<int3
 
 util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& available_coins)
 {
+    const SelectedInputTypes selected_inputs = GetSelectedInputTypes(m_coin_control);
+    const bool has_mweb_recipient = !m_recipients.MWEB().empty();
+    const bool change_is_set = !std::holds_alternative<CNoDestination>(m_coin_control.destChange);
+    const bool change_is_mweb = std::holds_alternative<StealthAddress>(m_coin_control.destChange);
+    const bool explicit_ltc_change = change_is_set && !change_is_mweb;
+
+    auto selected_inputs_compatible = [&](const TxType& tx_type) {
+        switch (tx_type) {
+        case TxType::LTC_TO_LTC:
+            return !selected_inputs.mweb;
+        case TxType::MWEB_TO_MWEB:
+        case TxType::PEGOUT:
+            return !selected_inputs.ltc;
+        case TxType::PEGIN:
+        case TxType::PEGIN_PEGOUT:
+            return true;
+        }
+
+        assert(false);
+        return false;
+    };
+
+    auto selection_result_matches_type = [](const TxType& tx_type, const SelectionResult& result) {
+        switch (tx_type) {
+        case TxType::LTC_TO_LTC:
+            return !SelectionHasMWEBInput(result);
+        case TxType::MWEB_TO_MWEB:
+        case TxType::PEGOUT:
+            return !SelectionHasLTCInput(result);
+        case TxType::PEGIN:
+            return SelectionHasLTCInput(result);
+        case TxType::PEGIN_PEGOUT:
+            return SelectionHasLTCInput(result);
+        }
+
+        assert(false);
+        return false;
+    };
+
     auto select_by_type = [&](const TxType& tx_type) -> std::optional<SelectionResult> {
+        if (!selected_inputs_compatible(tx_type)) return {};
+
         m_selection_params.m_tx_type = tx_type;
 
         auto change_params = m_change.BuildParams(m_wallet, m_coin_control, m_selection_params, m_recipients);
@@ -212,23 +289,37 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
         const CAmount nTarget = CalcSelectionTarget(tx_type);
         CoinsResult available_coins_mut = available_coins;
 
-        return SelectCoins(m_wallet, available_coins_mut, nTarget, m_coin_control, m_selection_params);
-    };
-    
-    // MW: TODO - Handle manually selected inputs that conflict with TxType
-    if (!m_recipients.MWEB().empty()) {
-        // MW: TODO - Fail if LTC change is set, or make it work properly
-
-        // First try to construct an MWEB-to-MWEB transaction
-        std::optional<SelectionResult> mweb_to_mweb_result = select_by_type(TxType::MWEB_TO_MWEB);
-        if (mweb_to_mweb_result.has_value()) {
-            return *mweb_to_mweb_result;
+        std::optional<SelectionResult> result = SelectCoins(m_wallet, available_coins_mut, nTarget, m_coin_control, m_selection_params);
+        if (result.has_value() && !selection_result_matches_type(tx_type, *result)) {
+            return {};
         }
 
-        // If MWEB-to-MWEB fails, create a peg-in transaction
-        std::optional<SelectionResult> pegin_result = select_by_type(TxType::PEGIN);
-        if (pegin_result.has_value()) {
-            return *pegin_result;
+        return result;
+    };
+    
+    if (has_mweb_recipient) {
+        if (explicit_ltc_change) {
+            std::optional<SelectionResult> pegout_result = select_by_type(TxType::PEGOUT);
+            if (pegout_result.has_value()) {
+                return *pegout_result;
+            }
+
+            std::optional<SelectionResult> pegin_pegout_result = select_by_type(TxType::PEGIN_PEGOUT);
+            if (pegin_pegout_result.has_value()) {
+                return *pegin_pegout_result;
+            }
+        } else {
+            // First try to construct an MWEB-to-MWEB transaction
+            std::optional<SelectionResult> mweb_to_mweb_result = select_by_type(TxType::MWEB_TO_MWEB);
+            if (mweb_to_mweb_result.has_value()) {
+                return *mweb_to_mweb_result;
+            }
+
+            // If MWEB-to-MWEB fails, create a peg-in transaction
+            std::optional<SelectionResult> pegin_result = select_by_type(TxType::PEGIN);
+            if (pegin_result.has_value()) {
+                return *pegin_result;
+            }
         }
     } else {
         // First try to construct a LTC-to-LTC transaction
@@ -371,7 +462,7 @@ std::optional<util::Error> TxBuilder::AddChangeOutput(const SelectionResult& sel
         m_change.amount = change_amount;
         if (ChangeBuilder::ChangeBelongsOnMWEB(GetTxType(), m_coin_control.destChange)) {
             if (std::holds_alternative<CNoDestination>(m_coin_control.destChange)) {
-                // TODO: Use a reserved MWEB change address once the wallet has a
+                // MW: TODO - Use a reserved MWEB change address once the wallet has a
                 // real MWEB internal/change keypool and can persist change
                 // metadata for non-CHANGE_INDEX outputs.
                 m_change.reserve_dest.reset();
@@ -391,10 +482,10 @@ std::optional<util::Error> TxBuilder::AddChangeOutput(const SelectionResult& sel
             m_change.change_position = MWEBChangePosition{m_tx.mweb_tx.outputs.size(), std::nullopt};
             m_tx.mweb_tx.outputs.push_back(std::move(mweb_output));
         } else {
-            // if (m_selection_params.m_tx_type == TxType::PEGOUT || m_selection_params.m_tx_type == TxType::PEGIN_PEGOUT) {
-            //     m_tx.mweb_tx.AddPegout(m_change.script_or_address.GetScript(), change_amount, false);
-            //     m_change.change_position = MWEBChangePosition{m_tx.mweb_tx.outputs.size(), std::nullopt};
-            // } else {
+            if (ChangeBuilder::ChangeBelongsOnPegout(GetTxType(), m_coin_control.destChange)) {
+                m_change.change_position = PegoutChangePosition{m_tx.mweb_tx.GetPegouts().size()};
+                m_tx.mweb_tx.AddPegout(m_change.script_or_address.GetScript(), change_amount, false);
+            } else {
                 CTxOut newTxOut(change_amount, m_change.script_or_address.GetScript()); // MW: TODO - What if script_or_address is MWEB address?
                 if (m_change.change_position.IsNull()) {
                     // Insert change txn at random position:
@@ -406,7 +497,7 @@ std::optional<util::Error> TxBuilder::AddChangeOutput(const SelectionResult& sel
                 if (m_change.change_position.IsLTC()) {
                     m_tx.vout.insert(m_tx.vout.begin() + m_change.change_position.ToLTC(), newTxOut);
                 }
-            // }
+            }
         }
     } else {
         m_change.amount = 0;
@@ -430,7 +521,7 @@ std::optional<util::Error> TxBuilder::UpdatePeginOutput(const SelectionResult& s
     }
 
     CTxOut& pegin_output = m_tx.vout.back();
-    if (!m_change.change_position.IsMWEB()) {
+    if (!m_change.change_position.IsMWEB() && !m_change.change_position.IsPegout()) {
         // Pegin amount needed when no MWEB change = (MWEB fee + MWEB output values) - (MWEB input values + Pegout values).
         CAmount pegin_amount = CalcMWEBFee();
         for (const mw::MutableOutput& mweb_output : m_tx.mweb_tx.outputs) {
@@ -488,6 +579,20 @@ void TxBuilder::GrowChangeBy(const CAmount growth_amount)
         m_change.amount += growth_amount;
         mw::MutableOutput& change_output = m_tx.mweb_tx.outputs.at(change_idx);
         *change_output.amount += growth_amount;
+    } else if (m_change.GetPosition().IsPegout()) {
+        const size_t change_pegout_position = m_change.GetPosition().ToPegout().idx;
+        size_t pegout_idx{0};
+        for (mw::MutableKernel& kernel : m_tx.mweb_tx.kernels) {
+            for (mw::PegOutRecipient& pegout : kernel.pegouts) {
+                if (pegout_idx == change_pegout_position) {
+                    pegout.nAmount += growth_amount;
+                    m_change.amount += growth_amount;
+                    return;
+                }
+                ++pegout_idx;
+            }
+        }
+        assert(false);
     } else {
         assert(false);
     }
@@ -652,6 +757,7 @@ CAmount TxBuilder::CalcSelectionTarget(const TxType& tx_type) const
     for (const auto& recipient : ltc_recipients) {
         ltc_recipient_bytes += ::GetSerializeSize(CTxOut(recipient.nAmount, recipient.GetScript()), PROTOCOL_VERSION);
     }
+    const size_t mweb_recipient_weight = mw::STANDARD_OUTPUT_WEIGHT * mweb_recipients.size();
 
     // Maximum size of a pegin output (in bytes)
     const size_t pegin_output_bytes = ::GetSerializeSize(CTxOut{MAX_MONEY, GetScriptForPegin(mw::Hash())}, PROTOCOL_VERSION);
@@ -672,15 +778,15 @@ CAmount TxBuilder::CalcSelectionTarget(const TxType& tx_type) const
         return recipients_sum + pegin_fee;
     }
     case TxType::PEGOUT: {
-        // Include enough fee to pay for the kernel (with pegout script(s)) and the hogex pegout output(s).
+        // Include enough fee to pay for the kernel (with pegout script(s)), MWEB outputs, and the hogex pegout output(s).
         std::vector<PegOutCoin> pegouts;
         std::transform(
             ltc_recipients.cbegin(), ltc_recipients.cend(), std::back_inserter(pegouts),
             [](const CRecipient& recipient) { return PegOutCoin(recipient.nAmount, recipient.GetScript()); }
         );
-        const size_t pegout_kernel_weight = Weight::CalcKernelWeight(true, pegouts);
+        const size_t pegout_mweb_weight = Weight::CalcKernelWeight(true, pegouts) + mweb_recipient_weight;
 
-        const CAmount basic_pegout_fee = GetFeeRate().GetFee(ltc_recipient_bytes, pegout_kernel_weight);
+        const CAmount basic_pegout_fee = GetFeeRate().GetFee(ltc_recipient_bytes, pegout_mweb_weight);
         return recipients_sum + basic_pegout_fee;
     }
     case TxType::PEGIN_PEGOUT: {
@@ -688,16 +794,17 @@ CAmount TxBuilder::CalcSelectionTarget(const TxType& tx_type) const
         // * LTC tx with a pegin output
         // * Hogex pegin input
         // * Hogex pegout output(s)
+        // * MWEB recipient outputs
         // * Kernel (with pegin amount and pegout script(s))
         std::vector<PegOutCoin> pegouts;
         std::transform(
             ltc_recipients.cbegin(), ltc_recipients.cend(), std::back_inserter(pegouts),
             [](const CRecipient& recipient) { return PegOutCoin(recipient.nAmount, recipient.GetScript()); }
         );
-        const size_t pegout_kernel_weight = Weight::CalcKernelWeight(true, pegouts);
+        const size_t pegout_mweb_weight = Weight::CalcKernelWeight(true, pegouts) + mweb_recipient_weight;
 
         const size_t pegin_bytes = base_ltc_bytes + pegin_output_bytes + hogex_input_bytes + ltc_recipient_bytes;
-        const CAmount complex_pegout_fee = GetFeeRate().GetFee(pegin_bytes, pegout_kernel_weight);
+        const CAmount complex_pegout_fee = GetFeeRate().GetFee(pegin_bytes, pegout_mweb_weight);
         return recipients_sum + complex_pegout_fee;
     }
     case TxType::LTC_TO_LTC: {
