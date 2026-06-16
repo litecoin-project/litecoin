@@ -613,6 +613,32 @@ BOOST_AUTO_TEST_CASE(LTCRecipientWithExplicitLTCChangeSelectedMWEBBuildsPegout)
     BOOST_CHECK_EQUAL(tx_result->change_pos.ToPegout().idx, 1U);
 }
 
+BOOST_AUTO_TEST_CASE(LTCRecipientWithExplicitMWEBChangeBuildsPeginPegout)
+{
+    const CTxDestination recipient_addr = NewDestination(OutputType::BECH32);
+    const CTxDestination mweb_change = NewDestination(OutputType::MWEB);
+
+    auto tx_result = BuildTx({{recipient_addr, 1 * COIN, false}}, mweb_change, true);
+    BOOST_REQUIRE(tx_result);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_REQUIRE(!tx.vin.empty());
+    BOOST_REQUIRE(tx_result->change_pos.IsMWEB());
+
+    BOOST_REQUIRE_EQUAL(tx.vout.size(), 1U);
+    BOOST_CHECK(tx.vout.back().scriptPubKey.IsMWEBPegin());
+
+    const auto pegouts = tx.mweb_tx.GetPegOutCoins();
+    BOOST_REQUIRE_EQUAL(pegouts.size(), 1U);
+    BOOST_CHECK(GenericAddress(pegouts[0].GetScriptPubKey()) == recipient_addr);
+
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.outputs.size(), 1U);
+    BOOST_REQUIRE(tx.mweb_tx.outputs[0].address.has_value());
+    BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == mweb_change);
+    BOOST_REQUIRE(tx.mweb_tx.outputs[0].amount.has_value());
+    BOOST_CHECK_GT(*tx.mweb_tx.outputs[0].amount, 0);
+}
+
 BOOST_AUTO_TEST_CASE(MWEBChangePositionTracksChangeWhenAddressMatchesRecipient)
 {
     const CTxDestination shared_mweb_addr = NewDestination(OutputType::MWEB);

@@ -486,7 +486,11 @@ std::optional<util::Error> TxBuilder::AddChangeOutput(const SelectionResult& sel
                 m_change.change_position = PegoutChangePosition{m_tx.mweb_tx.GetPegouts().size()};
                 m_tx.mweb_tx.AddPegout(m_change.script_or_address.GetScript(), change_amount, false);
             } else {
-                CTxOut newTxOut(change_amount, m_change.script_or_address.GetScript()); // MW: TODO - What if script_or_address is MWEB address?
+                if (m_change.script_or_address.IsMWEB()) {
+                    return util::Error{_("MWEB change is incompatible with this transaction type")};
+                }
+
+                CTxOut newTxOut(change_amount, m_change.script_or_address.GetScript());
                 if (m_change.change_position.IsNull()) {
                     // Insert change txn at random position:
                     m_change.change_position = m_selection_params.rng_fast.randrange(m_tx.vout.size() + 1);

@@ -119,6 +119,10 @@ std::optional<ChangeParams> ChangeBuilder::BuildParams(const CWallet& wallet, co
         return {};
     }
 
+    if ((*change_placement == ChangePlacement::LTC || *change_placement == ChangePlacement::PEGOUT) && script_or_address.IsMWEB()) {
+        return {};
+    }
+
     switch (*change_placement) {
     case ChangePlacement::MWEB:
         return BuildMWEBParams(coin_selection_params);
