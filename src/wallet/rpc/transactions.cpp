@@ -27,7 +27,9 @@ static void WalletTxToJSON(const CWallet& wallet, const CWalletTx& wtx, UniValue
     {
         entry.pushKV("blockhash", conf->confirmed_block_hash.GetHex());
         entry.pushKV("blockheight", conf->confirmed_block_height);
-        entry.pushKV("blockindex", conf->position_in_block);
+        if (conf->HasPositionInBlock()) {
+            entry.pushKV("blockindex", conf->position_in_block);
+        }
         int64_t block_time;
         CHECK_NONFATAL(chain.findBlock(conf->confirmed_block_hash, FoundBlock().time(block_time)));
         entry.pushKV("blocktime", block_time);

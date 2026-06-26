@@ -24,11 +24,17 @@
 namespace wallet {
 //! State of transaction confirmed in a block.
 struct TxStateConfirmed {
+    //! Serialized nIndex value for confirmed MWEB-only wallet rows that do not
+    //! correspond to a base-chain transaction position.
+    static constexpr int NO_POSITION_IN_BLOCK{-2};
+
     uint256 confirmed_block_hash;
     int confirmed_block_height;
-    int position_in_block; // MW: TODO - Should we use a magic const for MWEB?
+    int position_in_block;
 
     explicit TxStateConfirmed(const uint256& block_hash, int height, int index) : confirmed_block_hash(block_hash), confirmed_block_height(height), position_in_block(index) {}
+
+    bool HasPositionInBlock() const noexcept { return position_in_block >= 0; }
 };
 
 //! State of transaction added to mempool.
@@ -77,7 +83,7 @@ static inline TxState TxStateInterpretSerialized(TxStateUnrecognized data)
         if (data.index == 0) return TxStateInactive{};
     } else if (data.block_hash == uint256::ONE) {
         if (data.index == -1) return TxStateInactive{/*abandoned=*/true};
-    } else if (data.index >= 0) {
+    } else if (data.index >= 0 || data.index == TxStateConfirmed::NO_POSITION_IN_BLOCK) {
         return TxStateConfirmed{data.block_hash, /*height=*/-1, data.index};
     } else if (data.index == -1) {
         return TxStateConflicted{data.block_hash, /*height=*/-1};

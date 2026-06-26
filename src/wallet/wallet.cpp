@@ -111,6 +111,22 @@ static void RefreshMempoolStatus(CWalletTx& tx, interfaces::Chain& chain)
     }
 }
 
+static int GetTxPositionInBlock(const CWalletTx& wtx, const std::vector<CTransactionRef>& block_txs)
+{
+    if (wtx.tx->IsNull()) {
+        return TxStateConfirmed::NO_POSITION_IN_BLOCK;
+    }
+
+    const uint256& txid = wtx.tx->GetHash();
+    for (size_t pos = 0; pos < block_txs.size(); ++pos) {
+        if (block_txs[pos]->GetHash() == txid) {
+            return static_cast<int>(pos);
+        }
+    }
+
+    return TxStateConfirmed::NO_POSITION_IN_BLOCK;
+}
+
 bool AddWallet(WalletContext& context, const std::shared_ptr<CWallet>& wallet)
 {
     LOCK(context.wallets_mutex);
@@ -1122,10 +1138,15 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
         if (state.index() != wtx.m_state.index()) {
             wtx.m_state = state;
             fUpdated = true;
-        } else {
-            assert(TxStateSerializedIndex(wtx.m_state) == TxStateSerializedIndex(state));
-            assert(TxStateSerializedBlockHash(wtx.m_state) == TxStateSerializedBlockHash(state));
+        } else if (TxStateSerializedIndex(wtx.m_state) != TxStateSerializedIndex(state) ||
+                   TxStateSerializedBlockHash(wtx.m_state) != TxStateSerializedBlockHash(state)) {
+            // Same state type, but persisted confirmation details changed. This
+            // lets MWEB rows replace an old placeholder block index with either
+            // NO_POSITION_IN_BLOCK or the real base-chain transaction position.
+            wtx.m_state = state;
+            fUpdated = true;
         }
+        
         // MWEB: If we have only a partial transaction, and tx is not partial, replace it.
         if (wtx.IsPartialMWEB() && has_tx_data) {
             wtx.SetTx(tx);
@@ -1605,7 +1626,7 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
                 AddToWallet(
                     MakeTransactionRef(),
                     std::make_optional<MWEB::WalletTxInfo>(spent_id),
-                    TxStateConfirmed{block.hash, block.height, 0}
+                    TxStateConfirmed{block.hash, block.height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
                 );
             }
         }
@@ -1642,7 +1663,7 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
         for (const mw::Kernel& kernel : block.data->mweb_block.m_block->GetKernels()) {
             auto wtx = FindWalletTxByKernelId(kernel.GetKernelID());
             if (wtx != nullptr) {
-                SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateConfirmed{block.hash, block.height, TxStateSerializedIndex(wtx->m_state)});
+                SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateConfirmed{block.hash, block.height, GetTxPositionInBlock(*wtx, block.data->vtx)});
                 transactionRemovedFromMempool(wtx->tx, MemPoolRemovalReason::BLOCK, 0 /* mempool_sequence */);
             }
         }
@@ -1652,13 +1673,13 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
             if (mweb_wallet->RewindOutput(output, mweb_coin)) {
                 auto wtx = FindWalletTx(output.GetOutputID());
                 if (wtx != nullptr) {
-                    SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateConfirmed{block.hash, block.height, TxStateSerializedIndex(wtx->m_state)});
+                    SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateConfirmed{block.hash, block.height, GetTxPositionInBlock(*wtx, block.data->vtx)});
                     transactionRemovedFromMempool(wtx->tx, MemPoolRemovalReason::BLOCK, 0 /* mempool_sequence */);
                 } else {
                     AddToWallet(
                         MakeTransactionRef(),
                         std::make_optional<MWEB::WalletTxInfo>(mweb_coin),
-                        TxStateConfirmed{block.hash, block.height, 0}
+                        TxStateConfirmed{block.hash, block.height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
                     );
                 }
             }
@@ -2223,7 +2244,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                         SyncTransaction(
                             wtx->tx,
                             wtx->mweb_wtx_info,
-                            TxStateConfirmed{block_hash, block_height, TxStateSerializedIndex(wtx->m_state)},
+                            TxStateConfirmed{block_hash, block_height, GetTxPositionInBlock(*wtx, block.vtx)},
                             fUpdate
                         );
                     }
@@ -2237,14 +2258,14 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                             SyncTransaction(
                                 wtx->tx,
                                 wtx->mweb_wtx_info,
-                                TxStateConfirmed{block_hash, block_height, TxStateSerializedIndex(wtx->m_state)},
+                                TxStateConfirmed{block_hash, block_height, GetTxPositionInBlock(*wtx, block.vtx)},
                                 fUpdate
                             );
                         } else {
                             AddToWallet(
                                 MakeTransactionRef(),
                                 std::make_optional<MWEB::WalletTxInfo>(mweb_coin),
-                                TxStateConfirmed{block_hash, block_height, 0},
+                                TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
                                 nullptr,
                                 false
                             );
@@ -2261,7 +2282,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                                 SyncTransaction(
                                     tx_iter->second.tx,
                                     tx_iter->second.mweb_wtx_info,
-                                    TxStateConfirmed{block_hash, block_height, TxStateSerializedIndex(tx_iter->second.m_state)},
+                                    TxStateConfirmed{block_hash, block_height, GetTxPositionInBlock(tx_iter->second, block.vtx)},
                                     fUpdate
                                 );
                             }
@@ -2269,7 +2290,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                             AddToWallet(
                                 MakeTransactionRef(),
                                 std::make_optional<MWEB::WalletTxInfo>(spent_id),
-                                TxStateConfirmed{block_hash, block_height, 0},
+                                TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
                                 nullptr,
                                 false
                             );

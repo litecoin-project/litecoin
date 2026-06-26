@@ -4,6 +4,7 @@
 
 #include <wallet/wallet.h>
 
+#include <algorithm>
 #include <future>
 #include <memory>
 #include <stdint.h>
@@ -1018,7 +1019,7 @@ BOOST_FIXTURE_TEST_CASE(IsSpentPartialMWEB, TestChain100Setup)
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
         std::make_optional<MWEB::WalletTxInfo>(spent_id),
-        TxStateConfirmed{tip_hash, tip_height, 0}
+        TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
     ));
 
     {
@@ -1071,7 +1072,7 @@ BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Se
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
         std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin),
-        TxStateConfirmed{tip_hash, tip_height, 0}
+        TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
     ));
 
     {
@@ -1145,12 +1146,12 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
         std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin_1),
-        TxStateConfirmed{tip_hash, tip_height, 0}
+        TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
     ));
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
         std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin_2),
-        TxStateConfirmed{tip_hash, tip_height, 0}
+        TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
     ));
 
     {
