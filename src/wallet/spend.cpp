@@ -235,7 +235,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
 
         bool tx_from_me = CachedTxIsFromMe(wallet, wtx, ISMINE_ALL);
         
-        for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+        for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
             if (coinControl) {
                 if ((output_id.IsMWEB() && coinControl->fPegIn) || (!output_id.IsMWEB() && coinControl->fPegOut)) {
                     continue;

@@ -239,7 +239,7 @@ Result CreateRateBumpTransaction(CWallet& wallet, const uint256& txid, const CCo
     // While we're here, calculate the output amount
     std::vector<CRecipient> recipients;
     CAmount output_value = 0;
-    for (const AnyOutputID& output_id : wtx.GetOutputIDs(false)) {
+    for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::TX_OUTPUTS)) {
         GenericAddress dest_addr;
         if (!wallet.ExtractOutputAddress(wtx, output_id, dest_addr)) {
             return Result::INVALID_ADDRESS_OR_KEY;

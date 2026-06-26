@@ -1064,6 +1064,8 @@ BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Se
     received_wallet_coin.amount = 1'000'000;
     received_wallet_coin.output_id = mw::Hash::FromHex("418f6bb03b49b6a0485f20c5e41088d8d0e77ec580c45a216ca2e98c1c4475ee");
     received_wallet_coin.address_index = mw::CHANGE_INDEX;
+    const StealthAddress received_address = StealthAddress::Random();
+    received_wallet_coin.address = received_address;
 
     const uint256 partial_hash = MWEB::WalletTxInfo(received_wallet_coin).GetHash();
     BOOST_REQUIRE(wallet->AddToWallet(
@@ -1077,11 +1079,28 @@ BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Se
         const CWalletTx* wtx = wallet->GetWalletTx(partial_hash);
         BOOST_REQUIRE(wtx != nullptr);
         BOOST_REQUIRE(wtx->IsPartialMWEB());
-        BOOST_REQUIRE(wtx->HasPartialMWEBReceive());
+        BOOST_REQUIRE(wtx->GetMWEBReceivedCoin() != std::nullopt);
+        BOOST_CHECK(*wtx->GetMWEBReceivedCoin() == received_wallet_coin);
 
-        mw::WalletCoin stored_coin;
-        BOOST_CHECK(!wallet->GetMWEBWalletCoin(received_wallet_coin.output_id, stored_coin));
+        BOOST_CHECK(wtx->GetTxOutputs().empty());
+
+        const std::vector<AnyOutputID> tx_only_ids = wtx->GetOutputIDs(OutputIdMode::TX_OUTPUTS);
+        BOOST_CHECK(tx_only_ids.empty());
+
+        const std::vector<AnyOutputID> wallet_visible_ids = wtx->GetOutputIDs(OutputIdMode::WALLET_OUTPUTS);
+        BOOST_REQUIRE_EQUAL(wallet_visible_ids.size(), 1U);
+        BOOST_CHECK(wallet_visible_ids[0] == received_wallet_coin.output_id);
+
+        mw::WalletCoin wallet_coin;
+        BOOST_REQUIRE(wallet->GetMWEBWalletCoin(received_wallet_coin.output_id, wallet_coin));
+        BOOST_CHECK(wallet_coin == received_wallet_coin);
+        BOOST_CHECK_EQUAL(wallet->GetValue(*wtx, AnyOutputID{received_wallet_coin.output_id}), received_wallet_coin.amount);
+        BOOST_CHECK(wallet->IsMine(AnyOutputID{received_wallet_coin.output_id}) != ISMINE_NO);
         BOOST_CHECK(OutputIsChange(*wallet, *wtx, AnyOutputID{received_wallet_coin.output_id}));
+
+        GenericAddress extracted_address;
+        BOOST_REQUIRE(wallet->ExtractOutputAddress(*wtx, AnyOutputID{received_wallet_coin.output_id}, extracted_address));
+        BOOST_CHECK(extracted_address == GenericAddress{received_address});
     }
 
     TestUnloadWallet(std::move(wallet));
@@ -1142,8 +1161,8 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
         BOOST_REQUIRE(partial_wtx_2 != nullptr);
         BOOST_REQUIRE(partial_wtx_1->IsPartialMWEB());
         BOOST_REQUIRE(partial_wtx_2->IsPartialMWEB());
-        BOOST_REQUIRE(partial_wtx_1->HasPartialMWEBReceive());
-        BOOST_REQUIRE(partial_wtx_2->HasPartialMWEBReceive());
+        BOOST_REQUIRE(partial_wtx_1->GetMWEBReceivedCoin() != std::nullopt);
+        BOOST_REQUIRE(partial_wtx_2->GetMWEBReceivedCoin() != std::nullopt);
         BOOST_REQUIRE(wallet->FindWalletTx(AnyOutputID(received_wallet_coin_1.output_id)) == partial_wtx_1);
         BOOST_REQUIRE(wallet->FindWalletTx(AnyOutputID(received_wallet_coin_2.output_id)) == partial_wtx_2);
     }
@@ -1184,6 +1203,31 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
     BOOST_CHECK(from_kernel->GetHash() == full_hash);
 
     TestUnloadWallet(std::move(wallet));
+}
+
+BOOST_AUTO_TEST_CASE(GetMWEBPegoutsReturnsStableComponentIds)
+{
+    test::Tx mweb_tx = test::TxBuilder()
+        .AddPeginKernel(1'000'000, 0)
+        .AddPegoutKernel(1'000'000, 0)
+        .Build();
+
+    CMutableTransaction tx;
+    tx.mweb_tx = mw::MutableTx::From(*mweb_tx.GetTransaction());
+    CWalletTx wtx(MakeTransactionRef(tx), TxStateInactive{}, std::nullopt);
+
+    const auto pegouts = wtx.GetMWEBPegouts();
+    BOOST_REQUIRE_EQUAL(pegouts.size(), 1U);
+
+    const std::vector<mw::Kernel>& kernels = mweb_tx.GetKernels();
+    auto kernel_it = std::find_if(kernels.cbegin(), kernels.cend(), [](const mw::Kernel& kernel) {
+        return !kernel.GetPegOuts().empty();
+    });
+    BOOST_REQUIRE(kernel_it != kernels.cend());
+
+    BOOST_CHECK(pegouts[0].first.kernel_id == kernel_it->GetKernelID());
+    BOOST_CHECK_EQUAL(pegouts[0].first.pos, 0U);
+    BOOST_CHECK(pegouts[0].second == kernel_it->GetPegOuts()[0]);
 }
 
 /** RAII class that provides access to a FailDatabase. Which fails if needed. */

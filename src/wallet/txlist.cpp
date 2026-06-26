@@ -92,7 +92,7 @@ void TxList::List(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx,
 
 void TxList::List_Credit(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx, const wallet::isminefilter& filter_ismine)
 {
-    std::vector<AnyOutput> outputs = wtx.GetOutputs();
+    std::vector<AnyOutput> outputs = wtx.GetTxOutputs();
     for (size_t i = 0; i < outputs.size(); i++) {
         const AnyOutput& output = outputs[i];
         if (!output.IsMWEB() && output.GetScriptPubKey().IsMWEBPegin()) {
@@ -132,40 +132,32 @@ void TxList::List_Credit(std::vector<WalletTxRecord>& tx_records, const CWalletT
         }
     }
 
-    if (wtx.HasPartialMWEBReceive()) {
-        const mw::WalletCoin& mweb_coin = *wtx.mweb_wtx_info->received_wallet_coin;
-
-        wallet::isminetype ismine = m_wallet.IsMine(mweb_coin.output_id);
+    std::optional<mw::WalletCoin> mweb_coin = wtx.GetMWEBReceivedCoin();
+    if (mweb_coin != std::nullopt) {
+        wallet::isminetype ismine = m_wallet.IsMine(mweb_coin->output_id);
         if (ismine & filter_ismine) {
-            WalletTxRecord sub(&m_wallet, &wtx, mweb_coin.output_id);
-            sub.credit = mweb_coin.amount;
+            WalletTxRecord sub(&m_wallet, &wtx, mweb_coin->output_id);
+            sub.credit = mweb_coin->amount;
             sub.involvesWatchAddress = ismine & ISMINE_WATCH_ONLY;
             sub.type = WalletTxRecord::Type::RecvWithAddress;
             StealthAddress addr;
-            if (m_wallet.GetMWWallet()->GetStealthAddress(mweb_coin, addr)) {
+            if (m_wallet.GetMWWallet()->GetStealthAddress(*mweb_coin, addr)) {
                 sub.address = GenericAddress(addr).Encode();
             }
             tx_records.push_back(sub);
         }
     }
 
-    // Include pegouts to addresses belonging to the wallet.
-    if (wtx.tx->HasMWEBTx()) {
-        for (const mw::Kernel& kernel : wtx.tx->mweb_tx.m_transaction->GetKernels()) {
-            for (size_t i = 0; i < kernel.GetPegOuts().size(); i++) {
-                const PegOutCoin& pegout = kernel.GetPegOuts()[i];
-                if (!(m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()}) & filter_ismine)) {
-                    LogPrintf("Pegout IsMine is false. Address: %s\n", GenericAddress{pegout.GetScriptPubKey()}.Encode());
-                    continue;
-                }
-
-                WalletTxRecord tx_record(&m_wallet, &wtx, PegoutIndex{kernel.GetKernelID(), i});
-                tx_record.type = WalletTxRecord::Type::RecvWithAddress;
-                tx_record.credit = pegout.GetAmount();
-                tx_record.address = GenericAddress(pegout.GetScriptPubKey()).Encode();
-                tx_records.push_back(std::move(tx_record));
-            }
+    for (const auto& [pegout_index, pegout] : wtx.GetMWEBPegouts()) {
+        if (!(m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()}) & filter_ismine)) {
+            continue;
         }
+
+        WalletTxRecord tx_record(&m_wallet, &wtx, pegout_index);
+        tx_record.type = WalletTxRecord::Type::RecvWithAddress;
+        tx_record.credit = pegout.GetAmount();
+        tx_record.address = GenericAddress(pegout.GetScriptPubKey()).Encode();
+        tx_records.push_back(std::move(tx_record));
     }
 }
 
@@ -173,7 +165,7 @@ void TxList::List_Debit(std::vector<WalletTxRecord>& tx_records, const CWalletTx
 {
     CAmount nTxFee = (CachedTxIsFromMe(m_wallet, wtx, filter_ismine) ? CachedTxGetFee(m_wallet, wtx, filter_ismine) : 0);
 
-    for (const AnyOutput& output : wtx.GetOutputs()) {
+    for (const AnyOutput& output : wtx.GetTxOutputs()) {
         // If the output is a peg-in script, and we have the MWEB pegin tx, then ignore the peg-in script output.
         // If it's a peg-in script, and we don't have the MWEB pegin tx, treat the output as a spend.
         mw::Hash kernel_id;
@@ -212,37 +204,32 @@ void TxList::List_Debit(std::vector<WalletTxRecord>& tx_records, const CWalletTx
         tx_records.push_back(tx_record);
     }
 
-    if (wtx.tx->HasMWEBTx()) {
-        for (const mw::Kernel& kernel : wtx.tx->mweb_tx.m_transaction->GetKernels()) {
-            for (size_t i = 0; i < kernel.GetPegOuts().size(); i++) {
-                const PegOutCoin& pegout = kernel.GetPegOuts()[i];
-                if (m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()})) {
-                    // Ignore parts sent to self, as this is usually the change
-                    // from a transaction sent back to our own address.
-                    continue;
-                }
-
-                WalletTxRecord tx_record(&m_wallet, &wtx, PegoutIndex{kernel.GetKernelID(), i});
-                tx_record.debit = -pegout.GetAmount();
-                tx_record.type = WalletTxRecord::Type::SendToAddress;
-                tx_record.address = GenericAddress(pegout.GetScriptPubKey()).Encode();
-
-                /* Add fee to first output */
-                if (nTxFee > 0) {
-                    tx_record.fee = -nTxFee;
-                    nTxFee = 0;
-                }
-
-                tx_records.push_back(std::move(tx_record));
-            }
+    for (const auto& [pegout_index, pegout] : wtx.GetMWEBPegouts()) {
+        if (m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()})) {
+            // Ignore parts sent to self, as this is usually the change
+            // from a transaction sent back to our own address.
+            continue;
         }
+
+        WalletTxRecord tx_record(&m_wallet, &wtx, pegout_index);
+        tx_record.debit = -pegout.GetAmount();
+        tx_record.type = WalletTxRecord::Type::SendToAddress;
+        tx_record.address = GenericAddress(pegout.GetScriptPubKey()).Encode();
+
+        /* Add fee to first output */
+        if (nTxFee > 0) {
+            tx_record.fee = -nTxFee;
+            nTxFee = 0;
+        }
+
+        tx_records.push_back(std::move(tx_record));
     }
 }
 
 void TxList::List_SelfSend(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx, const wallet::isminefilter& filter_ismine)
 {
     std::string address;
-    for (const AnyOutput& output : wtx.GetOutputs()) {
+    for (const AnyOutput& output : wtx.GetTxOutputs()) {
         if (!output.IsMWEB() && output.GetScriptPubKey().IsMWEBPegin()) {
             continue;
         }
@@ -251,7 +238,8 @@ void TxList::List_SelfSend(std::vector<WalletTxRecord>& tx_records, const CWalle
         address += GetAddress(output).Encode();
     }
 
-    for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
+    for (const auto& pegout_entry : wtx.GetMWEBPegouts()) {
+        const PegOutCoin& pegout = pegout_entry.second;
         if (!address.empty()) address += ", ";
         address += GenericAddress(pegout.GetScriptPubKey()).Encode();
     }
@@ -305,7 +293,7 @@ bool TxList::IsAllFromMe(const CWalletTx& wtx)
 
 bool TxList::IsAllToMe(const CWalletTx& wtx)
 {
-    for (const AnyOutput& output : wtx.GetOutputs()) {
+    for (const AnyOutput& output : wtx.GetTxOutputs()) {
         // If we don't have the MWEB peg-in tx, then we treat it as an output not belonging to ourselves.
         mw::Hash kernel_id;
         if (!output.IsMWEB() && output.GetScriptPubKey().IsMWEBPegin(&kernel_id)) {
@@ -320,7 +308,8 @@ bool TxList::IsAllToMe(const CWalletTx& wtx)
     }
 
     // Also check pegouts
-    for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
+    for (const auto& pegout_entry : wtx.GetMWEBPegouts()) {
+        const PegOutCoin& pegout = pegout_entry.second;
         if (!m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()})) {
             return false;
         }
@@ -340,13 +329,14 @@ bool TxList::IsMine(const CWalletTx& wtx)
         }
     }
 
-    for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+    for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
         if (m_wallet.IsMine(output_id)) {
             return true;
         }
     }
 
-    for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
+    for (const auto& pegout_entry : wtx.GetMWEBPegouts()) {
+        const PegOutCoin& pegout = pegout_entry.second;
         if (m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()})) {
             return true;
         }

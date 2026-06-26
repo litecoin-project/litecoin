@@ -1045,11 +1045,16 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
 
         std::vector<PartialMWEBReceiveMatch> partial_matches;
         for (const auto& [wallet_tx_hash, partial_wtx] : mapWallet) {
-            if (!partial_wtx.IsPartialMWEB() || !partial_wtx.HasPartialMWEBReceive()) {
+            if (!partial_wtx.IsPartialMWEB()) {
                 continue;
             }
 
-            const mw::Hash& output_id = partial_wtx.mweb_wtx_info->received_wallet_coin->output_id;
+            std::optional<mw::WalletCoin> mweb_coin = partial_wtx.GetMWEBReceivedCoin();
+            if (mweb_coin == std::nullopt) {
+                continue;
+            }
+
+            const mw::Hash& output_id = mweb_coin->output_id;
             if (!tx->HasOutput(AnyOutputID(output_id))) {
                 continue;
             }
@@ -1301,7 +1306,7 @@ bool CWallet::AddToWalletIfInvolvingMe(const CTransactionRef& ptx, const std::op
 
             // Find all used output addresses
             std::vector<GenericAddress> used_addresses;
-            for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+            for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
                 CTxDestination output_dest;
                 if (!ExtractOutputDestination(wtx, output_id, output_dest)) {
                     continue;
@@ -4992,7 +4997,20 @@ util::Result<MigrationResult> MigrateLegacyToDescriptor(std::shared_ptr<CWallet>
 
 bool CWallet::GetMWEBWalletCoin(const mw::Hash& output_id, mw::WalletCoin& coin) const
 {
-    return mweb_wallet->GetWalletCoin(output_id, coin);
+    if (mweb_wallet->GetWalletCoin(output_id, coin)) {
+        return true;
+    }
+
+    const CWalletTx* wtx = FindWalletTx(AnyOutputID{output_id});
+    if (wtx != nullptr) {
+        std::optional<mw::WalletCoin> mweb_coin = wtx->GetMWEBReceivedCoin();
+        if (mweb_coin != std::nullopt && mweb_coin->output_id == output_id) {
+            coin = *mweb_coin;
+            return true;
+        }
+    }
+
+    return false;
 }
 
 CAmount CWallet::GetValue(const CWalletTx& wtx, const AnyOutputID& output_id) const

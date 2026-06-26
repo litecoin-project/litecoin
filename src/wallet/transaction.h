@@ -9,6 +9,7 @@
 #include <mweb/mweb_wallet.h>
 #include <primitives/transaction.h>
 #include <serialize.h>
+#include <wallet/componentid.h>
 #include <wallet/ismine.h>
 #include <threadsafety.h>
 #include <tinyformat.h>
@@ -110,6 +111,14 @@ static inline int TxStateSerializedIndex(const TxState& state)
 
 
 typedef std::map<std::string, std::string> mapValue_t;
+
+enum class OutputIdMode {
+    //! Return IDs for outputs physically present in CWalletTx::tx.
+    TX_OUTPUTS,
+    //! Return IDs visible to wallet accounting, including MWEB receive metadata
+    //! stored on partial wallet rows when not already present in tx.
+    WALLET_OUTPUTS,
+};
 
 /** Legacy class used for deserializing vtxPrev for backwards compatibility.
  * vtxPrev was removed in commit 93a18a3650292afbb441a47d1fa1b94aeb0164e3,
@@ -337,30 +346,44 @@ public:
         return inputs;
     }
 
-    // MW: TODO - Also return pegout script id?
-    std::vector<AnyOutputID> GetOutputIDs(const bool include_partial_mweb = true) const
+    //! Return spendable output ids created by tx according to mode.
+    std::vector<AnyOutputID> GetOutputIDs(const OutputIdMode mode = OutputIdMode::WALLET_OUTPUTS) const
     {
         std::vector<AnyOutputID> output_ids;
         for (const AnyOutput& output : tx->GetOutputs()) {
             output_ids.push_back(output.GetID());
         }
 
-        if (include_partial_mweb && mweb_wtx_info && mweb_wtx_info->received_wallet_coin) {
-            output_ids.push_back(mweb_wtx_info->received_wallet_coin->output_id);
+        if (mode == OutputIdMode::WALLET_OUTPUTS) {
+            std::optional<mw::WalletCoin> mweb_coin = GetMWEBReceivedCoin();
+            if (mweb_coin) {
+                if (!tx->HasOutput(AnyOutputID{mweb_coin->output_id})) {
+                    output_ids.push_back(mweb_coin->output_id);
+                }
+            }
         }
 
         return output_ids;
     }
-    
-    // MW: TODO - Check all uses to see if they should also include pegout scripts
-    std::vector<AnyOutput> GetOutputs() const
+
+    //! Return concrete outputs physically present in tx.
+    std::vector<AnyOutput> GetTxOutputs() const
     {
-        std::vector<AnyOutput> outputs = tx->GetOutputs();
-        if (mweb_wtx_info && mweb_wtx_info->received_wallet_coin) {
-            // MW: TODO - outputs.push_back(AnyOutput{mweb_wtx_info->received_wallet_coin->output_id});
+        return tx->GetOutputs();
+    }
+
+    //! Return MWEB pegouts by kernel id and position.
+    std::vector<std::pair<PegoutIndex, PegOutCoin>> GetMWEBPegouts() const
+    {
+        std::vector<std::pair<PegoutIndex, PegOutCoin>> pegouts;
+        for (const mw::Kernel& kernel : tx->mweb_tx.GetKernels()) {
+            const std::vector<PegOutCoin>& kernel_pegouts = kernel.GetPegOuts();
+            for (size_t i = 0; i < kernel_pegouts.size(); ++i) {
+                pegouts.emplace_back(PegoutIndex{kernel.GetKernelID(), i}, kernel_pegouts[i]);
+            }
         }
 
-        return outputs;
+        return pegouts;
     }
 
     bool IsPartialMWEB() const
@@ -368,10 +391,9 @@ public:
         return tx->IsNull() && mweb_wtx_info;
     }
 
-    // MW: TODO - Rename this and provide accurate description
-    bool HasPartialMWEBReceive() const
+    std::optional<mw::WalletCoin> GetMWEBReceivedCoin() const noexcept
     {
-        return mweb_wtx_info && mweb_wtx_info->received_wallet_coin;
+        return mweb_wtx_info ? mweb_wtx_info->received_wallet_coin : std::nullopt;
     }
 
     // Disable copying of CWalletTx objects to prevent bugs where instances get

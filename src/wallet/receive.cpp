@@ -46,7 +46,7 @@ CAmount OutputGetCredit(const CWallet& wallet, const CWalletTx& wtx, const AnyOu
 CAmount TxGetCredit(const CWallet& wallet, const CWalletTx& wtx, const isminefilter& filter)
 {
     CAmount nCredit = 0;
-    for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+    for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
         nCredit += OutputGetCredit(wallet, wtx, output_id, filter);
         if (!MoneyRange(nCredit))
             throw std::runtime_error(std::string(__func__) + ": value out of range");
@@ -107,11 +107,6 @@ bool OutputIsChange(const CWallet& wallet, const CWalletTx& wtx, const AnyOutput
         mw::WalletCoin coin;
         if (wallet.GetMWEBWalletCoin(output_id.ToMWEB(), coin)) {
             return coin.IsChange();
-        }
-
-        if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_wallet_coin) {
-            const mw::WalletCoin& received_coin = *wtx.mweb_wtx_info->received_wallet_coin;
-            return received_coin.output_id == output_id.ToMWEB() && received_coin.IsChange();
         }
 
         return false;
@@ -229,7 +224,7 @@ CAmount CachedTxGetAvailableCredit(const CWallet& wallet, const CWalletTx& wtx, 
 
     bool allow_used_addresses = (filter & ISMINE_USED) || !wallet.IsWalletFlagSet(WALLET_FLAG_AVOID_REUSE);
     CAmount nCredit = 0;
-    for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+    for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
         if (!wallet.IsSpent(output_id) && (allow_used_addresses || !wallet.IsSpentKey(wtx, output_id))) {
             nCredit += OutputGetCredit(wallet, wtx, output_id, filter);
             if (!MoneyRange(nCredit))
@@ -257,16 +252,12 @@ CAmount CachedTxGetFee(const CWallet& wallet, const CWalletTx& wtx, const ismine
     // debit>0 means we signed/sent this transaction
     if (nDebit > 0) {
         CAmount nValueOut = 0;
-        for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+        for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
             if (!output_id.IsMWEB() && IsPegInOutput(wtx.tx->vout[output_id.ToOutPoint().n])) {
                 continue;
             }
 
             nValueOut += wallet.GetValue(wtx, output_id);
-        }
-
-        if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_wallet_coin) {
-            nValueOut += wtx.mweb_wtx_info->received_wallet_coin->amount;
         }
 
         for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
@@ -304,7 +295,7 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
 
     LOCK(wallet.cs_wallet);
     // Sent/received.
-    for (const AnyOutputID& output_id : wtx.GetOutputIDs(true))
+    for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS))
     {
         isminetype fIsMine = wallet.IsMine(output_id);
         // Only need to handle txouts if AT LEAST one of these is true:
@@ -339,36 +330,31 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
             listReceived.push_back(output_entry);
     }
 
-    // MWEB: Treat pegouts as outputs
-    for (const mw::Kernel& kernel : wtx.tx->mweb_tx.GetKernels()) {
-        std::vector<PegOutCoin> pegouts = kernel.GetPegOuts();
-        for (size_t i = 0; i < pegouts.size(); i++) {
-            const PegOutCoin& pegout = pegouts[i];
-            const CScript& pegout_script = pegout.GetScriptPubKey();
-            isminetype fIsMine = wallet.IsMine(pegout_script);
-            // Only need to handle txouts if AT LEAST one of these is true:
-            //   1) they debit from us (sent)
-            //   2) the output is to us (received)
-            if (nDebit > 0) {
-                // Don't report 'change' txouts
-                if (!include_change && ScriptIsChange(wallet, pegout_script))
-                    continue;
-            } else if (!(fIsMine & filter))
+    for (const auto& [pegout_index, pegout] : wtx.GetMWEBPegouts()) {
+        const CScript& pegout_script = pegout.GetScriptPubKey();
+        isminetype fIsMine = wallet.IsMine(pegout_script);
+        // Only need to handle txouts if AT LEAST one of these is true:
+        //   1) they debit from us (sent)
+        //   2) the output is to us (received)
+        if (nDebit > 0) {
+            // Don't report 'change' txouts
+            if (!include_change && ScriptIsChange(wallet, pegout_script))
                 continue;
+        } else if (!(fIsMine & filter))
+            continue;
 
-            CTxDestination address;
-            ExtractDestination(pegout_script, address);
+        CTxDestination address;
+        ExtractDestination(pegout_script, address);
 
-            COutputEntry output = {address, pegout.GetAmount(), PegoutIndex{kernel.GetKernelID(), i}};
+        COutputEntry output = {address, pegout.GetAmount(), pegout_index};
 
-            // If we are debited by the transaction, add the output as a "sent" entry
-            if (nDebit > 0)
-                listSent.push_back(output);
+        // If we are debited by the transaction, add the output as a "sent" entry
+        if (nDebit > 0)
+            listSent.push_back(output);
 
-            // If we are receiving the output, add it as a "received" entry
-            if (fIsMine & filter)
-                listReceived.push_back(output);
-        }
+        // If we are receiving the output, add it as a "received" entry
+        if (fIsMine & filter)
+            listReceived.push_back(output);
     }
 }
 
@@ -467,7 +453,7 @@ std::map<CTxDestination, CAmount> GetAddressBalances(const CWallet& wallet)
             if (nDepth < (CachedTxIsFromMe(wallet, wtx, ISMINE_ALL) ? 0 : 1))
                 continue;
 
-            for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+            for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
                 CTxDestination addr;
                 if (!wallet.IsMine(output_id))
                     continue;
@@ -515,7 +501,7 @@ std::set< std::set<CTxDestination> > GetAddressGroupings(const CWallet& wallet)
             // group change with input addresses
             if (any_mine)
             {
-                for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+                for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
                     if (OutputIsChange(wallet, wtx, output_id)) {
                         CTxDestination address;
                         if (!wallet.ExtractOutputDestination(wtx, output_id, address))
@@ -532,7 +518,7 @@ std::set< std::set<CTxDestination> > GetAddressGroupings(const CWallet& wallet)
         }
 
         // group lone addrs by themselves
-        for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+        for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
             if (wallet.IsMine(output_id)) {
                 CTxDestination address;
                 if (!wallet.ExtractOutputDestination(wtx, output_id, address))

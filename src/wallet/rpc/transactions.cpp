@@ -110,7 +110,7 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
             continue;
         }
 
-        for (const AnyOutputID& output_id : wtx.GetOutputIDs(true)) {
+        for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
             CTxDestination address;
             if (!wallet.ExtractOutputDestination(wtx, output_id, address))
                 continue;

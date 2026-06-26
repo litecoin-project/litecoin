@@ -78,21 +78,8 @@ WalletTxOut MakeWalletTxOut(const CWallet& wallet,
     result.is_spent = wallet.IsSpent(output_id);
     result.is_mine = wallet.IsMine(output_id);
 
-    if (output_id.IsMWEB()) {
-        mw::WalletCoin coin;
-        if (wallet.GetMWEBWalletCoin(output_id.ToMWEB(), coin)) {
-            StealthAddress addr;
-            if (wallet.GetMWWallet()->GetStealthAddress(coin, addr)) {
-                result.address = addr;
-            }
-
-            result.nValue = coin.amount;
-        }
-    } else {
-        const CTxOut& txout = wtx.tx->vout[output_id.ToOutPoint().n];
-        result.address = txout.scriptPubKey;
-        result.nValue = txout.nValue;
-    }
+    wallet.ExtractOutputAddress(wtx, output_id, result.address);
+    result.nValue = wallet.GetValue(wtx, output_id);
 
     result.address_is_mine = wallet.IsMine(result.address);
 

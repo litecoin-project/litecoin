@@ -217,7 +217,7 @@ public:
 
     void ExpectOutputs(const CWalletTx& wtx, size_t ltc, size_t mweb)
     {
-        const auto& outputs = wtx.GetOutputs();
+        const auto& outputs = wtx.GetTxOutputs();
         BOOST_REQUIRE_EQUAL(outputs.size(), ltc + mweb);
         for (size_t i = 0; i < ltc; i++) {
             BOOST_CHECK(!outputs[i].IsMWEB());
