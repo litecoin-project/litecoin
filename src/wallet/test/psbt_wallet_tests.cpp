@@ -176,7 +176,43 @@ BOOST_AUTO_TEST_CASE(parse_hd_keypath)
     BOOST_CHECK(ParseHDKeypath("m/4294967295", keypath)); // 4294967295 == 0xFFFFFFFF (uint32_t max)
     BOOST_CHECK(!ParseHDKeypath("m/4294967296", keypath)); // 4294967296 == 0xFFFFFFFF (uint32_t max) + 1
 
-    // MW: TODO - Include MWEB keypaths
+    {
+        HDKeyPath mweb_keypath;
+        BOOST_REQUIRE(ParseHDKeypath("x/0", mweb_keypath));
+        BOOST_CHECK(mweb_keypath.path.empty());
+        BOOST_REQUIRE(mweb_keypath.mweb_index.has_value());
+        BOOST_CHECK_EQUAL(*mweb_keypath.mweb_index, 0U);
+        BOOST_CHECK_EQUAL(FormatHDKeypath(mweb_keypath), "");
+        BOOST_CHECK_EQUAL(WriteHDKeypath(mweb_keypath), "x/0");
+    }
+
+    {
+        HDKeyPath mweb_keypath;
+        BOOST_REQUIRE(ParseHDKeypath("x/4294967295", mweb_keypath)); // 4294967295 == 0xFFFFFFFF (uint32_t max)
+        BOOST_CHECK(mweb_keypath.path.empty());
+        BOOST_REQUIRE(mweb_keypath.mweb_index.has_value());
+        BOOST_CHECK_EQUAL(*mweb_keypath.mweb_index, 4294967295U);
+        BOOST_CHECK_EQUAL(FormatHDKeypath(mweb_keypath), "");
+        BOOST_CHECK_EQUAL(WriteHDKeypath(mweb_keypath), "x/4294967295");
+    }
+
+    {
+        HDKeyPath mixed_keypath;
+        mixed_keypath.path = {0x80000000};
+        mixed_keypath.mweb_index = 42;
+        BOOST_CHECK_EQUAL(FormatHDKeypath(mixed_keypath), "/0'");
+        BOOST_CHECK_EQUAL(WriteHDKeypath(mixed_keypath), "m/0'");
+    }
+
+    BOOST_CHECK(!ParseHDKeypath("x", keypath));
+    BOOST_CHECK(!ParseHDKeypath("x/", keypath));
+    BOOST_CHECK(!ParseHDKeypath("m/0/x", keypath));
+    BOOST_CHECK(!ParseHDKeypath("m/0/x/", keypath));
+    BOOST_CHECK(!ParseHDKeypath("m/0'/100'/1'/x/42", keypath));
+    BOOST_CHECK(!ParseHDKeypath("x/0'", keypath));
+    BOOST_CHECK(!ParseHDKeypath("x/0/1", keypath));
+    BOOST_CHECK(!ParseHDKeypath("x/x/0", keypath));
+    BOOST_CHECK(!ParseHDKeypath("x/4294967296", keypath)); // 4294967296 == 0xFFFFFFFF (uint32_t max) + 1
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -72,6 +72,11 @@ const int CHDChain::VERSION_HD_MWEB_WATCH;
 const int CHDChain::VERSION_HD_MWEB_RECEIVE;
 const int CHDChain::CURRENT_VERSION;
 
+namespace {
+static constexpr uint32_t WALLETDB_BIP32_HARDENED_KEY_LIMIT{0x80000000};
+static constexpr uint32_t WALLETDB_MWEB_PURPOSE{100};
+} // namespace
+
 //
 // WalletBatch
 //
@@ -581,50 +586,78 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             CKeyMetadata keyMeta;
             ssValue >> keyMeta;
             wss.nKeyMeta++;
-            pwallet->GetOrCreateLegacyScriptPubKeyMan()->LoadKeyMetadata(vchPubKey.GetID(), keyMeta);
 
             // Extract some CHDChain info from this metadata if it has any
             if (keyMeta.nVersion >= CKeyMetadata::VERSION_WITH_HDDATA && !keyMeta.hd_seed_id.IsNull() && keyMeta.hdKeypath.size() > 0) {
                 // Get the path from the key origin or from the path string
                 // Not applicable when path is "s" or "m" as those indicate a seed
                 // See https://github.com/bitcoin/bitcoin/pull/12924
+                bool external = false;
                 bool internal = false;
+                bool mweb = false;
                 uint32_t index = 0;
-                if (keyMeta.hdKeypath != "s" && keyMeta.hdKeypath != "m" && !keyMeta.key_origin.hdkeypath.mweb_index) { // MW: TODO - Handle parsing of Keypaths here
+                auto set_mweb_index = [&](uint32_t mweb_index) {
+                    mweb = true;
+                    index = mweb_index;
+                    keyMeta.hdKeypath = strprintf("x/%u", mweb_index);
+                    keyMeta.key_origin.hdkeypath.path.clear();
+                    keyMeta.key_origin.hdkeypath.mweb_index = mweb_index;
+                    if (keyMeta.nVersion < CKeyMetadata::VERSION_WITH_MWEB_INDEX) {
+                        keyMeta.nVersion = CKeyMetadata::VERSION_WITH_MWEB_INDEX;
+                    }
+                };
+
+                if (keyMeta.key_origin.hdkeypath.mweb_index) {
+                    set_mweb_index(*keyMeta.key_origin.hdkeypath.mweb_index);
+                } else if (keyMeta.hdKeypath != "s" && keyMeta.hdKeypath != "m") {
                     HDKeyPath hdkeypath;
-                    if (keyMeta.has_key_origin) {
+                    std::optional<HDKeyPath> parsed_hdkeypath;
+                    auto parse_hdkeypath = [&]() {
+                        HDKeyPath parsed;
+                        if (!ParseHDKeypath(keyMeta.hdKeypath, parsed)) return false;
+                        parsed_hdkeypath = parsed;
+                        return true;
+                    };
+
+                    if (parse_hdkeypath() && parsed_hdkeypath->path.empty() && parsed_hdkeypath->mweb_index) {
+                        set_mweb_index(*parsed_hdkeypath->mweb_index);
+                    } else if (keyMeta.has_key_origin) {
                         // We have a key origin, so pull it from its path vector
                         hdkeypath = keyMeta.key_origin.hdkeypath;
                     } else {
                         // No key origin, have to parse the string
-                        if (!ParseHDKeypath(keyMeta.hdKeypath, hdkeypath)) {
+                        if (!parsed_hdkeypath) {
                             strErr = "Error reading wallet database: keymeta with invalid HD keypath";
                             return false;
                         }
+                        hdkeypath = *parsed_hdkeypath;
                     }
 
                     // Extract the index and internal from the path
                     // Path string is m/0'/k'/i'
                     // Path vector is [0', k', i'] (but as ints OR'd with the hardened bit
-                    // k == 0 for external, 1 for internal. i is the index
-                    if (hdkeypath.path.size() != 3) {
+                    // k == 0 for external, 1 for internal, 100 for MWEB master material. i is the index
+                    if (!mweb && hdkeypath.path.size() != 3) {
                         strErr = "Error reading wallet database: keymeta found with unexpected path";
                         return false;
                     }
-                    if (hdkeypath.path[0] != 0x80000000) {
+                    if (!mweb && hdkeypath.path[0] != WALLETDB_BIP32_HARDENED_KEY_LIMIT) {
                         strErr = strprintf("Unexpected path index of 0x%08x (expected 0x80000000) for the element at index 0", hdkeypath.path[0]);
                         return false;
                     }
-                    if (hdkeypath.path[1] != 0x80000000 && hdkeypath.path[1] != (1 | 0x80000000) && hdkeypath.path[1] != (100 | 0x80000000)) {
-                        strErr = strprintf("Unexpected path index of 0x%08x (expected 0x80000000 or 0x80000001) for the element at index 1", hdkeypath.path[1]);
+                    if (!mweb && hdkeypath.path[1] != WALLETDB_BIP32_HARDENED_KEY_LIMIT && hdkeypath.path[1] != (1 | WALLETDB_BIP32_HARDENED_KEY_LIMIT) && hdkeypath.path[1] != (WALLETDB_MWEB_PURPOSE | WALLETDB_BIP32_HARDENED_KEY_LIMIT)) {
+                        strErr = strprintf("Unexpected path index of 0x%08x (expected 0x80000000, 0x80000001, or 0x80000064) for the element at index 1", hdkeypath.path[1]);
                         return false;
                     }
-                    if ((hdkeypath.path[2] & 0x80000000) == 0) {
+                    if (!mweb && (hdkeypath.path[2] & WALLETDB_BIP32_HARDENED_KEY_LIMIT) == 0) {
                         strErr = strprintf("Unexpected path index of 0x%08x (expected to be greater than or equal to 0x80000000)", hdkeypath.path[2]);
                         return false;
                     }
-                    internal = hdkeypath.path[1] == (1 | 0x80000000);
-                    index = hdkeypath.path[2] & ~0x80000000;
+                    if (!mweb) {
+                        external = hdkeypath.path[1] == WALLETDB_BIP32_HARDENED_KEY_LIMIT;
+                        internal = hdkeypath.path[1] == (1 | WALLETDB_BIP32_HARDENED_KEY_LIMIT);
+                        index = hdkeypath.path[2] & ~WALLETDB_BIP32_HARDENED_KEY_LIMIT;
+                    }
                 }
 
                 // Insert a new CHDChain, or get the one that already exists
@@ -636,16 +669,17 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                     chain.seed_id = keyMeta.hd_seed_id;
                 }
 
-                if (!!keyMeta.key_origin.hdkeypath.mweb_index) {
+                if (mweb) {
                     chain.nVersion = std::max(chain.nVersion, CHDChain::VERSION_HD_MWEB_RECEIVE);
-                    chain.nMWEBIndexCounter = std::max(chain.nMWEBIndexCounter, *keyMeta.key_origin.hdkeypath.mweb_index + 1);
+                    chain.nMWEBIndexCounter = std::max(chain.nMWEBIndexCounter, index + 1);
                 } else if (internal) {
                     chain.nVersion = std::max(chain.nVersion, CHDChain::VERSION_HD_CHAIN_SPLIT);
                     chain.nInternalChainCounter = std::max(chain.nInternalChainCounter, index + 1);
-                } else {
+                } else if (external) {
                     chain.nExternalChainCounter = std::max(chain.nExternalChainCounter, index + 1);
                 }
             }
+            pwallet->GetOrCreateLegacyScriptPubKeyMan()->LoadKeyMetadata(vchPubKey.GetID(), keyMeta);
         } else if (strType == DBKeys::WATCHMETA) {
             CScript script;
             ssKey >> script;
@@ -1015,10 +1049,9 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         }
     }
 
-    // MWEB: Load MWEB keychain
-    auto mweb_spk_man = pwallet->GetScriptPubKeyMan(OutputType::MWEB, false);
-    if (mweb_spk_man) {
-        mweb_spk_man->LoadMWEBKeychain();
+    // MWEB: Load active legacy and MWEB descriptor keychains.
+    for (ScriptPubKeyMan* spk_man : pwallet->GetAllScriptPubKeyMans()) {
+        spk_man->LoadMWEBKeychain();
     }
     
     for (const uint256& hash : wss.vWalletUpgrade)

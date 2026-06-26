@@ -276,9 +276,6 @@ public:
     // Returns the active MWEB keychain, if any.
     const mw::Keychain::Ptr& GetMWEBKeychain() const noexcept { return m_mwebKeychain; }
 
-    // Returns all inactive MWEB keychains, if any.
-    virtual std::vector<mw::Keychain::Ptr> GetInactiveMWEBKeychains() const { return {}; }
-	
     /** Prepends the wallet name in logging output to ease debugging in multi-wallet use cases */
     template<typename... Params>
     void WalletLogPrintf(std::string fmt, Params... parameters) const {
@@ -353,6 +350,16 @@ private:
     /* the HD chain data model (external chain counters) */
     CHDChain m_hd_chain;
     std::unordered_map<CKeyID, CHDChain, SaltedSipHasher> m_inactive_hd_chains;
+
+    struct MWEBChainMaterial {
+        SecretKey scan_secret;
+        SecretKey spend_secret;
+        PublicKey spend_pubkey;
+    };
+
+    std::optional<MWEBChainMaterial> DeriveMWEBChainMaterial(const CHDChain& chain) const;
+    std::optional<MWEBChainMaterial> DeriveAndCacheMWEBChainMaterial(CHDChain& chain) EXCLUSIVE_LOCKS_REQUIRED(cs_KeyStore);
+    mw::Keychain::Ptr GetMWEBKeychainForChain(CHDChain& chain) EXCLUSIVE_LOCKS_REQUIRED(cs_KeyStore);
 
     /* HD derive new child key (on internal or external chain) */
     void DeriveNewChildKey(WalletBatch& batch, CKeyMetadata& metadata, CKey& secret, CHDChain& hd_chain, const KeyPurpose purpose) EXCLUSIVE_LOCKS_REQUIRED(cs_KeyStore);
@@ -558,7 +565,7 @@ public:
     void LoadMWEBKeychain() override;
 
     std::optional<SecretKey> GetScanSecretForChain(const CHDChain& chain) const noexcept;
-    SecretKey GetScanSecret(const std::optional<CKeyID>& seed_id = std::nullopt) const noexcept
+    std::optional<SecretKey> GetScanSecret(const std::optional<CKeyID>& seed_id = std::nullopt) const noexcept
     {
         std::optional<SecretKey> scan_secret = std::nullopt;
 
@@ -569,14 +576,9 @@ public:
             }
 
             scan_secret = GetScanSecretForChain(m_hd_chain);
-        } else {
-            auto it = m_inactive_hd_chains.find(effective_seed_id);
-            if (it != m_inactive_hd_chains.end()) {
-                scan_secret = GetScanSecretForChain(it->second);
-            }
         }
 
-        return scan_secret.value_or(SecretKey::Null());
+        return scan_secret;
     }
 
     std::vector<SecretKey> GetAllScanSecrets() const noexcept
@@ -586,13 +588,6 @@ public:
         std::optional<SecretKey> active_secret = GetScanSecretForChain(m_hd_chain);
         if (active_secret) {
             secrets.push_back(*active_secret);
-        }
-
-        for (const auto& [_, chain] : m_inactive_hd_chains) {
-            std::optional<SecretKey> inactive_secret = GetScanSecretForChain(chain);
-            if (inactive_secret) {
-                secrets.push_back(*inactive_secret);
-            }
         }
 
         return secrets;
@@ -615,9 +610,9 @@ public:
     bool GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const override { return m_spk_man.GetKeyOrigin(keyid, info); }
     bool GetMWEBMasterScanKey(CKey& out) const override
     {
-        const SecretKey scan_secret = m_spk_man.GetScanSecret();
-        if (scan_secret.IsNull()) return false;
-        out.Set(scan_secret.vec().begin(), scan_secret.vec().end(), true);
+        const std::optional<SecretKey> scan_secret = m_spk_man.GetScanSecret();
+        if (!scan_secret) return false;
+        out.Set(scan_secret->vec().begin(), scan_secret->vec().end(), true);
         return out.IsValid();
     }
 };
@@ -732,6 +727,7 @@ public:
     bool CanUpdateToWalletDescriptor(const WalletDescriptor& descriptor, std::string& error);
     void AddDescriptorKey(const CKey& key, const CPubKey &pubkey);
     void WriteDescriptor();
+    void SetWalletDescriptorNextIndex(int32_t next_index);
 
     const WalletDescriptor GetWalletDescriptor() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
     const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> GetScriptPubKeys() const override;

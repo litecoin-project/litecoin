@@ -38,13 +38,29 @@ struct HDKeyPath
         // Compare the MWEB indices
         return a.mweb_index < b.mweb_index;
     }
+
+    void clear()
+    {
+        path.clear();
+        mweb_index.reset();
+    }
 };
 
 /** Parse an HD keypaths like "m/7/0'/2000". */
 [[nodiscard]] bool ParseHDKeypath(const std::string& keypath_str, HDKeyPath& kehdkeypathypath);
 
-/** Write HD keypaths as strings */
+/**
+ * Write a wallet/RPC keypath string. This includes wallet metadata extensions
+ * such as a MWEB-only subaddress index ("x/42"). Use this for displaying or
+ * storing CKeyMetadata origins, not for constructing descriptor key paths.
+ */
 std::string WriteHDKeypath(const HDKeyPath& hdkeypath);
+
+/**
+ * Format only the BIP32 derivation suffix, beginning with '/' when non-empty.
+ * This intentionally excludes wallet-only metadata such as mweb_index. Use this
+ * when serializing descriptor key origins or xpub/xprv derivation suffixes.
+ */
 std::string FormatHDKeypath(const HDKeyPath& hdkeypath);
 
 #endif // BITCOIN_UTIL_BIP32_H

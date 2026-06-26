@@ -64,7 +64,8 @@ static bool GetWalletAddressesForKey(const LegacyScriptPubKeyMan* spk_man, const
     bool fLabelFound = false;
     CKey key;
     spk_man->GetKey(keyid, key);
-    for (const auto& dest : GetAllDestinationsForKey(key.GetPubKey(), spk_man->GetScanSecret())) {
+    const std::optional<SecretKey> scan_secret = spk_man->GetScanSecret();
+    for (const auto& dest : GetAllDestinationsForKey(key.GetPubKey(), scan_secret.value_or(SecretKey::Null()))) {
         const auto* address_book_entry = wallet.FindAddressBookEntry(dest);
         if (address_book_entry) {
             if (!strAddr.empty()) {
@@ -76,7 +77,7 @@ static bool GetWalletAddressesForKey(const LegacyScriptPubKeyMan* spk_man, const
         }
     }
     if (!fLabelFound) {
-        strAddr = EncodeDestination(GetDestinationForKey(key.GetPubKey(), wallet.m_default_address_type, spk_man->GetScanSecret()));
+        strAddr = EncodeDestination(GetDestinationForKey(key.GetPubKey(), wallet.m_default_address_type, scan_secret.value_or(SecretKey::Null())));
     }
     return fLabelFound;
 }
@@ -171,7 +172,8 @@ RPCHelpMan importprivkey()
             // We don't know which corresponding address will be used;
             // label all new addresses, and label existing addresses if a
             // label was passed.
-            for (const auto& dest : GetAllDestinationsForKey(pubkey, pwallet->GetLegacyScriptPubKeyMan()->GetScanSecret())) {
+            const std::optional<SecretKey> scan_secret = pwallet->GetLegacyScriptPubKeyMan()->GetScanSecret();
+            for (const auto& dest : GetAllDestinationsForKey(pubkey, scan_secret.value_or(SecretKey::Null()))) {
                 if (!request.params[1].isNull() || !pwallet->FindAddressBookEntry(dest)) {
                     pwallet->SetAddressBook(dest, strLabel, "receive");
                 }
@@ -458,7 +460,8 @@ RPCHelpMan importpubkey()
         LOCK(pwallet->cs_wallet);
 
         std::set<GenericAddress> script_pub_keys;
-        for (const auto& dest : GetAllDestinationsForKey(pubKey, pwallet->GetLegacyScriptPubKeyMan()->GetScanSecret())) {
+        const std::optional<SecretKey> scan_secret = pwallet->GetLegacyScriptPubKeyMan()->GetScanSecret();
+        for (const auto& dest : GetAllDestinationsForKey(pubKey, scan_secret.value_or(SecretKey::Null()))) {
             script_pub_keys.insert(GenericAddress(dest));
         }
 

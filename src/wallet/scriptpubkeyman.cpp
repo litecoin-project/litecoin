@@ -67,11 +67,11 @@ util::Result<CTxDestination> LegacyScriptPubKeyMan::GetNewDestination(const Outp
     }
     LearnRelatedScripts(new_key, type);
 
-    SecretKey scan_secret = GetScanSecret();
-    if (type == OutputType::MWEB && scan_secret.IsNull()) {
+    const std::optional<SecretKey> scan_secret = GetScanSecret();
+    if (type == OutputType::MWEB && !scan_secret) {
         return util::Error{Untranslated("Error: Scan secret needed for MWEB outputs")};
     }
-    return GetDestinationForKey(new_key, type, scan_secret);
+    return GetDestinationForKey(new_key, type, scan_secret.value_or(SecretKey::Null()));
 }
 
 typedef std::vector<unsigned char> valtype;
@@ -357,11 +357,11 @@ util::Result<CTxDestination> LegacyScriptPubKeyMan::GetReservedDestination(const
         return util::Error{_("Error: Keypool ran out, please call keypoolrefill first")};
     }
 
-    SecretKey scan_secret = GetScanSecret();
-    if (type == OutputType::MWEB && scan_secret.IsNull()) {
+    const std::optional<SecretKey> scan_secret = GetScanSecret();
+    if (type == OutputType::MWEB && !scan_secret) {
         return util::Error{Untranslated("Error: Scan secret needed for MWEB outputs")};
     }
-    return GetDestinationForKey(keypool.vchPubKey, type, scan_secret);
+    return GetDestinationForKey(keypool.vchPubKey, type, scan_secret.value_or(SecretKey::Null()));
 }
 
 bool LegacyScriptPubKeyMan::TopUpInactiveHDChain(const CKeyID seed_id, int64_t index, const KeyPurpose purpose)
@@ -372,12 +372,13 @@ bool LegacyScriptPubKeyMan::TopUpInactiveHDChain(const CKeyID seed_id, int64_t i
     if (it == m_inactive_hd_chains.end()) {
         return false;
     }
+    if (purpose == KeyPurpose::MWEB) {
+        return false;
+    }
 
     CHDChain& chain = it->second;
 
-    if (purpose == KeyPurpose::MWEB) {
-	    chain.m_next_mweb_index = std::max(chain.m_next_mweb_index, index + 1);
-    } else if (purpose == KeyPurpose::INTERNAL) {
+    if (purpose == KeyPurpose::INTERNAL) {
         chain.m_next_internal_index = std::max(chain.m_next_internal_index, index + 1);
     } else {
         chain.m_next_external_index = std::max(chain.m_next_external_index, index + 1);
@@ -397,15 +398,15 @@ std::vector<WalletDestination> LegacyScriptPubKeyMan::MarkUnusedAddresses(const 
         std::map<CKeyID, int64_t>::const_iterator mi = m_pool_key_to_index.find(keyid);
         if (mi != m_pool_key_to_index.end()) {
             WalletLogPrintf("%s: Detected a used keypool key, mark all keypool keys up to this key as used\n", __func__);
+            const std::optional<SecretKey> scan_secret = GetScanSecret();
             for (const auto& keypool : MarkReserveKeysAsUsed(mi->second)) {
                 // derive all possible destinations as any of them could have been used
                 for (const auto& type : LEGACY_OUTPUT_TYPES) {
-                    SecretKey scan_secret = GetScanSecret();
-                    if (type == OutputType::MWEB && scan_secret.IsNull()) {
-                        continue; // MW: TODO - We need to make sure we load MWEB scan secret before this
+                    if (type == OutputType::MWEB && !scan_secret) {
+                        continue;
                     }
 
-                    const auto dest = GetDestinationForKey(keypool.vchPubKey, type, scan_secret);
+                    const auto dest = GetDestinationForKey(keypool.vchPubKey, type, scan_secret.value_or(SecretKey::Null()));
                     result.push_back({dest, keypool.fInternal});
                 }
             }
@@ -432,20 +433,21 @@ std::vector<WalletDestination> LegacyScriptPubKeyMan::MarkUnusedAddresses(const 
                     continue;
                 }
                 const bool is_mweb = hdkeypath.mweb_index.has_value();
-                if (hdkeypath.path.size() != 3 && !is_mweb) {
+                if (is_mweb) {
+                    continue;
+                }
+                if (hdkeypath.path.size() != 3) {
                     WalletLogPrintf("%s: Adding inactive seed keys failed, invalid path size: %d, has_key_origin: %s\n",
                                     __func__,
                                     hdkeypath.path.size(),
                                     meta.has_key_origin);
                 } else {
                     KeyPurpose purpose = KeyPurpose::EXTERNAL;
-                    if (is_mweb) {
-                        purpose = KeyPurpose::MWEB;
-                    } else if ((hdkeypath.path[1] & ~BIP32_HARDENED_KEY_LIMIT) != 0) {
+                    if ((hdkeypath.path[1] & ~BIP32_HARDENED_KEY_LIMIT) != 0) {
                         purpose = KeyPurpose::INTERNAL;
                     }
-						
-                    int64_t index = is_mweb ? *hdkeypath.mweb_index : (hdkeypath.path[2] & ~BIP32_HARDENED_KEY_LIMIT);
+
+                    int64_t index = hdkeypath.path[2] & ~BIP32_HARDENED_KEY_LIMIT;
 
                     if (!TopUpInactiveHDChain(meta.hd_seed_id, index, purpose)) {
                         WalletLogPrintf("%s: Adding inactive seed keys failed\n", __func__);
@@ -480,8 +482,10 @@ void LegacyScriptPubKeyMan::UpgradeKeyMetadata()
                 throw std::runtime_error("Invalid stored hdKeypath");
             }
             meta.has_key_origin = true;
-            if (meta.nVersion < CKeyMetadata::VERSION_WITH_KEY_ORIGIN) {
+            if (meta.key_origin.hdkeypath.mweb_index) {
                 meta.nVersion = CKeyMetadata::VERSION_WITH_MWEB_INDEX;
+            } else if (meta.nVersion < CKeyMetadata::VERSION_WITH_KEY_ORIGIN) {
+                meta.nVersion = CKeyMetadata::VERSION_WITH_KEY_ORIGIN;
             }
 
             // Write meta to wallet
@@ -519,7 +523,7 @@ bool LegacyScriptPubKeyMan::CanGetAddresses(const KeyPurpose purpose) const
     if (purpose == KeyPurpose::INTERNAL && m_storage.CanSupportFeature(FEATURE_HD_SPLIT)) {
         keypool_has_keys = setInternalKeyPool.size() > 0;
     } else if (purpose == KeyPurpose::MWEB) {
-        if (GetScanSecret().IsNull()) {
+        if (!GetScanSecret()) {
             return false;
         }
 
@@ -1199,6 +1203,77 @@ static void DeriveExtKey(const CExtKey& key_in, unsigned int index, CExtKey& key
     }
 }
 
+std::optional<LegacyScriptPubKeyMan::MWEBChainMaterial> LegacyScriptPubKeyMan::DeriveMWEBChainMaterial(const CHDChain& chain) const
+{
+    CKey seed;
+    if (chain.seed_id.IsNull() || !GetKey(chain.seed_id, seed)) {
+        return std::nullopt;
+    }
+
+    CExtKey masterKey;
+    masterKey.SetSeed(seed);
+
+    // derive m/0'
+    CExtKey accountKey;
+    DeriveExtKey(masterKey, BIP32_HARDENED_KEY_LIMIT, accountKey);
+
+    // derive m/0'/100' (MWEB)
+    CExtKey chainChildKey;
+    DeriveExtKey(accountKey, BIP32_HARDENED_KEY_LIMIT + (uint32_t)KeyPurpose::MWEB, chainChildKey);
+
+    CExtKey scanKey;
+    DeriveExtKey(chainChildKey, BIP32_HARDENED_KEY_LIMIT, scanKey);
+
+    CExtKey spendKey;
+    DeriveExtKey(chainChildKey, BIP32_HARDENED_KEY_LIMIT + 1, spendKey);
+
+    return MWEBChainMaterial{
+        SecretKey(scanKey.key.begin()),
+        SecretKey(spendKey.key.begin()),
+        PublicKey(spendKey.key.GetPubKey().begin()),
+    };
+}
+
+std::optional<LegacyScriptPubKeyMan::MWEBChainMaterial> LegacyScriptPubKeyMan::DeriveAndCacheMWEBChainMaterial(CHDChain& chain)
+{
+    AssertLockHeld(cs_KeyStore);
+
+    std::optional<MWEBChainMaterial> material = DeriveMWEBChainMaterial(chain);
+    if (!material) {
+        return std::nullopt;
+    }
+
+    chain.nVersion = std::max(chain.nVersion, CHDChain::VERSION_HD_MWEB_RECEIVE);
+    if (!chain.mweb_scan_key) {
+        chain.mweb_scan_key = material->scan_secret;
+    }
+    if (!chain.mweb_spend_pubkey) {
+        chain.mweb_spend_pubkey = material->spend_pubkey;
+    }
+
+    return material;
+}
+
+mw::Keychain::Ptr LegacyScriptPubKeyMan::GetMWEBKeychainForChain(CHDChain& chain)
+{
+    AssertLockHeld(cs_KeyStore);
+
+    if (chain == m_hd_chain && m_mwebKeychain && m_mwebKeychain->HasSpendSecret()) {
+        return m_mwebKeychain;
+    }
+
+    if (!(chain == m_hd_chain)) {
+        return nullptr;
+    }
+
+    std::optional<MWEBChainMaterial> material = DeriveAndCacheMWEBChainMaterial(chain);
+    if (!material) {
+        return nullptr;
+    }
+
+    return std::make_shared<mw::Keychain>(this, material->scan_secret, material->spend_secret);
+}
+
 void LegacyScriptPubKeyMan::DeriveNewChildKey(WalletBatch& batch, CKeyMetadata& metadata, CKey& secret, CHDChain& hd_chain, const KeyPurpose purpose)
 {
     // for now we use a fixed keypath scheme of m/0'/0'/k
@@ -1212,8 +1287,12 @@ void LegacyScriptPubKeyMan::DeriveNewChildKey(WalletBatch& batch, CKeyMetadata& 
     if (!GetKey(hd_chain.seed_id, seed))
         throw std::runtime_error(std::string(__func__) + ": seed not found");
 
-    if (purpose == KeyPurpose::MWEB && m_mwebKeychain == nullptr) {
-        throw std::runtime_error(std::string(__func__) + ": MWEB keychain not found");
+    mw::Keychain::Ptr mweb_keychain;
+    if (purpose == KeyPurpose::MWEB) {
+        mweb_keychain = GetMWEBKeychainForChain(hd_chain);
+        if (mweb_keychain == nullptr) {
+            throw std::runtime_error(std::string(__func__) + ": unable to derive MWEB Keychain");
+        }
     }
 
     masterKey.SetSeed(seed);
@@ -1235,10 +1314,9 @@ void LegacyScriptPubKeyMan::DeriveNewChildKey(WalletBatch& batch, CKeyMetadata& 
         // childIndex | BIP32_HARDENED_KEY_LIMIT = derive childIndex in hardened child-index-range
         // example: 1 | BIP32_HARDENED_KEY_LIMIT == 0x80000001 == 2147483649
         if (purpose == KeyPurpose::MWEB) {
-            SecretKey spend_key = m_mwebKeychain->GetSubaddressSpendKey(chain_counter);
+            SecretKey spend_key = mweb_keychain->GetSubaddressSpendKey(chain_counter);
             childKey.key.Set(spend_key.vec().begin(), spend_key.vec().end(), true);
             metadata.hdKeypath = "x/" + ToString(chain_counter);
-            metadata.key_origin.hdkeypath.path.push_back(chain_counter); // MW: TODO - Provide upgrade method that adds an mweb_index field to KeyOriginPath
             metadata.key_origin.hdkeypath.mweb_index = chain_counter;
         } else {
             DeriveExtKey(chainChildKey, chain_counter | BIP32_HARDENED_KEY_LIMIT, childKey);
@@ -1423,7 +1501,7 @@ bool LegacyScriptPubKeyMan::TopUpChain(CHDChain& chain, unsigned int kpSize)
     // make sure the keypool of external and internal keys fits the user selected target (-keypool)
     int64_t missingExternal;
     int64_t missingInternal;
-	int64_t missingMWEB;
+    int64_t missingMWEB{0};
     if (chain == m_hd_chain) {
         missingExternal = std::max(target - (int64_t)setExternalKeyPool.size(), int64_t{0});
         missingInternal = std::max(target - (int64_t)setInternalKeyPool.size(), int64_t{0});
@@ -1431,17 +1509,17 @@ bool LegacyScriptPubKeyMan::TopUpChain(CHDChain& chain, unsigned int kpSize)
     } else {
         missingExternal = std::max(target - (chain.nExternalChainCounter - chain.m_next_external_index), int64_t{0});
         missingInternal = std::max(target - (chain.nInternalChainCounter - chain.m_next_internal_index), int64_t{0});
-		missingMWEB = std::max(target - (chain.nMWEBIndexCounter - chain.m_next_mweb_index), int64_t{0});
     }
 
     if (!IsHDEnabled() || !m_storage.CanSupportFeature(FEATURE_HD_SPLIT)) {
         // don't create extra internal keys
         missingInternal = 0;
     }
-    if (m_mwebKeychain == nullptr) {
+    mw::Keychain::Ptr mweb_keychain = chain == m_hd_chain && m_storage.CanSupportFeature(FEATURE_MWEB) ? GetMWEBKeychainForChain(chain) : nullptr;
+    if (mweb_keychain == nullptr) {
         missingMWEB = 0;
     }
-	
+
     WalletBatch batch(m_storage.GetDatabase());
     for (int64_t i = missingInternal + missingExternal + missingMWEB; i--;) {
         KeyPurpose purpose = KeyPurpose::EXTERNAL;
@@ -1460,7 +1538,7 @@ bool LegacyScriptPubKeyMan::TopUpChain(CHDChain& chain, unsigned int kpSize)
         if (chain == m_hd_chain) {
             WalletLogPrintf("keypool added %d keys (%d internal, %d MWEB), size=%u (%u internal, %u MWEB)\n", missingInternal + missingExternal + missingMWEB, missingInternal, missingMWEB, setInternalKeyPool.size() + setExternalKeyPool.size() + set_pre_split_keypool.size() + set_mweb_keypool.size(), setInternalKeyPool.size(), set_mweb_keypool.size());
         } else {
-            WalletLogPrintf("inactive seed with id %s added %d external keys, %d internal keys, %d MWEB keys\n", HexStr(chain.seed_id), missingExternal, missingInternal, missingMWEB);
+            WalletLogPrintf("inactive seed with id %s added %d external keys, %d internal keys\n", HexStr(chain.seed_id), missingExternal, missingInternal);
         }
     }
     return true;
@@ -1851,10 +1929,10 @@ const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> LegacyScrip
         if (metadata != mapKeyMetadata.end()) {
             if (metadata->second.key_origin.hdkeypath.mweb_index.has_value()) {
                 scriptsToIgnore.insert(CScriptID(GetScriptForDestination(WitnessV0KeyHash(key_pair.first))));
-                SecretKey master_scan_secret = GetScanSecret(metadata->second.hd_seed_id);
-                if (!master_scan_secret.IsNull()) {
+                std::optional<SecretKey> master_scan_secret = GetScanSecret(metadata->second.hd_seed_id);
+                if (master_scan_secret) {
                     PublicKey spend_pubkey = PublicKey(pub.begin());
-                    StealthAddress mweb_address(spend_pubkey.Mul(master_scan_secret), spend_pubkey);
+                    StealthAddress mweb_address(spend_pubkey.Mul(*master_scan_secret), spend_pubkey);
                     spks.insert(mweb_address);
                 }
 
@@ -1873,10 +1951,10 @@ const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> LegacyScrip
             if (metadata->second.key_origin.hdkeypath.mweb_index.has_value()) {
                 scriptsToIgnore.insert(CScriptID(GetScriptForDestination(WitnessV0KeyHash(key_pair.first))));
 
-                SecretKey master_scan_secret = GetScanSecret(metadata->second.hd_seed_id);
-                if (!master_scan_secret.IsNull()) {
+                std::optional<SecretKey> master_scan_secret = GetScanSecret(metadata->second.hd_seed_id);
+                if (master_scan_secret) {
                     PublicKey spend_pubkey = PublicKey(pub.begin());
-                    StealthAddress mweb_address(spend_pubkey.Mul(master_scan_secret), spend_pubkey);
+                    StealthAddress mweb_address(spend_pubkey.Mul(*master_scan_secret), spend_pubkey);
                     spks.insert(mweb_address);
                 }
                 continue;
@@ -2031,9 +2109,11 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
 
         for (const KeyPurpose purpose : std::vector<KeyPurpose>{ KeyPurpose::EXTERNAL, KeyPurpose::INTERNAL, KeyPurpose::MWEB }) {
             // Skip if doing internal chain and split chain is not supported
+            const bool active_chain = chain.seed_id == m_hd_chain.seed_id;
             if (purpose == KeyPurpose::INTERNAL && !m_storage.CanSupportFeature(FEATURE_HD_SPLIT)) {
                 continue;
-            } else if (purpose == KeyPurpose::MWEB && !m_storage.CanSupportFeature(FEATURE_MWEB)) {
+            } else if (purpose == KeyPurpose::MWEB &&
+                       (!m_storage.CanSupportFeature(FEATURE_MWEB) || !active_chain)) {
                 continue;
             }
 
@@ -2058,6 +2138,10 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
             desc_spk_man->AddDescriptorKey(master_key.key, master_key.key.GetPubKey());
             desc_spk_man->TopUp();
             auto desc_spks = desc_spk_man->GetScriptPubKeys();
+            desc_spk_man->SetWalletDescriptorNextIndex(chain_counter);
+            if (purpose == KeyPurpose::MWEB && chain.seed_id == m_hd_chain.seed_id) {
+                out.active_mweb_spkm_id = desc_spk_man->GetID();
+            }
 
             // Remove the scriptPubKeys from our current set
             for (const GenericAddress& spk : desc_spks) {
@@ -2219,9 +2303,10 @@ void LegacyScriptPubKeyMan::LoadMWEBKeychain()
         return;
     }
 
+    LOCK(cs_KeyStore);
+
     // If we don't have the seed or private keys are disabled, try retrieving the mweb_scan_key and mweb_spend_pubkey from m_hd_chain
-    CKey seed;
-    if (m_storage.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS) || !GetKey(m_hd_chain.seed_id, seed)) {
+    if (m_storage.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
         if (m_hd_chain.mweb_scan_key) {
             m_mwebKeychain = std::make_shared<mw::Keychain>(this, *m_hd_chain.mweb_scan_key, m_hd_chain.mweb_spend_pubkey);
         }
@@ -2229,39 +2314,33 @@ void LegacyScriptPubKeyMan::LoadMWEBKeychain()
         return;
     }
 
-    CExtKey masterKey;
-    masterKey.SetSeed(seed);
+    std::optional<MWEBChainMaterial> material = DeriveMWEBChainMaterial(m_hd_chain);
+    if (!material) {
+        if (m_hd_chain.mweb_scan_key) {
+            m_mwebKeychain = std::make_shared<mw::Keychain>(this, *m_hd_chain.mweb_scan_key, m_hd_chain.mweb_spend_pubkey);
+        }
 
-    // derive m/0'
-    CExtKey accountKey;
-    DeriveExtKey(masterKey, BIP32_HARDENED_KEY_LIMIT, accountKey);
+        return;
+    }
 
-    // derive m/0'/100' (MWEB)
-    CExtKey chainChildKey;
-    DeriveExtKey(accountKey, BIP32_HARDENED_KEY_LIMIT + (uint32_t)KeyPurpose::MWEB, chainChildKey);
-
-    CExtKey scanKey;
-    DeriveExtKey(chainChildKey, BIP32_HARDENED_KEY_LIMIT, scanKey);
-
-    CExtKey spendKey;
-    DeriveExtKey(chainChildKey, BIP32_HARDENED_KEY_LIMIT + 1, spendKey);
-
-    m_hd_chain.nVersion = std::max(m_hd_chain.nVersion, CHDChain::VERSION_HD_MWEB_RECEIVE);
     m_mwebKeychain = std::make_shared<mw::Keychain>(
         this,
-        SecretKey(scanKey.key.begin()),
-        SecretKey(spendKey.key.begin())
+        material->scan_secret,
+        material->spend_secret
     );
 
     WalletBatch batch(m_storage.GetDatabase());
-    // Add the MWEB scan key to the CHDChain
+    const bool write_hd_chain = m_hd_chain.nVersion < CHDChain::VERSION_HD_MWEB_RECEIVE ||
+        !m_hd_chain.mweb_scan_key ||
+        !m_hd_chain.mweb_spend_pubkey;
+    m_hd_chain.nVersion = std::max(m_hd_chain.nVersion, CHDChain::VERSION_HD_MWEB_RECEIVE);
     if (!m_hd_chain.mweb_scan_key || !m_hd_chain.mweb_spend_pubkey) {
-        m_hd_chain.mweb_scan_key = SecretKey(scanKey.key.begin());
-        m_hd_chain.mweb_spend_pubkey = PublicKey(spendKey.key.GetPubKey().begin());
+        m_hd_chain.mweb_scan_key = material->scan_secret;
+        m_hd_chain.mweb_spend_pubkey = material->spend_pubkey;
+    }
 
-        if (!batch.WriteHDChain(m_hd_chain)) {
-            throw std::runtime_error(std::string(__func__) + ": writing chain failed");
-        }
+    if (write_hd_chain && !batch.WriteHDChain(m_hd_chain)) {
+        throw std::runtime_error(std::string(__func__) + ": writing chain failed");
     }
 
     // Mark change and peg-in addresses as used
@@ -2280,27 +2359,16 @@ std::optional<SecretKey> LegacyScriptPubKeyMan::GetScanSecretForChain(const CHDC
         return chain.mweb_scan_key;
     }
 
-    CKey seed;
-    if (chain.seed_id.IsNull() || !GetKey(chain.seed_id, seed)) {
-        return std::nullopt;
+    try {
+        std::optional<MWEBChainMaterial> material = DeriveMWEBChainMaterial(chain);
+        if (material) {
+            return material->scan_secret;
+        }
+    } catch (...) {
+        // Preserve the noexcept contract; callers treat a missing scan key as unavailable.
     }
 
-    // MW: TODO - We need to cache the derived scan key in the CHDChain to avoid repeated derivation
-    CExtKey masterKey;
-    masterKey.SetSeed(seed);
-
-    // derive m/0'
-    CExtKey accountKey;
-    DeriveExtKey(masterKey, BIP32_HARDENED_KEY_LIMIT, accountKey);
-
-    // derive m/0'/100' (MWEB)
-    CExtKey chainChildKey;
-    DeriveExtKey(accountKey, BIP32_HARDENED_KEY_LIMIT + (uint32_t)KeyPurpose::MWEB, chainChildKey);
-
-    CExtKey scanKey;
-    DeriveExtKey(chainChildKey, BIP32_HARDENED_KEY_LIMIT, scanKey);
-
-    return SecretKey(scanKey.key.begin());
+    return std::nullopt;
 }
 
 util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetNewDestination(const OutputType type)
@@ -3101,6 +3169,20 @@ void DescriptorScriptPubKeyMan::WriteDescriptor()
     }
 }
 
+void DescriptorScriptPubKeyMan::SetWalletDescriptorNextIndex(int32_t next_index)
+{
+    LOCK(cs_desc_man);
+    if (next_index < m_wallet_descriptor.range_start || next_index > m_wallet_descriptor.range_end) {
+        throw std::runtime_error(strprintf("%s: next_index %d out of range [%d,%d]",
+                                           __func__, next_index, m_wallet_descriptor.range_start, m_wallet_descriptor.range_end));
+    }
+    m_wallet_descriptor.next_index = next_index;
+    WalletBatch batch(m_storage.GetDatabase());
+    if (!batch.WriteDescriptor(GetID(), m_wallet_descriptor)) {
+        throw std::runtime_error(std::string(__func__) + ": writing descriptor failed");
+    }
+}
+
 const WalletDescriptor DescriptorScriptPubKeyMan::GetWalletDescriptor() const
 {
     return m_wallet_descriptor;
@@ -3200,6 +3282,13 @@ bool DescriptorScriptPubKeyMan::CanUpdateToWalletDescriptor(const WalletDescript
 
 void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
 {
+    LOCK(cs_desc_man);
+
+    const auto out_type = m_wallet_descriptor.descriptor->GetOutputType();
+    if (!out_type || *out_type != OutputType::MWEB) {
+        return;
+    }
+
     if (!m_storage.CanSupportFeature(FEATURE_MWEB)) {
         return;
     }
@@ -3207,8 +3296,6 @@ void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
     if (m_storage.IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET)) {
         return;
     }
-
-    LOCK(cs_desc_man);
 
     FlatSigningProvider provider;
     provider.keys = GetKeys();

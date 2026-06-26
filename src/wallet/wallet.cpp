@@ -494,12 +494,11 @@ bool CWallet::Unlock(const SecureString& strWalletPassphrase, bool accept_no_key
                 // Now that we've unlocked, upgrade the descriptor cache
                 UpgradeDescriptorCache();
 
-                // MWEB: Load MWEB keychain
-                auto mweb_spk_man = GetScriptPubKeyMan(OutputType::MWEB, false);
-                if (mweb_spk_man) {
-                    mweb_spk_man->LoadMWEBKeychain();
-                    mweb_wallet->UpgradeCoins();
+                // MWEB: Refresh loaded keychains after unlock.
+                for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
+                    spk_man->LoadMWEBKeychain();
                 }
+                mweb_wallet->UpgradeCoins();
 
                 return true;
             }
@@ -4090,13 +4089,12 @@ bool CWallet::Lock()
         vMasterKey.clear();
     }
 
-    // MWEB: Unload MWEB keychain
-    auto mweb_spk_man = GetScriptPubKeyMan(OutputType::MWEB, false);
-    if (mweb_spk_man) {
-        const mw::Keychain::Ptr& keychain = mweb_spk_man->GetMWEBKeychain();
-		if (keychain) {
-        	keychain->Lock();
-		}
+    // MWEB: Lock loaded keychains.
+    for (ScriptPubKeyMan* spk_man : GetAllScriptPubKeyMans()) {
+        const mw::Keychain::Ptr& keychain = spk_man->GetMWEBKeychain();
+        if (keychain) {
+            keychain->Lock();
+        }
     }
 
     NotifyStatusChanged(this);
@@ -4255,7 +4253,7 @@ void CWallet::LoadDescriptorScriptPubKeyMan(uint256 id, WalletDescriptor& desc)
     }
 }
 
-void CWallet::SetupDescriptorScriptPubKeyMans(const CExtKey& master_key)
+void CWallet::SetupDescriptorScriptPubKeyMans(const CExtKey& master_key, const std::optional<uint256>& active_mweb_spkm_id)
 {
     AssertLockHeld(cs_wallet);
 
@@ -4270,19 +4268,36 @@ void CWallet::SetupDescriptorScriptPubKeyMans(const CExtKey& master_key)
             // So, if migration already built an MWEB descriptor (with the correct counter),
             // keep it and just activate it instead of creating a new one.
             if (t == OutputType::MWEB) {
-                uint256 existing_mweb_id;
-                for (const auto& [id, spk_man] : m_spk_managers) {
-                    auto desc_spk_man = dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man.get());
-                    if (!desc_spk_man) continue;
+                std::optional<uint256> existing_mweb_id = active_mweb_spkm_id;
+                if (existing_mweb_id) {
+                    auto it = m_spk_managers.find(*existing_mweb_id);
+                    if (it == m_spk_managers.end()) {
+                        throw std::runtime_error(std::string(__func__) + ": active MWEB ScriptPubKeyMan id not found");
+                    }
+                    auto desc_spk_man = dynamic_cast<DescriptorScriptPubKeyMan*>(it->second.get());
+                    if (!desc_spk_man) {
+                        throw std::runtime_error(std::string(__func__) + ": active MWEB ScriptPubKeyMan is not a descriptor ScriptPubKeyMan");
+                    }
                     LOCK(desc_spk_man->cs_desc_man);
                     const auto& desc_type = desc_spk_man->GetWalletDescriptor().descriptor->GetOutputType();
-                    if (desc_type && *desc_type == OutputType::MWEB) {
-                        existing_mweb_id = id;
-                        break;
+                    if (!desc_type || *desc_type != OutputType::MWEB) {
+                        throw std::runtime_error(std::string(__func__) + ": active MWEB ScriptPubKeyMan has wrong output type");
+                    }
+                } else {
+                    for (const auto& [id, spk_man] : m_spk_managers) {
+                        auto desc_spk_man = dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man.get());
+                        if (!desc_spk_man) continue;
+                        LOCK(desc_spk_man->cs_desc_man);
+                        const auto& desc_type = desc_spk_man->GetWalletDescriptor().descriptor->GetOutputType();
+                        if (desc_type && *desc_type == OutputType::MWEB) {
+                            existing_mweb_id = id;
+                            break;
+                        }
                     }
                 }
-                if (!existing_mweb_id.IsNull()) {
-                    AddActiveScriptPubKeyMan(existing_mweb_id, t, internal);
+                if (existing_mweb_id) {
+                    m_spk_managers.at(*existing_mweb_id)->LoadMWEBKeychain();
+                    AddActiveScriptPubKeyMan(*existing_mweb_id, t, internal);
                     continue;
                 }
             }
@@ -4319,7 +4334,7 @@ void CWallet::SetupDescriptorScriptPubKeyMans()
         CExtKey master_key;
         master_key.SetSeed(seed_key);
 
-        SetupDescriptorScriptPubKeyMans(master_key);
+        SetupDescriptorScriptPubKeyMans(master_key, std::nullopt);
     } else {
         ExternalSigner signer = ExternalSignerScriptPubKeyMan::GetExternalSigner();
 
@@ -4628,7 +4643,9 @@ bool CWallet::ApplyMigrationData(MigrationData& data, bilingual_str& error)
     if (!IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
         // Use the existing master key if we have it
         if (data.master_key.key.IsValid()) {
-            SetupDescriptorScriptPubKeyMans(data.master_key);
+            SetupDescriptorScriptPubKeyMans(
+                data.master_key,
+                data.active_mweb_spkm_id.IsNull() ? std::nullopt : std::optional<uint256>{data.active_mweb_spkm_id});
         } else {
             // Setup with a new seed if we don't.
             SetupDescriptorScriptPubKeyMans();

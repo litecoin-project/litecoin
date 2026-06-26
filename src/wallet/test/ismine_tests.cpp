@@ -464,7 +464,9 @@ BOOST_AUTO_TEST_CASE(ismine_standard)
         hd_chain.mweb_scan_key = SecretKey(keys[1].begin());
         keystore.GetLegacyScriptPubKeyMan()->AddHDChain(hd_chain);
         keystore.GetLegacyScriptPubKeyMan()->LoadMWEBKeychain();
-        BOOST_CHECK(keystore.GetLegacyScriptPubKeyMan()->GetScanSecret() == *hd_chain.mweb_scan_key);
+        const std::optional<SecretKey> scan_secret = keystore.GetLegacyScriptPubKeyMan()->GetScanSecret();
+        BOOST_REQUIRE(scan_secret);
+        BOOST_CHECK(*scan_secret == *hd_chain.mweb_scan_key);
 
         PublicKey address_spend_key = PublicKey::From(SecretKey(keys[0].begin()));
         PublicKey address_scan_key = address_spend_key.Mul(*hd_chain.mweb_scan_key);

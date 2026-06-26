@@ -7,6 +7,7 @@
 
 #include <fs.h>
 #include <script/descriptor.h>
+#include <uint256.h>
 
 #include <vector>
 
@@ -114,6 +115,7 @@ class DescriptorScriptPubKeyMan;
 struct MigrationData
 {
     CExtKey master_key;
+    uint256 active_mweb_spkm_id;
     std::vector<std::pair<std::string, int64_t>> watch_descs;
     std::vector<std::pair<std::string, int64_t>> solvable_descs;
     std::vector<std::unique_ptr<DescriptorScriptPubKeyMan>> desc_spkms;

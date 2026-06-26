@@ -629,6 +629,126 @@ BOOST_FIXTURE_TEST_CASE(ListCoinsTest, ListCoinsTestingSetup)
     BOOST_CHECK_EQUAL(list.begin()->second.size(), 2U);
 }
 
+BOOST_AUTO_TEST_CASE(legacy_mweb_keychain_load_caches_scan_secret)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateDummyWalletDatabase());
+    wallet.SetupLegacyScriptPubKeyMan();
+    WITH_LOCK(wallet.cs_wallet, wallet.LoadMinVersion(FEATURE_MWEB));
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+    LOCK(spk_man->cs_KeyStore);
+
+    const CPubKey seed = spk_man->GenerateNewSeed();
+    spk_man->SetHDSeed(seed);
+
+    CHDChain uncached_chain = spk_man->GetHDChain();
+    BOOST_REQUIRE(uncached_chain.mweb_scan_key.has_value());
+    uncached_chain.nVersion = CHDChain::VERSION_HD_MWEB;
+    uncached_chain.mweb_scan_key.reset();
+    uncached_chain.mweb_spend_pubkey.reset();
+    spk_man->LoadHDChain(uncached_chain);
+
+    BOOST_CHECK(!spk_man->GetHDChain().mweb_scan_key.has_value());
+    spk_man->LoadMWEBKeychain();
+
+    const CHDChain& cached_chain = spk_man->GetHDChain();
+    BOOST_CHECK_EQUAL(cached_chain.nVersion, CHDChain::VERSION_HD_MWEB_RECEIVE);
+    BOOST_REQUIRE(cached_chain.mweb_scan_key.has_value());
+    BOOST_REQUIRE(cached_chain.mweb_spend_pubkey.has_value());
+    const std::optional<SecretKey> scan_secret = spk_man->GetScanSecret();
+    BOOST_REQUIRE(scan_secret);
+    BOOST_CHECK(*scan_secret == *cached_chain.mweb_scan_key);
+}
+
+BOOST_AUTO_TEST_CASE(legacy_mweb_ignores_transparent_only_inactive_chain)
+{
+    struct KeypoolArgGuard {
+        KeypoolArgGuard() { gArgs.ForceSetArg("-keypool", "1"); }
+        ~KeypoolArgGuard()
+        {
+            gArgs.LockSettings([](util::Settings& settings) {
+                settings.forced_settings.erase("keypool");
+            });
+        }
+    } keypool_arg_guard;
+
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateDummyWalletDatabase());
+    wallet.SetupLegacyScriptPubKeyMan();
+    WITH_LOCK(wallet.cs_wallet, wallet.LoadMinVersion(FEATURE_MWEB));
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+
+    CPubKey inactive_seed;
+    {
+        LOCK(spk_man->cs_KeyStore);
+        inactive_seed = spk_man->GenerateNewSeed();
+
+        CHDChain inactive_chain;
+        inactive_chain.nVersion = CHDChain::VERSION_HD_CHAIN_SPLIT;
+        inactive_chain.seed_id = inactive_seed.GetID();
+
+        WalletBatch batch(wallet.GetDatabase());
+        spk_man->GenerateNewKey(batch, inactive_chain, KeyPurpose::EXTERNAL);
+        spk_man->GenerateNewKey(batch, inactive_chain, KeyPurpose::INTERNAL);
+        spk_man->AddInactiveHDChain(inactive_chain);
+
+        const CPubKey active_seed = spk_man->GenerateNewSeed();
+        spk_man->SetHDSeed(active_seed);
+    }
+
+    BOOST_REQUIRE(spk_man->TopUp(1));
+    spk_man->LoadMWEBKeychain();
+
+    BOOST_CHECK(!spk_man->GetScanSecret(inactive_seed.GetID()));
+    BOOST_CHECK_EQUAL(spk_man->GetAllScanSecrets().size(), 1U);
+
+    std::optional<MigrationData> migration_data = spk_man->MigrateToDescriptor();
+    BOOST_REQUIRE(migration_data.has_value());
+
+    size_t mweb_desc_count{0};
+    for (const auto& desc_spkm : migration_data->desc_spkms) {
+        const WalletDescriptor desc = desc_spkm->GetWalletDescriptor();
+        const std::optional<OutputType> output_type = desc.descriptor->GetOutputType();
+        if (output_type && *output_type == OutputType::MWEB) {
+            ++mweb_desc_count;
+        }
+    }
+
+    BOOST_CHECK_EQUAL(mweb_desc_count, 1U);
+    BOOST_CHECK(!migration_data->active_mweb_spkm_id.IsNull());
+}
+
+BOOST_AUTO_TEST_CASE(legacy_mweb_generated_key_metadata_uses_mweb_index)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateDummyWalletDatabase());
+    wallet.SetupLegacyScriptPubKeyMan();
+    WITH_LOCK(wallet.cs_wallet, wallet.LoadMinVersion(FEATURE_MWEB));
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+
+    {
+        LOCK(spk_man->cs_KeyStore);
+        const CPubKey seed = spk_man->GenerateNewSeed();
+        spk_man->SetHDSeed(seed);
+    }
+
+    util::Result<CTxDestination> dest = spk_man->GetNewDestination(OutputType::MWEB);
+    BOOST_REQUIRE(dest);
+    BOOST_REQUIRE(std::holds_alternative<StealthAddress>(*dest));
+
+    const StealthAddress& address = std::get<StealthAddress>(*dest);
+    LOCK(spk_man->cs_KeyStore);
+    const auto metadata_it = spk_man->mapKeyMetadata.find(address.GetSpendPubKey().GetID());
+    BOOST_REQUIRE(metadata_it != spk_man->mapKeyMetadata.end());
+    BOOST_CHECK(metadata_it->second.key_origin.hdkeypath.path.empty());
+    BOOST_REQUIRE(metadata_it->second.key_origin.hdkeypath.mweb_index.has_value());
+    const uint32_t mweb_index = *metadata_it->second.key_origin.hdkeypath.mweb_index;
+    BOOST_CHECK_EQUAL(metadata_it->second.hdKeypath, "x/" + std::to_string(mweb_index));
+}
+
 BOOST_FIXTURE_TEST_CASE(wallet_disableprivkeys, TestChain100Setup)
 {
     {

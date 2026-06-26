@@ -1147,6 +1147,9 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
 
         BOOST_CHECK(!Parse("mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1',bogus)", bad_keys, bad_error));
         BOOST_CHECK_EQUAL(bad_error, "mweb(): expected '*' or index, got 'bogus'");
+
+        BOOST_CHECK(!Parse("mweb([" + root_fingerprint + "/0'/100'/0'/x/7]" + scan_key_str + "," + xpub + "/0'/100'/1',*)", bad_keys, bad_error));
+        BOOST_CHECK_NE(bad_error.find("Key path value 'x' is not a valid uint32"), std::string::npos);
     }
 
     {
@@ -1345,12 +1348,17 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
         BOOST_CHECK(inferred_subaddr_str.rfind("mweb(", 0) == 0);
         BOOST_CHECK(inferred_subaddr_str.find(",*)") == std::string::npos);
         BOOST_CHECK(inferred_subaddr_str.find(",42)") == std::string::npos);
+        BOOST_CHECK(inferred_subaddr_str.find("/x/42") == std::string::npos);
 
         std::vector<GenericAddress> inferred_subaddr_outputs;
         FlatSigningProvider inferred_subaddr_provider;
         BOOST_REQUIRE(inferred_subaddr->Expand(0, inferred_subaddr_provider, inferred_subaddr_outputs, inferred_subaddr_provider));
         BOOST_REQUIRE_EQUAL(inferred_subaddr_outputs.size(), 1U);
         BOOST_CHECK(inferred_subaddr_outputs[0] == infer_outputs[0]);
+
+        KeyOriginInfo inferred_provider_subaddr_origin;
+        BOOST_REQUIRE(inferred_subaddr_provider.GetKeyOrigin(inferred_subaddr_spend_pubkey.GetID(), inferred_provider_subaddr_origin));
+        BOOST_CHECK_EQUAL(WriteHDKeypath(inferred_provider_subaddr_origin.hdkeypath), strprintf("x/%d", infer_pos));
 
         FlatSigningProvider reparsed_subaddr_keys;
         std::string reparsed_subaddr_error;
@@ -1364,7 +1372,8 @@ BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
 
         KeyOriginInfo reparsed_subaddr_origin;
         BOOST_REQUIRE(reparsed_subaddr_provider.GetKeyOrigin(inferred_subaddr_spend_pubkey.GetID(), reparsed_subaddr_origin));
-        BOOST_CHECK_EQUAL(WriteHDKeypath(reparsed_subaddr_origin.hdkeypath), strprintf("x/%d", infer_pos));
+        BOOST_CHECK(reparsed_subaddr_origin.hdkeypath.path.empty());
+        BOOST_CHECK(!reparsed_subaddr_origin.hdkeypath.mweb_index.has_value());
     }
 }
 

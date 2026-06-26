@@ -975,55 +975,6 @@ enum class ParseScriptContext {
     return true;
 }
 
-/** Parse a key origin path, being passed a split list of elements (the first element is the fingerprint). */
-[[nodiscard]] bool ParseOriginKeyPath(const std::vector<Span<const char>>& split, HDKeyPath& out, std::string& error)
-{
-    bool parsing_mweb_index = false;
-    for (size_t i = 1; i < split.size(); ++i) {
-        Span<const char> elem = split[i];
-        const std::string elem_str(elem.begin(), elem.end());
-        if (elem_str == "x") {
-            if (parsing_mweb_index || out.mweb_index.has_value()) {
-                error = "MWEB key origin index marker is duplicated";
-                return false;
-            }
-            parsing_mweb_index = true;
-            continue;
-        }
-
-        bool hardened = false;
-        if (elem.size() > 0 && (elem[elem.size() - 1] == '\'' || elem[elem.size() - 1] == 'h')) {
-            elem = elem.first(elem.size() - 1);
-            hardened = true;
-        }
-        uint32_t p;
-        if (!ParseUInt32(std::string(elem.begin(), elem.end()), &p)) {
-            error = strprintf("Key path value '%s' is not a valid uint32", std::string(elem.begin(), elem.end()));
-            return false;
-        } else if (p > 0x7FFFFFFFUL) {
-            error = strprintf("Key path value %u is out of range", p);
-            return false;
-        } else if (parsing_mweb_index && hardened) {
-            error = "MWEB key origin index cannot be hardened";
-            return false;
-        } else if (parsing_mweb_index && out.mweb_index.has_value()) {
-            error = "MWEB key origin index must be the last path element";
-            return false;
-        }
-
-        if (parsing_mweb_index) {
-            out.mweb_index = p;
-        } else {
-            out.path.push_back(p | (((uint32_t)hardened) << 31));
-        }
-    }
-    if (parsing_mweb_index && !out.mweb_index.has_value()) {
-        error = "MWEB key origin index marker must be followed by an index";
-        return false;
-    }
-    return true;
-}
-
 /** Parse a public key that excludes origin information. */
 std::unique_ptr<PubkeyProvider> ParsePubkeyInner(uint32_t key_exp_index, const Span<const char>& sp, ParseScriptContext ctx, FlatSigningProvider& out, std::string& error)
 {
@@ -1124,7 +1075,7 @@ std::unique_ptr<PubkeyProvider> ParsePubkey(uint32_t key_exp_index, const Span<c
     static_assert(sizeof(info.fingerprint) == 4, "Fingerprint must be 4 bytes");
     assert(fpr_bytes.size() == 4);
     std::copy(fpr_bytes.begin(), fpr_bytes.end(), info.fingerprint);
-    if (!ParseOriginKeyPath(slash_split, info.hdkeypath, error)) return nullptr;
+    if (!ParseKeyPath(slash_split, info.hdkeypath.path, error)) return nullptr;
     auto provider = ParsePubkeyInner(key_exp_index, origin_split[1], ctx, out, error);
     if (!provider) return nullptr;
     return std::make_unique<OriginPubkeyProvider>(key_exp_index, std::move(info), std::move(provider));

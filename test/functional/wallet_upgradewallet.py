@@ -27,7 +27,7 @@ from test_framework.util import (
 )
 
 
-UPGRADED_KEYMETA_VERSION = 14
+KEYMETA_VERSION_WITH_KEY_ORIGIN = 12
 
 def deser_keymeta(f):
     ver, create_time = struct.unpack('<Iq', f.read(12))
@@ -37,7 +37,7 @@ def deser_keymeta(f):
     path_len = 0
     path = []
     has_key_orig = False
-    if ver == UPGRADED_KEYMETA_VERSION:
+    if ver >= KEYMETA_VERSION_WITH_KEY_ORIGIN:
         path_len = deser_compact_size(f)
         for i in range(0, path_len):
             path.append(struct.unpack('<I', f.read(4))[0])
@@ -305,7 +305,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
                 if old_kp_str == b"": # imported things that don't have keymeta (i.e. imported coinbase privkeys) won't be upgraded
                     assert_equal(new_kvs[k], old_v)
                     continue
-                assert_equal(14, new_ver)
+                assert_equal(KEYMETA_VERSION_WITH_KEY_ORIGIN, new_ver)
                 assert_equal(new_create_time, old_create_time)
                 assert_equal(new_kp_str, old_kp_str)
                 assert_equal(new_seed_id, old_seed_id)

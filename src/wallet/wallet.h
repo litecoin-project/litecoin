@@ -216,7 +216,7 @@ private:
     /**
      * Used to keep track of which CWalletTx an MWEB kernel is in.
      */
-    std::map<mw::Hash, uint256> mapKernelsMWEB GUARDED_BY(cs_wallet); // MW: TODO - Could be multiple transactions. Need to handle conflicts?
+    std::map<mw::Hash, uint256> mapKernelsMWEB GUARDED_BY(cs_wallet); // MW: FUTURE - Could be multiple transactions. Need to handle conflicts?
     void AddMWEBOrigins(const CWalletTx& wtx) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /**
@@ -869,7 +869,7 @@ public:
     void DeactivateScriptPubKeyMan(uint256 id, OutputType type, bool internal);
 
     //! Create new DescriptorScriptPubKeyMans and add them to the wallet
-    void SetupDescriptorScriptPubKeyMans(const CExtKey& master_key) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    void SetupDescriptorScriptPubKeyMans(const CExtKey& master_key, const std::optional<uint256>& active_mweb_spkm_id) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     void SetupDescriptorScriptPubKeyMans() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     //! Return the DescriptorScriptPubKeyMan for a WalletDescriptor if it is already in the wallet

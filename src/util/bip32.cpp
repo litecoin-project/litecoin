@@ -12,7 +12,7 @@
 
 bool ParseHDKeypath(const std::string& keypath_str, HDKeyPath& hdkeypath)
 {
-    hdkeypath.mweb_index.reset();
+    hdkeypath.clear();
 
     std::stringstream ss(keypath_str);
     std::string item;
@@ -31,7 +31,7 @@ bool ParseHDKeypath(const std::string& keypath_str, HDKeyPath& hdkeypath)
             return false;
         }
         if (item.compare("x") == 0) {
-            if (has_mweb) {
+            if (has_mweb || !first) {
                 return false;
             }
             has_mweb = true;
@@ -71,7 +71,7 @@ bool ParseHDKeypath(const std::string& keypath_str, HDKeyPath& hdkeypath)
         }
         first = false;
     }
-    return true;
+    return !has_mweb || hdkeypath.mweb_index.has_value();
 }
 
 std::string FormatHDKeypath(const HDKeyPath& hdkeypath)
@@ -80,9 +80,6 @@ std::string FormatHDKeypath(const HDKeyPath& hdkeypath)
     for (auto i : hdkeypath.path) {
         ret += strprintf("/%i", (i << 1) >> 1);
         if (i >> 31) ret += '\'';
-    }
-    if (hdkeypath.mweb_index.has_value()) {
-        ret += strprintf("/x/%i", *hdkeypath.mweb_index);
     }
     return ret;
 }

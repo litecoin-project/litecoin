@@ -37,8 +37,7 @@ struct KeyOriginInfo
     void clear()
     {
         memset(fingerprint, 0, 4);
-        hdkeypath.path.clear();
-        hdkeypath.mweb_index.reset();
+        hdkeypath.clear();
     }
 };
 
