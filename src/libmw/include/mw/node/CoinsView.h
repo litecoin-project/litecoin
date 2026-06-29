@@ -99,7 +99,7 @@ public:
     /// <pre>Block must be validated via CheckBlock before connecting it to the chain.</pre>
     /// <param name="pBlock">The block to connect. Must not be null.</param>
     /// <throws>ValidationException if consensus rules are not met.</throws>
-    mw::BlockUndo::CPtr ApplyBlock(const mw::Block::CPtr& pBlock);
+    mw::BlockUndo::CPtr ApplyBlock(const mw::Block::CPtr& pBlock, const bool allow_historical_metadata_mismatch = false);
 
     void AddTx(const mw::Transaction::CPtr& pTx);
 
@@ -132,7 +132,7 @@ public:
     IMMR::Ptr GetOutputPMMR() const noexcept final { return m_pOutputPMMR; }
 
 private:
-    mw::BlockUndo::CPtr ApplyBlockChanges(const mw::Block::CPtr& pBlock);
+    mw::BlockUndo::CPtr ApplyBlockChanges(const mw::Block::CPtr& pBlock, const bool allow_historical_metadata_mismatch);
 
     ICoinsView::Ptr m_pBase;
 

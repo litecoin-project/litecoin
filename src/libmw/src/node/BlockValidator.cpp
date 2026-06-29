@@ -31,7 +31,7 @@ void BlockValidator::ValidatePegInCoins(
     for (const PegInCoin& coin : pegInCoins) {
         auto inserted = pegInAmounts.insert({coin.GetKernelID(), coin.GetAmount()});
         if (!inserted.second) {
-            ThrowValidation(EConsensusError::DUPLICATES);
+            ThrowValidation(EConsensusError::PEGIN_MISMATCH);
         }
     }
 
@@ -45,6 +45,8 @@ void BlockValidator::ValidatePegInCoins(
         if (pIter == pegInAmounts.end() || pegin.GetAmount() != pIter->second) {
             ThrowValidation(EConsensusError::PEGIN_MISMATCH);
         }
+
+        pegInAmounts.erase(pIter);
     }
 }
 

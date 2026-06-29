@@ -34,7 +34,7 @@ Coin::CPtr CoinsViewCache::GetCoin(const mw::Hash& output_id) const noexcept
     return pCoin;
 }
 
-mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock)
+mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock, const bool allow_historical_metadata_mismatch)
 {
     assert(pBlock != nullptr);
 
@@ -42,12 +42,12 @@ mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock)
     mw::ICoinsView::Ptr pSelf(this, [](mw::ICoinsView*) {});
     mw::CoinsViewCache validation_cache(pSelf);
 
-    mw::BlockUndo::CPtr pUndo = validation_cache.ApplyBlockChanges(pBlock);
+    mw::BlockUndo::CPtr pUndo = validation_cache.ApplyBlockChanges(pBlock, allow_historical_metadata_mismatch);
     validation_cache.Flush();
     return pUndo;
 }
 
-mw::BlockUndo::CPtr CoinsViewCache::ApplyBlockChanges(const mw::Block::CPtr& pBlock)
+mw::BlockUndo::CPtr CoinsViewCache::ApplyBlockChanges(const mw::Block::CPtr& pBlock, const bool allow_historical_metadata_mismatch)
 {
     auto pPreviousHeader = GetBestHeader();
     SetBestHeader(pBlock->GetHeader());
@@ -67,15 +67,15 @@ mw::BlockUndo::CPtr CoinsViewCache::ApplyBlockChanges(const mw::Block::CPtr& pBl
     std::vector<mw::Coin::CPtr> coinsSpent;
     std::for_each(
         pBlock->GetInputs().cbegin(), pBlock->GetInputs().cend(),
-        [this, &coinsSpent](const mw::Input& input) {
+        [this, &coinsSpent, allow_historical_metadata_mismatch](const mw::Input& input) {
             mw::Coin::CPtr spentCoin = GetCoin(input.GetOutputID());
             if (spentCoin == nullptr || !m_pLeafSet->Contains(spentCoin->GetLeafIndex())) {
                 ThrowValidation(EConsensusError::UTXO_MISSING);
             }
 
-            if (input.GetCommitment() != spentCoin->GetCommitment()
-                || input.GetOutputPubKey() != spentCoin->GetReceiverPubKey())
-            {
+            if (!allow_historical_metadata_mismatch
+                && (input.GetCommitment() != spentCoin->GetCommitment()
+                    || input.GetOutputPubKey() != spentCoin->GetReceiverPubKey())) {
                 ThrowValidation(EConsensusError::UTXO_MISMATCH);
             }
 

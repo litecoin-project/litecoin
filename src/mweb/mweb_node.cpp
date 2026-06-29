@@ -32,6 +32,13 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "unexpected-mweb-data", "MWEB not activated, but extension block found");
         }
 
+        // The HogEx marker is not committed by the canonical merkle root, so before activation it is mutated data, just like an extension block.
+        for (const CTransactionRef& pTx : block.vtx) {
+            if (pTx->IsHogEx()) {
+                return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "unexpected-mweb-data", "MWEB not activated, but HogEx marker found");
+            }
+        }
+
         return true;
     } else if (block.mweb_block.IsNull()) {
         return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-missing", "MWEB activated but extension block not found");
@@ -202,16 +209,27 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
         // Verify that the value of the first HogEx output matches the expected new value of the MWEB.
         // This is calculated simply as: 'mweb_amount = previous_amount + supply_change'
         // where 'supply_change = (pegins - pegouts) - fees'
-        CAmount mweb_amount = pindexPrev->mweb_amount + block.mweb_block.GetSupplyChange();
-        if (mweb_amount != pHogEx->vout.front().nValue) {
-            return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-amount-mismatch", "HogEx amount does not match expected MWEB amount"); // TODO: This can be CONSENSUS
-        }
+        const bool allow_historical_metadata_mismatch =
+            !consensus_params.mweb_input_metadata_grandfather_blockhash.IsNull()
+            && block.GetHash() == consensus_params.mweb_input_metadata_grandfather_blockhash;
 
         try {
-            blockundo.mwundo = mweb_view.ApplyBlock(block.mweb_block.m_block); // TODO: This can probably be CONSENSUS
+            blockundo.mwundo = mweb_view.ApplyBlock(block.mweb_block.m_block, allow_historical_metadata_mismatch);
         } catch (const std::exception& e) {
-            // MWEB: Need to distinguish between invalid blocks and mutated blocks
+            // ApplyBlock reconciles the serialized MWEB body against the
+            // header/state commitments. Some failures here can be caused by
+            // mutating MWEB body data without changing the canonical block hash.
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-connect-failed", strprintf("MWEB::Node::ConnectBlock(): Failed to connect MWEB block: %s", e.what()));
+        }
+
+        for (const auto& input : block.mweb_block.m_block->GetInputs()) {
+            // Verify that none of the MWEB inputs are spending frozen MWEB outputs.
+            for (const uint256& frozen_output_id : consensus_params.frozen_mweb_output_ids) {
+                if (uint256(input.GetOutputID().vec()) == frozen_output_id) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "frozen-mweb-output-spent",
+                        strprintf("MWEB::Node::ConnectBlock(): Frozen MWEB output spent: %s", input.GetOutputID().ToHex()));
+                }
+            }
         }
     }
 

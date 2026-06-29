@@ -11,6 +11,7 @@
 #include <chrono>
 #include <limits>
 #include <map>
+#include <vector>
 
 namespace Consensus {
 
@@ -119,6 +120,12 @@ struct Params {
     uint256 nMinimumChainWork;
     /** By default assume that the signatures in ancestors of this block are valid */
     uint256 defaultAssumeValid;
+
+    /** Optional one-block grandfather for the known MWEB input-metadata exploit. */
+    uint256 mweb_input_metadata_grandfather_blockhash;
+
+    /** Frozen MWEB output IDs that may not be spent. */
+    std::vector<uint256> frozen_mweb_output_ids;
 
     int DeploymentHeight(BuriedDeployment dep) const
     {

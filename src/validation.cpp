@@ -1750,6 +1750,38 @@ void Chainstate::InvalidBlockFound(CBlockIndex* pindex, const BlockValidationSta
     }
 }
 
+void Chainstate::EraseBlockData(CBlockIndex* index)
+{
+    AssertLockHeld(cs_main);
+    assert(!m_chain.Contains(index));
+
+    index->nStatus = std::min<unsigned int>(index->nStatus & BLOCK_VALID_MASK, BLOCK_VALID_TREE)
+        | (index->nStatus & ~BLOCK_VALID_MASK);
+    index->nStatus &= ~(BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO);
+    index->nFile = 0;
+    index->nDataPos = 0;
+    index->nUndoPos = 0;
+    index->nTx = 0;
+    index->nChainTx = 0;
+    index->nSequenceId = 0;
+
+    m_blockman.m_dirty_blockindex.insert(index);
+    setBlockIndexCandidates.erase(index);
+
+    auto unlinked_range = m_blockman.m_blocks_unlinked.equal_range(index->pprev);
+    while (unlinked_range.first != unlinked_range.second) {
+        if (unlinked_range.first->second == index) {
+            m_blockman.m_blocks_unlinked.erase(unlinked_range.first++);
+        } else {
+            ++unlinked_range.first;
+        }
+    }
+
+    if (index->pprev && index->pprev->IsValid(BLOCK_VALID_TRANSACTIONS) && index->pprev->HaveTxsDownloaded()) {
+        setBlockIndexCandidates.insert(index->pprev);
+    }
+}
+
 void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, CTxUndo &txundo, int nHeight)
 {
     // mark inputs spent
@@ -2905,8 +2937,14 @@ bool Chainstate::ConnectTip(BlockValidationState& state, CBlockIndex* pindexNew,
         bool rv = ConnectBlock(blockConnecting, state, pindexNew, view);
         GetMainSignals().BlockChecked(blockConnecting, state);
         if (!rv) {
-            if (state.IsInvalid())
+            if (state.IsInvalid()) {
                 InvalidBlockFound(pindexNew, state);
+                if (state.GetResult() == BlockValidationResult::BLOCK_MUTATED) {
+                    // The same block hash may be valid with different
+                    // non-committed data, so do not retain these bytes.
+                    EraseBlockData(pindexNew);
+                }
+            }
             return error("%s: ConnectBlock %s failed, %s", __func__, pindexNew->GetBlockHash().ToString(), state.ToString());
         }
         nTime3 = GetTimeMicros(); nTimeConnectTotal += nTime3 - nTime2;
