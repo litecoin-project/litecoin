@@ -132,6 +132,8 @@ public:
     IMMR::Ptr GetOutputPMMR() const noexcept final { return m_pOutputPMMR; }
 
 private:
+    mw::BlockUndo::CPtr ApplyBlockChanges(const mw::Block::CPtr& pBlock);
+
     ICoinsView::Ptr m_pBase;
 
     LeafSetCache::Ptr m_pLeafSet;

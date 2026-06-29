@@ -38,6 +38,17 @@ mw::BlockUndo::CPtr CoinsViewCache::ApplyBlock(const mw::Block::CPtr& pBlock)
 {
     assert(pBlock != nullptr);
 
+    // Validate in a child cache before mutating this cache.
+    mw::ICoinsView::Ptr pSelf(this, [](mw::ICoinsView*) {});
+    mw::CoinsViewCache validation_cache(pSelf);
+
+    mw::BlockUndo::CPtr pUndo = validation_cache.ApplyBlockChanges(pBlock);
+    validation_cache.Flush();
+    return pUndo;
+}
+
+mw::BlockUndo::CPtr CoinsViewCache::ApplyBlockChanges(const mw::Block::CPtr& pBlock)
+{
     auto pPreviousHeader = GetBestHeader();
     SetBestHeader(pBlock->GetHeader());
 

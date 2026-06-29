@@ -45,6 +45,8 @@ public:
             m_fileSize = m_file.GetSize();
         }
 
+        m_file.Commit();
+
         m_bufferIndex = m_fileSize;
         m_buffer.clear();
 

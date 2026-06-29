@@ -280,6 +280,7 @@ BASE_SCRIPTS = [
     'mweb_mempool.py',
     'mweb_mining.py',
     'mweb_reorg.py',
+    'mweb_dbcrash.py',
     'mweb_p2p.py',
     'mweb_pegout_all.py',
     'mweb_node_compatibility.py',

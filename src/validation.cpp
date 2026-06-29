@@ -2014,7 +2014,7 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
         try {
             view.GetMWEBCacheView()->UndoBlock(blockUndo.mwundo);
         } catch (const std::exception& e) {
-            error("DisconnectBlock(): Failed to disconnect MWEB block");
+            error("DisconnectBlock(): Failed to disconnect MWEB block: %s", e.what());
             return DISCONNECT_FAILED;
         }
     }
@@ -4387,18 +4387,12 @@ bool Chainstate::RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& in
     }
 
     if (!block.mweb_block.IsNull()) {
-        // add outputs
-        for (const mw::Output& output : block.mweb_block.m_block->GetOutputs()) {
-            if (inputs.HaveCoin(output.GetOutputID())) {
-                // MWEB: TODO - How should we handle overwrites?
-            } else {
-                inputs.GetMWEBCacheView()->AddCoin(pindex->nHeight, output);
-            }
-        }
-
-        // mweb_tx is only non-null for transactions outside of a block (e.g. mempool), so we don't need to update txundo.
-        for (const mw::Input& input : block.mweb_block.m_block->GetInputs()) {
-            inputs.GetMWEBCacheView()->SpendCoin(input.GetOutputID()); // MWEB: TODO - SpendCoin should be made noexcept, and return a nullptr when it fails.
+        // ReplayBlocks recovers after undo data was already written, so the
+        // MWEB undo produced here is only needed transiently while applying state.
+        CBlockUndo blockundo;
+        BlockValidationState state;
+        if (!MWEB::Node::ConnectBlock(block, m_params.GetConsensus(), m_chainman, pindex->pprev, blockundo, *inputs.GetMWEBCacheView(), state)) {
+            return error("ReplayBlock(): MWEB ConnectBlock failed at %d, hash=%s (%s)", pindex->nHeight, pindex->GetBlockHash().ToString(), state.ToString());
         }
     }
 
@@ -4436,6 +4430,10 @@ bool Chainstate::ReplayBlocks()
         pindexFork = LastCommonAncestor(pindexOld, pindexNew);
         assert(pindexFork != nullptr);
     }
+
+    // DB_BEST_BLOCK is erased while DB_HEAD_BLOCKS marks an interrupted flush, so
+    // initialize the MWEB replay cache from the old head tracked in DB_HEAD_BLOCKS.
+    cache.GetMWEBCacheView()->SetBestHeader(pindexOld ? pindexOld->mweb_header : nullptr);
 
     // Rollback along the old branch.
     while (pindexOld != pindexFork) {

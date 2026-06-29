@@ -24,6 +24,7 @@ public:
     void Write(const size_t startIndex, const std::vector<uint8_t>& bytes, const bool truncate);
     void WriteBytes(const std::unordered_map<uint64_t, uint8_t>& bytes);
     void Truncate(const uint64_t size);
+    void Commit() const;
 
     void CopyTo(const FilePath& new_path) const;
 

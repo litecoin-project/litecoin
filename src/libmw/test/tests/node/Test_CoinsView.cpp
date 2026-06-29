@@ -103,6 +103,42 @@ BOOST_AUTO_TEST_CASE(CoinsViewCache_ApplyBlock_InvalidOutputRoot)
     BOOST_REQUIRE_THROW(pCachedView->ApplyBlock(pInvalidBlock), ValidationException);
 }
 
+BOOST_AUTO_TEST_CASE(CoinsViewCache_ApplyBlock_RejectedBlockDoesNotMutateCache)
+{
+    auto pDBView = mw::CoinsViewDB::Open(m_path_root, nullptr, GetDB());
+    BOOST_REQUIRE(pDBView != nullptr);
+
+    auto pCachedView = std::make_shared<mw::CoinsViewCache>(pDBView);
+    test::Miner miner(m_path_root);
+
+    test::Tx funding_tx = test::Tx::CreatePegIn(5'000'000);
+    mw::Block::CPtr pBlock1 = miner.MineBlock(1, { funding_tx }).GetBlock();
+    pCachedView->ApplyBlock(pBlock1);
+
+    const mw::Header::CPtr best_header_before = pCachedView->GetBestHeader();
+    const mw::Hash output_root_before = pCachedView->GetOutputPMMR()->Root();
+    const uint64_t num_txos_before = pCachedView->GetOutputPMMR()->GetNumLeaves();
+    const mw::Hash leafset_root_before = pCachedView->GetLeafSet()->Root();
+
+    test::Tx next_tx = test::Tx::CreatePegIn(2'000'000);
+    mw::Block::CPtr pBlock2 = miner.MineBlock(2, { next_tx }).GetBlock();
+    mw::Block::CPtr pInvalidBlock = std::make_shared<mw::Block>(
+        mw::MutHeader(pBlock2->GetHeader())
+            .SetOutputRoot(SecretKey::Random().GetBigInt())
+            .Build(),
+        pBlock2->GetTxBody()
+    );
+
+    BOOST_REQUIRE_THROW(pCachedView->ApplyBlock(pInvalidBlock), ValidationException);
+    BOOST_REQUIRE(pCachedView->GetBestHeader() != nullptr);
+    BOOST_CHECK(pCachedView->GetBestHeader()->GetHash() == best_header_before->GetHash());
+    BOOST_CHECK(pCachedView->GetOutputPMMR()->Root() == output_root_before);
+    BOOST_CHECK_EQUAL(pCachedView->GetOutputPMMR()->GetNumLeaves(), num_txos_before);
+    BOOST_CHECK(pCachedView->GetLeafSet()->Root() == leafset_root_before);
+    BOOST_CHECK(pCachedView->GetCoin(funding_tx.GetOutputs().front().GetOutputID()) != nullptr);
+    BOOST_CHECK(pCachedView->GetCoin(next_tx.GetOutputs().front().GetOutputID()) == nullptr);
+}
+
 BOOST_AUTO_TEST_CASE(CoinsViewCache_ApplyBlock_InvalidOutputMMRSize)
 {
     auto pDBView = mw::CoinsViewDB::Open(m_path_root, nullptr, GetDB());

@@ -13,6 +13,7 @@ LeafSet::Ptr LeafSet::Open(const FilePath& leafset_dir, const uint32_t file_inde
     mmr::LeafIndex nextLeafIdx = mmr::LeafIndex::At(0);
     if (file.GetSize() < 8) {
         file.Write(nextLeafIdx.Serialized());
+        file.Commit();
     } else {
         nextLeafIdx = LeafIndex::Deserialize(file.ReadBytes(0, 8));
     }
@@ -62,6 +63,7 @@ void LeafSet::Flush(const uint32_t file_index)
 
     File new_leafset_file(std::move(new_leafset_path));
     new_leafset_file.WriteBytes(m_modifiedBytes);
+    new_leafset_file.Commit();
 
     m_mmap = MemMap{ new_leafset_file };
     m_mmap.Map();
