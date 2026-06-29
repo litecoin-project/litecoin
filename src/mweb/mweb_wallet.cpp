@@ -41,14 +41,14 @@ std::optional<SecretKey> DeriveSharedSecretFromSenderData(const mw::WalletCoin& 
     }
 
     const BigInt<16> nonce(Hashed(EHashTag::NONCE, *coin.sender_key).data());
-    const SecretKey send_key = Hasher(EHashTag::SEND_KEY)
+    const SecretKey send_key = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
         .Append(address.A())
         .Append(address.B())
         .Append(static_cast<uint64_t>(coin.amount))
         .Append(nonce)
-        .hash();
+        .hash());
 
-    return Hashed(EHashTag::DERIVE, address.A().Mul(send_key));
+    return SecretKey::FromHash(Hashed(EHashTag::DERIVE, address.A().Mul(send_key)));
 }
 }
 
@@ -479,7 +479,7 @@ bool Wallet::RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::Wall
         return false;
     }
 
-    const PublicKey subaddress_spend_pubkey = output.GetReceiverPubKey().Div(Hashed(EHashTag::OUT_KEY, *coin.shared_secret));
+    const PublicKey subaddress_spend_pubkey = output.GetReceiverPubKey().Div(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, *coin.shared_secret)));
     for (const mw::Keychain::Ptr& keychain : GetAllKeychains()) {
         if (!keychain || !keychain->HasSpendPubKey()) {
             continue;

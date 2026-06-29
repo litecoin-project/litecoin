@@ -24,7 +24,7 @@ static util::Result<Signature> InputSignature(
         // Hash keys (K_i||K_o)
         Hasher key_hasher;
         key_hasher << input_pubkey << output_pubkey;
-        SecretKey key_hash = key_hasher.hash();
+        SecretKey key_hash = SecretKey::FromHash(key_hasher.hash());
 
         // Calculate aggregated key k_agg = k_i + HASH(K_i||K_o) * k_o
         SecretKey sig_key = SecretKeys::From(output_key)
@@ -61,7 +61,7 @@ static util::Result<SignInputResult> SignInput(MutableInput& input) noexcept
 
     if (!input.raw_blind && input.shared_secret) {
         if (input.shared_secret) {
-            input.raw_blind = Hashed(EHashTag::BLIND, *input.shared_secret);
+            input.raw_blind = BlindingFactor(SecretKey::FromHash(Hashed(EHashTag::BLIND, *input.shared_secret)));
         } else {
             return util::Error{Untranslated("Input blinding factor and shared secret missing")};
         }

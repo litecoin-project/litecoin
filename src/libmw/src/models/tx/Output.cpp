@@ -24,19 +24,19 @@ Output Output::Create(
     BigInt<16> n(Hashed(EHashTag::NONCE, sender_privkey).data());
 
     // Calculate unique sending key 's' = H(T_send, Ai, Bi, v, n)
-    SecretKey s = Hasher(EHashTag::SEND_KEY)
+    SecretKey s = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
         .Append(receiver_addr.A())
         .Append(receiver_addr.B())
         .Append(value)
         .Append(n)
-        .hash();
+        .hash());
 
     // Derive shared secret 'e' = H(T_derive, s*Ai)
     PublicKey sA = receiver_addr.A().Mul(s);
-    SecretKey e = Hashed(EHashTag::DERIVE, sA);
+    SecretKey e = SecretKey::FromHash(Hashed(EHashTag::DERIVE, sA));
 
     // Construct one-time public key for receiver 'Ko' = H(T_outkey, e)*Bi
-    PublicKey Ko = receiver_addr.B().Mul(Hashed(EHashTag::OUT_KEY, e));
+    PublicKey Ko = receiver_addr.B().Mul(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, e)));
 
     // Key exchange public key 'Ke' = s*Bi
     PublicKey Ke = receiver_addr.B().Mul(s);
@@ -58,10 +58,10 @@ Output Output::Create(
 
     OutputMessage message{features, OutputStandardFields(Ke, view_tag, mv, mn), extra_data};
 
-    SecretKey proof_nonce = Hasher(EHashTag::PROOF_NONCE)
+    SecretKey proof_nonce = SecretKey::FromHash(Hasher(EHashTag::PROOF_NONCE)
         .Append(rewind_key)
         .Append(output_commit)
-        .hash();
+        .hash());
     RangeProof::CPtr pRangeProof = Bulletproofs::Generate(
         value,
         SecretKey(blind.vec()),

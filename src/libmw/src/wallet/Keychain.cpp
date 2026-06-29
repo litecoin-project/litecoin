@@ -23,8 +23,8 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::WalletCoin& coin) cons
         return false;
     }
 
-    SecretKey shared_secret = Hashed(EHashTag::DERIVE, shared_secret_pk);
-    PublicKey B_i = output.Ko().Div(Hashed(EHashTag::OUT_KEY, shared_secret));
+    SecretKey shared_secret = SecretKey::FromHash(Hashed(EHashTag::DERIVE, shared_secret_pk));
+    PublicKey B_i = output.Ko().Div(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, shared_secret)));
 
     // Check if B_i belongs to wallet
     StealthAddress address(B_i.Mul(m_scanSecret), B_i);
@@ -43,12 +43,12 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::WalletCoin& coin) cons
     }
 
     // Calculate Carol's sending key 's' and check that s*B ?= Ke
-    SecretKey s = Hasher(EHashTag::SEND_KEY)
+    SecretKey s = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
         .Append(address.A())
         .Append(address.B())
         .Append(value)
         .Append(n)
-        .hash();
+        .hash());
     if (output.Ke() != address.B().Mul(s)) {
         return false;
     }
@@ -82,7 +82,7 @@ std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::WalletCoin&
 
     auto derive_output_key = [](const SecretKey& subaddress_spend_key, const SecretKey& shared_secret) -> SecretKey {
         return SecretKeys::From(subaddress_spend_key)
-            .Mul(Hashed(EHashTag::OUT_KEY, shared_secret))
+            .Mul(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, shared_secret)))
             .Total();
     };
 
@@ -123,10 +123,10 @@ StealthAddress Keychain::GetStealthAddress(const uint32_t index) const
 {
     assert(HasSpendPubKey());
 
-    SecretKey mi = Hasher(EHashTag::ADDRESS)
+    SecretKey mi = SecretKey::FromHash(Hasher(EHashTag::ADDRESS)
         .Append<uint32_t>(index)
         .Append(m_scanSecret)
-        .hash();
+        .hash());
     PublicKey Bi = m_spendPubkey->Add(mi);
     PublicKey Ai = Bi.Mul(m_scanSecret);
 
@@ -175,16 +175,16 @@ std::optional<uint32_t> Keychain::LookupAddressIndex(const StealthAddress& addre
 
 SecretKey Keychain::GetRewindKey() const
 {
-    return SecretKey(Hashed(EHashTag::REWIND_KEY, m_scanSecret).data());
+    return SecretKey::FromHash(Hashed(EHashTag::REWIND_KEY, m_scanSecret));
 }
 
 SecretKey Keychain::GetSenderKey(uint64_t index) const
 {
-    const SecretKey sender_root(Hashed(EHashTag::SENDER_ROOT, m_scanSecret).data());
-    SecretKey sender_key = Hasher(EHashTag::SENDER_ROOT)
+    const SecretKey sender_root = SecretKey::FromHash(Hashed(EHashTag::SENDER_ROOT, m_scanSecret));
+    SecretKey sender_key = SecretKey::FromHash(Hasher(EHashTag::SENDER_ROOT)
         .Append(sender_root)
         .Append(index)
-        .hash();
+        .hash());
     SecretKeys normalized = SecretKeys::From(sender_key);
     return normalized.Total();
 }

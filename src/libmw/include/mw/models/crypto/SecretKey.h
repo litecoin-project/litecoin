@@ -6,6 +6,8 @@
 
 #include <mw/common/Traits.h>
 #include <mw/models/crypto/BigInteger.h>
+#include <mw/models/crypto/Hash.h>
+#include <crypto/blake3/blake3.h>
 #include <random.h>
 
 template<size_t NUM_BYTES>
@@ -31,13 +33,53 @@ public:
     static secret_key_t Random()
     {
         secret_key_t<NUM_BYTES> key;
-
-        size_t index = 0;
-        while (index < NUM_BYTES) {
-            size_t num_bytes = std::min(NUM_BYTES - index, (size_t)32);
-            GetStrongRandBytes(Span{key.data() + index, num_bytes});
-            index += num_bytes;
+        while (true) {
+            size_t index = 0;
+            while (index < NUM_BYTES) {
+                size_t num_bytes = std::min(NUM_BYTES - index, (size_t)32);
+                GetStrongRandBytes(Span{key.data() + index, num_bytes});
+                index += num_bytes;
+            }
+            if constexpr (NUM_BYTES == 32) {
+                if (key.IsValid()) {
+                    break;
+                }
+            } else {
+                break;
+            }
         }
+        return key;
+    }
+
+    static secret_key_t FromHash(const mw::Hash& hash)
+    {
+        static_assert(NUM_BYTES == 32, "Only 32-byte secret keys can be derived from hashes");
+
+        secret_key_t key(hash);
+        if (key.IsValid()) {
+            return key;
+        }
+
+        uint32_t counter = 0;
+        do {
+            blake3_hasher hasher;
+            blake3_hasher_init(&hasher);
+
+            static constexpr char tag[] = "MWEB hash-to-scalar";
+            blake3_hasher_update(&hasher, tag, sizeof(tag) - 1);
+            blake3_hasher_update(&hasher, hash.data(), hash.size());
+
+            std::array<uint8_t, 4> counter_bytes{
+                static_cast<uint8_t>(counter),
+                static_cast<uint8_t>(counter >> 8),
+                static_cast<uint8_t>(counter >> 16),
+                static_cast<uint8_t>(counter >> 24)
+            };
+            blake3_hasher_update(&hasher, counter_bytes.data(), counter_bytes.size());
+            blake3_hasher_finalize(&hasher, key.data(), key.size());
+            counter++;
+        } while (!key.IsValid());
+
         return key;
     }
 
@@ -61,6 +103,14 @@ public:
     const BigInt<NUM_BYTES>& GetBigInt() const { return m_value; }
     std::string ToHex() const noexcept { return m_value.ToHex(); }
     bool IsNull() const noexcept { return m_value.IsZero(); }
+    bool IsValid() const noexcept
+    {
+        if constexpr (NUM_BYTES == 32) {
+            return IsValidBytes(data());
+        } else {
+            return !IsNull();
+        }
+    }
     const std::vector<uint8_t>& vec() const { return m_value.vec(); }
     std::array<uint8_t, 32> array() const noexcept { return m_value.ToArray(); }
     uint8_t* data() { return m_value.data(); }
@@ -78,6 +128,35 @@ public:
     }
 
 private:
+    static bool IsValidBytes(const uint8_t* bytes) noexcept
+    {
+        static constexpr std::array<uint8_t, 32> SECP256K1_ORDER{{
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+            0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+            0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b,
+            0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41
+        }};
+
+        bool nonzero = false;
+        for (size_t i = 0; i < 32; i++) {
+            if (bytes[i] != 0) {
+                nonzero = true;
+                break;
+            }
+        }
+        if (!nonzero) {
+            return false;
+        }
+
+        for (size_t i = 0; i < 32; i++) {
+            if (bytes[i] != SECP256K1_ORDER[i]) {
+                return bytes[i] < SECP256K1_ORDER[i];
+            }
+        }
+
+        return false;
+    }
+
     BigInt<NUM_BYTES> m_value;
 };
 

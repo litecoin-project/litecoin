@@ -51,15 +51,15 @@ BOOST_AUTO_TEST_CASE(ReorgChain)
     const auto& block2_tx1_output1 = block2_tx1.GetOutputs()[0];
 
     BigInt<16> n(Hashed(EHashTag::NONCE, sender_key).data());
-    SecretKey s = Hasher(EHashTag::SEND_KEY)
+    SecretKey s = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
         .Append(receiver_addr.A())
         .Append(receiver_addr.B())
         .Append(block2_tx1_output1.GetAmount())
         .Append(n)
-        .hash();
-    SecretKey shared_secret = Hashed(EHashTag::DERIVE, receiver_addr.A().Mul(s));
+        .hash());
+    SecretKey shared_secret = SecretKey::FromHash(Hashed(EHashTag::DERIVE, receiver_addr.A().Mul(s)));
     SecretKey output_spend_key = SecretKeys::From(receiver_spend_key)
-        .Mul(Hashed(EHashTag::OUT_KEY, shared_secret))
+        .Mul(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, shared_secret)))
         .Total();
 
     test::Tx block2_tx2 = test::TxBuilder()

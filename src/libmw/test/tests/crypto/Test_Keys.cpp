@@ -39,4 +39,29 @@ BOOST_AUTO_TEST_CASE(SecretKeysFromNormalizesRange)
     BOOST_CHECK_THROW(SecretKeys::From(SecretKey::Null()), CryptoException);
 }
 
+BOOST_AUTO_TEST_CASE(SecretKeyFromHashValidation)
+{
+    std::vector<uint8_t> zero(32, 0);
+    BOOST_REQUIRE(!SecretKey(zero).IsValid());
+    BOOST_REQUIRE(SecretKey::FromHash(mw::Hash(zero)).IsValid());
+
+    std::vector<uint8_t> one(32, 0);
+    one.back() = 1;
+    BOOST_REQUIRE(SecretKey(one).IsValid());
+    BOOST_REQUIRE(SecretKey::FromHash(mw::Hash(one)) == SecretKey(one));
+
+    std::vector<uint8_t> order{
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff,
+        0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xfe,
+        0xba, 0xae, 0xdc, 0xe6, 0xaf, 0x48, 0xa0, 0x3b,
+        0xbf, 0xd2, 0x5e, 0x8c, 0xd0, 0x36, 0x41, 0x41
+    };
+    BOOST_REQUIRE(!SecretKey(order).IsValid());
+    BOOST_REQUIRE(SecretKey::FromHash(mw::Hash(order)).IsValid());
+
+    order.back()--;
+    BOOST_REQUIRE(SecretKey(order).IsValid());
+    BOOST_REQUIRE(SecretKey::FromHash(mw::Hash(order)) == SecretKey(order));
+}
+
 BOOST_AUTO_TEST_SUITE_END()

@@ -93,10 +93,10 @@ BOOST_AUTO_TEST_CASE(Create)
         BOOST_REQUIRE(Hashed(EHashTag::TAG, output.Ke().Mul(a))[0] == output.GetViewTag());
 
         // Make sure B belongs to wallet
-        SecretKey t = Hashed(EHashTag::DERIVE, output.Ke().Mul(a));
-        BOOST_REQUIRE(receiver_subaddr.B() == output.Ko().Div(Hashed(EHashTag::OUT_KEY, t)));
+        SecretKey t = SecretKey::FromHash(Hashed(EHashTag::DERIVE, output.Ke().Mul(a)));
+        BOOST_REQUIRE(receiver_subaddr.B() == output.Ko().Div(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, t))));
 
-        SecretKey r = Hashed(EHashTag::BLIND, t);
+        SecretKey r = SecretKey::FromHash(Hashed(EHashTag::BLIND, t));
         const mw::Hash value_mask_hash = Hashed(EHashTag::VALUE_MASK, t);
         uint64_t value = output.GetMaskedValue() ^ ReadLE64(value_mask_hash.data());
         BigInt<16> n = output.GetMaskedNonce() ^ BigInt<16>(Hashed(EHashTag::NONCE_MASK, t).data());
@@ -104,17 +104,17 @@ BOOST_AUTO_TEST_CASE(Create)
         BOOST_REQUIRE(Commitment::Switch(r, value) == output.GetCommitment());
 
         // Calculate Carol's sending key 's' and check that s*B ?= Ke
-        SecretKey s = Hasher(EHashTag::SEND_KEY)
+        SecretKey s = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
             .Append(receiver_subaddr.A())
             .Append(receiver_subaddr.B())
             .Append(value)
             .Append(n)
-            .hash();
+            .hash());
         BOOST_REQUIRE(output.Ke() == receiver_subaddr.B().Mul(s));
 
         // Make sure receiver can generate the spend key
         SecretKey spend_key = SecretKeys::From(b_i)
-            .Mul(Hashed(EHashTag::OUT_KEY, t))
+            .Mul(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, t)))
             .Total();
         BOOST_REQUIRE(output.GetReceiverPubKey() == PublicKey::From(spend_key));
     }

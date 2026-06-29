@@ -21,7 +21,7 @@ public:
     static OutputMask FromShared(const SecretKey& shared_secret)
     {
         OutputMask mask;
-        mask.pre_blind = Hashed(EHashTag::BLIND, shared_secret);
+        mask.pre_blind = BlindingFactor(SecretKey::FromHash(Hashed(EHashTag::BLIND, shared_secret)));
         const mw::Hash value_mask_hash = Hashed(EHashTag::VALUE_MASK, shared_secret);
         mask.value_mask = ReadLE64(value_mask_hash.data());
         mask.nonce_mask = BigInt<16>(Hashed(EHashTag::NONCE_MASK, shared_secret).data());
