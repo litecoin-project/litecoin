@@ -3,6 +3,7 @@
 #include <chain.h>
 #include <consensus/params.h>
 #include <consensus/validation.h>
+#include <mw/consensus/Amount.h>
 #include <mw/node/BlockValidator.h>
 #include <primitives/block.h>
 #include <primitives/transaction.h>
@@ -200,15 +201,30 @@ bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_
             }
         }
 
+        const auto mweb_fee = block.mweb_block.GetTotalFee();
+        const auto supply_change = block.mweb_block.GetSupplyChange();
+        if (!mweb_fee || !supply_change) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-amount", "Invalid MWEB amount accounting");
+        }
+
         // For the HogEx transaction, the fee must be equal to the total fee of the extension block.
         CAmount hogex_fee = hogex_input_amount - pHogEx->GetValueOut();
-        if (!MoneyRange(hogex_fee) || hogex_fee != block.mweb_block.GetTotalFee()) {
-            return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-txns-mweb-fee-mismatch", "HogEx fee does not match MWEB fee."); // TODO: This can be CONSENSUS
+        if (!MoneyRange(hogex_fee) || hogex_fee != *mweb_fee) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-mweb-fee-mismatch", "HogEx fee does not match MWEB fee.");
         }
 
         // Verify that the value of the first HogEx output matches the expected new value of the MWEB.
         // This is calculated simply as: 'mweb_amount = previous_amount + supply_change'
         // where 'supply_change = (pegins - pegouts) - fees'
+        const auto mweb_amount = AmountUtil::TrySafeAdd(pindexPrev->mweb_amount, *supply_change);
+        if (!mweb_amount) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-amount", "Invalid MWEB supply change");
+        }
+
+        if (!MoneyRange(*mweb_amount) || *mweb_amount != pHogEx->vout.front().nValue) {
+            return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "mweb-amount-mismatch", "HogEx amount does not match expected MWEB amount");
+        }
+
         const bool allow_historical_metadata_mismatch =
             !consensus_params.mweb_input_metadata_grandfather_blockhash.IsNull()
             && block.GetHash() == consensus_params.mweb_input_metadata_grandfather_blockhash;

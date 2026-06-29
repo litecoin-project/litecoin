@@ -15,6 +15,7 @@
 #include <mw/crypto/Schnorr.h>
 
 #include <memory>
+#include <optional>
 #include <vector>
 
 MW_NAMESPACE
@@ -90,10 +91,10 @@ public:
     }
 
     std::vector<PegInCoin> GetPegIns() const noexcept;
-    CAmount GetPegInAmount() const noexcept;
+    std::optional<CAmount> GetPegInAmount() const noexcept;
     std::vector<PegOutCoin> GetPegOuts() const noexcept;
-    CAmount GetTotalFee() const noexcept;
-    CAmount GetSupplyChange() const noexcept;
+    std::optional<CAmount> GetTotalFee() const noexcept;
+    std::optional<CAmount> GetSupplyChange() const noexcept;
     int32_t GetLockHeight() const noexcept;
 
     //

@@ -75,7 +75,9 @@ static RPCHelpMan sendrawtransaction()
 
             int64_t virtual_size = GetVirtualTransactionSize(*tx);
             int64_t mweb_weight = tx->mweb_tx.GetMWEBWeight();
-            CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size, mweb_weight);
+            CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFeePerK() == 0
+                ? 0
+                : max_raw_tx_fee_rate.GetFee(virtual_size, mweb_weight);
 
             std::string err_string;
             AssertLockNotHeld(cs_main);
@@ -205,7 +207,9 @@ static RPCHelpMan testmempoolaccept()
                     // Check that fee does not exceed maximum fee
                     const int64_t virtual_size = tx_result.m_vsize.value();
                     const int64_t mweb_weight = tx_result.m_mweb_weight.value();
-                    const CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size, mweb_weight);
+                    const CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFeePerK() == 0
+                        ? 0
+                        : max_raw_tx_fee_rate.GetFee(virtual_size, mweb_weight);
                     if (max_raw_tx_fee && fee > max_raw_tx_fee) {
                         result_inner.pushKV("allowed", false);
                         result_inner.pushKV("reject-reason", "max-fee-exceeded");

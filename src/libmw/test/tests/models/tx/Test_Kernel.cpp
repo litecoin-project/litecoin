@@ -7,6 +7,8 @@
 
 #include <test_framework/TestMWEB.h>
 
+#include <limits>
+
 BOOST_FIXTURE_TEST_SUITE(TestKernel, MWEBTestingSetup)
 
 BOOST_AUTO_TEST_CASE(PlainKernel_Test)
@@ -100,6 +102,42 @@ BOOST_AUTO_TEST_CASE(NonStandardKernel_Test)
     BOOST_REQUIRE(standard_kernel.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel1.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel2.IsStandard());
+}
+
+BOOST_AUTO_TEST_CASE(PegOutAmountOutOfRange_Test)
+{
+    std::vector<uint8_t> script_bytes = secret_key_t<30>::Random().vec();
+    CScript script(script_bytes.data(), script_bytes.data() + script_bytes.size());
+
+    mw::Kernel kernel = mw::Kernel::Create(
+        BlindingFactor::Random(),
+        std::nullopt,
+        std::nullopt,
+        std::nullopt,
+        std::vector<PegOutCoin>{PegOutCoin(MAX_MONEY, script), PegOutCoin(1, script)},
+        std::nullopt,
+        std::vector<uint8_t>{}
+    );
+
+    BOOST_REQUIRE(!kernel.GetPegOutAmount().has_value());
+}
+
+BOOST_AUTO_TEST_CASE(SupplyChangeOutOfRange_Test)
+{
+    std::vector<uint8_t> script_bytes = secret_key_t<30>::Random().vec();
+    CScript script(script_bytes.data(), script_bytes.data() + script_bytes.size());
+
+    mw::Kernel kernel = mw::Kernel::Create(
+        BlindingFactor::Random(),
+        std::nullopt,
+        std::numeric_limits<CAmount>::max(),
+        std::nullopt,
+        std::vector<PegOutCoin>{PegOutCoin(1, script)},
+        std::nullopt,
+        std::vector<uint8_t>{}
+    );
+
+    BOOST_REQUIRE(!kernel.GetSupplyChange().has_value());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -297,11 +297,15 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     }
 
     if (have_undo) {
-        const CAmount mweb_fee = tx.mweb_tx.GetFee();
-        const CAmount fee = (amt_total_in - amt_total_out) + mweb_fee;
-        CHECK_NONFATAL(MoneyRange(mweb_fee));
-        CHECK_NONFATAL(MoneyRange(fee));
-        entry.pushKV("fee", ValueFromAmount(fee));
+        const auto mweb_fee = tx.mweb_tx.GetFee();
+        if (mweb_fee) {
+            const CAmount fee = (amt_total_in - amt_total_out) + *mweb_fee;
+            CHECK_NONFATAL(MoneyRange(*mweb_fee));
+            CHECK_NONFATAL(MoneyRange(fee));
+            entry.pushKV("fee", ValueFromAmount(fee));
+        } else {
+            entry.pushKV("fee", UniValue(UniValue::VNULL));
+        }
     }
 
     if (!block_hash.IsNull()) {

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mw/consensus/Amount.h>
 #include <mw/exceptions/ValidationException.h>
 #include <mw/exceptions/CryptoException.h>
 #include <mw/crypto/Pedersen.h>
@@ -7,7 +8,6 @@
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/tx/Coin.h>
 #include <mw/common/Logger.h>
-#include <cstdlib>
 
 class KernelSumValidator
 {
@@ -25,7 +25,13 @@ public:
         // Sum all coin commitments - expected supply.
         int64_t total_mweb_supply = 0;
         for (const mw::Kernel& kernel : kernels) {
-            total_mweb_supply += kernel.GetSupplyChange();
+            const auto supply_change = kernel.GetSupplyChange();
+            if (!supply_change) {
+                ThrowValidation(EConsensusError::AMOUNT_OUT_OF_RANGE);
+            }
+
+            total_mweb_supply = AmountUtil::SafeAdd(total_mweb_supply, *supply_change);
+            AmountUtil::ValidateAmountRange(total_mweb_supply);
 
             // Total supply can never go below 0
             if (total_mweb_supply < 0) {
@@ -48,6 +54,11 @@ public:
         const BlindingFactor& total_offset,
         const BlindingFactor& prev_total_offset)
     {
+        auto supply_change = body.GetSupplyChange();
+        if (!supply_change) {
+            ThrowValidation(EConsensusError::AMOUNT_OUT_OF_RANGE);
+        }
+        
         BlindingFactor block_offset = total_offset;
         if (!prev_total_offset.IsNull()) {
             block_offset = Pedersen::AddBlindingFactors({block_offset}, {prev_total_offset});
@@ -58,19 +69,24 @@ public:
             body.GetOutputCommits(),
             body.GetKernelCommits(),
             block_offset,
-            body.GetSupplyChange(),
+            *supply_change,
             false
         );
     }
 
     static void ValidateForTx(const mw::Transaction& tx)
     {
+        auto supply_change = tx.GetSupplyChange();
+        if (!supply_change) {
+            ThrowValidation(EConsensusError::AMOUNT_OUT_OF_RANGE);
+        }
+        
         ValidateSums(
             tx.GetInputCommits(),
             tx.GetOutputCommits(),
             tx.GetKernelCommits(),
             tx.GetKernelOffset(),
-            tx.GetSupplyChange(),
+            *supply_change,
             true
         );
     }
@@ -103,6 +119,8 @@ private:
         const int64_t coins_added,
         const bool allow_infinity)
     {
+        AmountUtil::ValidateAmountRange(coins_added);
+
         // Calculate coin commitment sum.
         Commitment sum_coin_commitment = AddCommitments(output_commits, input_commits, allow_infinity);
         if (coins_added > 0) {
@@ -111,7 +129,7 @@ private:
             );
         } else if (coins_added < 0) {
             sum_coin_commitment = AddCommitments(
-                { sum_coin_commitment, Commitment::Transparent(std::abs(coins_added)) }, {}, allow_infinity
+                { sum_coin_commitment, Commitment::Transparent(AmountUtil::UnsignedAbs(coins_added)) }, {}, allow_infinity
             );
         }
 

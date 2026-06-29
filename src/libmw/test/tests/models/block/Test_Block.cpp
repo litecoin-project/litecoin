@@ -4,10 +4,35 @@
 
 #include <mw/models/block/Block.h>
 #include <mw/consensus/Aggregation.h>
+#include <mw/consensus/Params.h>
+#include <mw/exceptions/ValidationException.h>
 #include <mw/mmr/MMR.h>
 #include <test_framework/models/Tx.h>
 
 #include <test_framework/TestMWEB.h>
+
+namespace {
+mw::Block BuildBlock(const int32_t height, const mw::Transaction::CPtr& pTransaction)
+{
+    MemMMR kernel_mmr;
+    for (const mw::Kernel& kernel : pTransaction->GetKernels()) {
+        kernel_mmr.Add(kernel);
+    }
+
+    mw::Header::CPtr pHeader = std::make_shared<mw::Header>(
+        height,
+        mw::Hash::FromHex("000102030405060708090A0B0C0D0E0F1112131415161718191A1B1C1D1E1F20"),
+        kernel_mmr.Root(),
+        mw::Hash::FromHex("002102030405060708090A0B0C0D0E0F1112131415161718191A1B1C1D1E1F20"),
+        BlindingFactor(pTransaction->GetKernelOffset()),
+        BlindingFactor(pTransaction->GetStealthOffset()),
+        pTransaction->GetOutputs().size(),
+        pTransaction->GetKernels().size()
+    );
+
+    return mw::Block(pHeader, pTransaction->GetBody());
+}
+} // namespace
 
 BOOST_FIXTURE_TEST_SUITE(TestBlock, MWEBTestingSetup)
 
@@ -47,7 +72,9 @@ BOOST_AUTO_TEST_CASE(Block)
     BOOST_REQUIRE(block.GetStealthOffset() == pHeader->GetStealthOffset());
 
     BOOST_REQUIRE(block.GetPegIns() == pTransaction->GetPegIns());
-    BOOST_REQUIRE(block.GetPegInAmount() == 30);
+    const auto pegin_amount = block.GetPegInAmount();
+    BOOST_REQUIRE(pegin_amount.has_value());
+    BOOST_REQUIRE(*pegin_amount == 30);
     BOOST_REQUIRE(block.GetPegOuts().empty());
 
     std::vector<uint8_t> block_serialized = block.Serialized();
@@ -57,6 +84,36 @@ BOOST_AUTO_TEST_CASE(Block)
     BOOST_REQUIRE(block.GetTxBody() == block2.GetTxBody());
 
     block.Validate();
+}
+
+BOOST_AUTO_TEST_CASE(Block_KernelLockHeight)
+{
+    const int32_t lock_height = mw::KERNEL_LOCK_HEIGHT_GRANDFATHER_HEIGHT + 2;
+    mw::Kernel kernel = mw::Kernel::Create(
+        BlindingFactor::Random(),
+        std::nullopt,
+        CAmount(0),
+        std::nullopt,
+        std::vector<PegOutCoin>{},
+        lock_height,
+        std::vector<uint8_t>{}
+    );
+    mw::Transaction::CPtr pTransaction = mw::Transaction::Create(
+        BlindingFactor(),
+        BlindingFactor(),
+        {},
+        {},
+        {kernel}
+    );
+
+    mw::Block grandfathered_block = BuildBlock(mw::KERNEL_LOCK_HEIGHT_GRANDFATHER_HEIGHT, pTransaction);
+    grandfathered_block.Validate();
+
+    mw::Block valid_block = BuildBlock(lock_height, pTransaction);
+    valid_block.Validate();
+
+    mw::Block invalid_block = BuildBlock(lock_height - 1, pTransaction);
+    BOOST_REQUIRE_THROW(invalid_block.Validate(), ValidationException);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

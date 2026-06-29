@@ -5,6 +5,8 @@
 #include <test_framework/TestMWEB.h>
 #include <test_framework/TxBuilder.h>
 
+#include <mw/models/tx/Kernel.h>
+
 BOOST_FIXTURE_TEST_SUITE(TestTxBody, MWEBTestingSetup)
 
 BOOST_AUTO_TEST_CASE(Test_TxBody)
@@ -32,7 +34,20 @@ BOOST_AUTO_TEST_CASE(Test_TxBody)
     //
     // Getters
     //
-    BOOST_REQUIRE(txBody.GetTotalFee() == fee);
+    const auto total_fee = txBody.GetTotalFee();
+    BOOST_REQUIRE(total_fee.has_value());
+    BOOST_REQUIRE(*total_fee == fee);
+}
+
+BOOST_AUTO_TEST_CASE(TotalFeeOutOfRange_Test)
+{
+    const std::vector<mw::Kernel> kernels{
+        mw::Kernel::Create(BlindingFactor::Random(), std::nullopt, MAX_MONEY, std::nullopt, std::vector<PegOutCoin>{}, std::nullopt, std::vector<uint8_t>{}),
+        mw::Kernel::Create(BlindingFactor::Random(), std::nullopt, CAmount(1), std::nullopt, std::vector<PegOutCoin>{}, std::nullopt, std::vector<uint8_t>{})
+    };
+
+    mw::TxBody txBody({}, {}, kernels);
+    BOOST_REQUIRE(!txBody.GetTotalFee().has_value());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

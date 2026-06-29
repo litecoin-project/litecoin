@@ -9,12 +9,24 @@
 #include <tinyformat.h>
 
 #include <cmath>
+#include <limits>
+
+namespace {
+CAmount GetMWEBFeeForWeight(uint32_t mweb_weight)
+{
+    if (uint64_t{mweb_weight} > uint64_t{std::numeric_limits<CAmount>::max() / BASE_MWEB_FEE}) {
+        return std::numeric_limits<CAmount>::max();
+    }
+
+    return CAmount(mweb_weight) * BASE_MWEB_FEE;
+}
+} // namespace
 
 CFeeRate::CFeeRate(const CAmount& nFeePaid, uint32_t num_bytes, uint32_t mweb_weight)
 {
     const int64_t nSize{num_bytes};
 
-    const CAmount mweb_fee = CAmount(mweb_weight) * BASE_MWEB_FEE;
+    const CAmount mweb_fee = GetMWEBFeeForWeight(mweb_weight);
     if (mweb_fee > 0 && nFeePaid < mweb_fee) {
         nSatoshisPerK = 0;
     } else {
@@ -40,7 +52,11 @@ CAmount CFeeRate::GetFee(uint32_t num_bytes, uint32_t mweb_weight) const
         if (nSatoshisPerK < 0) nFee = CAmount(-1);
     }
     
-    const CAmount mweb_fee = CAmount(mweb_weight) * BASE_MWEB_FEE;
+    const CAmount mweb_fee = GetMWEBFeeForWeight(mweb_weight);
+    if (nFee > 0 && mweb_fee > std::numeric_limits<CAmount>::max() - nFee) {
+        return std::numeric_limits<CAmount>::max();
+    }
+
     return nFee + mweb_fee;
 }
 
