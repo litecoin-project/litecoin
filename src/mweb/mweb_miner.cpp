@@ -20,6 +20,16 @@ void Miner::NewBlock(const ChainstateManager& chainman, const uint64_t nHeight)
     hogex_outputs.clear();
 }
 
+int64_t Miner::GetHogExSigOpCost(const CTransaction& tx)
+{
+    int64_t sigops = 0;
+    for (const PegOutCoin& pegout : tx.mweb_tx.GetPegOuts()) {
+        sigops += WITNESS_SCALE_FACTOR * pegout.GetScriptPubKey().GetSigOpCount(false);
+    }
+
+    return sigops;
+}
+
 bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
 {
     if (!mweb_builder) return false; // MWEB not active
@@ -92,10 +102,8 @@ bool Miner::AddMWEBTransaction(CTxMemPool::txiter iter)
     hogex_outputs.insert(hogex_outputs.end(), vout.cbegin(), vout.cend());
     mweb_amount_change += (CAmount(pegin_amount) - CAmount(pegout_amount + *tx_fee));
 
-    if (pTx->IsMWEBOnly()) {
-        hogex_fees += *tx_fee;
-        hogex_sigops += iter->GetSigOpCost();
-    }
+    hogex_fees += *tx_fee;
+    hogex_sigops += GetHogExSigOpCost(*pTx);
 
     return true;
 }

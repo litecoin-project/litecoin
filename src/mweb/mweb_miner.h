@@ -18,6 +18,7 @@ public:
     void NewBlock(const ChainstateManager& chainman, const uint64_t nHeight);
     bool AddMWEBTransaction(CTxMemPool::txiter iter);
     void AddHogExTransaction(const CBlockIndex* pIndexPrev, CBlock* pblock, node::CBlockTemplate* pblocktemplate, CAmount& nFees);
+    static int64_t GetHogExSigOpCost(const CTransaction& tx);
 
 private:
     bool ValidatePegIns(const CTransactionRef& pTx, const std::vector<PegInCoin>& pegins) const;
