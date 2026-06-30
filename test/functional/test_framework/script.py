@@ -10,7 +10,7 @@ This file is modified from python-bitcoinlib.
 from collections import namedtuple
 import struct
 import unittest
-from typing import List, Dict
+from typing import Dict, Iterable, List, Union, overload
 
 from .key import TaggedHash, tweak_add_pubkey
 
@@ -422,6 +422,10 @@ class CScriptNum:
         return result
 
 
+CScriptElement = Union[CScriptOp, CScriptNum, int, bytes, bytearray]
+CScriptValue = Union[bytes, bytearray, Iterable[CScriptElement]]
+
+
 class CScript(bytes):
     """Serialized script
 
@@ -463,7 +467,15 @@ class CScript(bytes):
         # join makes no sense for a CScript()
         raise NotImplementedError
 
-    def __new__(cls, value=b''):
+    @overload
+    def __new__(cls, value: Union[bytes, bytearray] = b'') -> 'CScript':
+        ...
+
+    @overload
+    def __new__(cls, value: Iterable[CScriptElement]) -> 'CScript':
+        ...
+
+    def __new__(cls, value: CScriptValue = b'') -> 'CScript':
         if isinstance(value, bytes) or isinstance(value, bytearray):
             return super().__new__(cls, value)
         else:
