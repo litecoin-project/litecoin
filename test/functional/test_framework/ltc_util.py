@@ -14,6 +14,8 @@ from test_framework.script_util import DUMMY_P2WPKH_SCRIPT, hogaddr_script
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.test_node import TestNode
 
+FIRST_MWEB_HEIGHT = 432
+
 """Create a txout with a given amount and scriptPubKey
 
 Mines coins as needed.
@@ -59,6 +61,16 @@ def make_utxo(test_framework, node, amount, confirmed=True, scriptPubKey=DUMMY_P
 
     return COutPoint(int(txid, 16), 0)
 
+"""Generates all pre-MWEB blocks, pegs coins into the MWEB,
+then mines the first MWEB block which includes that pegin.
+
+mining_node - The node to use to generate blocks
+"""
+def setup_mweb_chain(mining_node, pegin_amount=1):
+    mining_node.generate(FIRST_MWEB_HEIGHT - 1, invalid_call=False)
+    mining_node.sendtoaddress(mining_node.getnewaddress(address_type='mweb'), pegin_amount)
+    mining_node.generate(1, invalid_call=False)
+
 def get_hogex_tx(node: TestNode, block_hash = None) -> Optional[CTransaction]:
     block_hash = block_hash or node.getbestblockhash()
     best_block = node.getblock(block_hash, 2)
@@ -88,14 +100,19 @@ def get_mweb_header(node: TestNode, block_hash = None) -> Optional[MWEBHeader]:
     mweb_header.from_json(best_block['mweb'])
     return mweb_header
 
-def create_hogex(node, mweb_hash) -> Optional[CTransaction]:
+def create_hogex(node, mweb_hash, amount=None) -> Optional[CTransaction]:
     hogex_tx: Optional[CTransaction] = get_hogex_tx(node)
     if hogex_tx is None or len(hogex_tx.vout) == 0:
         return None
 
+    if hasattr(mweb_hash, "to_byte_arr"):
+        mweb_hash = mweb_hash.to_byte_arr()
+    elif isinstance(mweb_hash, str):
+        mweb_hash = bytes.fromhex(mweb_hash)
+
     tx = CTransaction()
     tx.vin.append(CTxIn(COutPoint(int(hogex_tx.rehash(), 16), 0)))
-    tx.vout.append(CTxOut(hogex_tx.vout[0].nValue, hogaddr_script(mweb_hash)))
+    tx.vout.append(CTxOut(hogex_tx.vout[0].nValue if amount is None else amount, hogaddr_script(mweb_hash)))
     tx.hogex = True
     tx.rehash()
     return tx

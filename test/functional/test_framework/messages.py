@@ -47,7 +47,7 @@ MAX_MONEY = 84000000 * COIN
 MAX_BIP125_RBF_SEQUENCE = 0xfffffffd  # Sequence number that is rbf-opt-in (BIP 125) and csv-opt-out (BIP 68)
 SEQUENCE_FINAL = 0xffffffff  # Sequence number that disables nLockTime if set for every input of a tx
 
-MAX_PROTOCOL_MESSAGE_LENGTH = 4000000  # Maximum length of incoming protocol messages
+MAX_PROTOCOL_MESSAGE_LENGTH = 32 * 1000 * 1000  # Maximum length of incoming protocol messages
 MAX_HEADERS_RESULTS = 2000  # Number of headers sent in one getheaders result
 MAX_INV_SIZE = 50000  # Maximum number of entries in an 'inv' protocol message
 
@@ -57,6 +57,7 @@ NODE_WITNESS = (1 << 3)
 NODE_COMPACT_FILTERS = (1 << 6)
 NODE_NETWORK_LIMITED = (1 << 10)
 NODE_MWEB = (1 << 24)
+NODE_MWEB_LIGHT_CLIENT = (1 << 25)
 
 MSG_TX = 1
 MSG_BLOCK = 2
@@ -71,6 +72,10 @@ MSG_MWEB_BLOCK = MSG_BLOCK | MSG_WITNESS_FLAG | MSG_MWEB_FLAG
 MSG_MWEB_TX = MSG_WITNESS_TX | MSG_MWEB_FLAG
 MSG_MWEB_HEADER = 8 | MSG_MWEB_FLAG
 MSG_MWEB_LEAFSET = 9 | MSG_MWEB_FLAG
+
+MWEB_UTXO_FORMAT_FULL = 0
+MWEB_UTXO_FORMAT_HASH_ONLY = 1
+MWEB_UTXO_FORMAT_COMPACT = 2
 
 FILTER_TYPE_BASIC = 0
 
@@ -264,6 +269,9 @@ def from_hex(obj, hex_string):
     use obj.serialize().hex()"""
     obj.deserialize(BytesIO(bytes.fromhex(hex_string)))
     return obj
+
+
+FromHex = from_hex
 
 
 def tx_from_hex(hex_string):
@@ -981,7 +989,7 @@ class P2PHeaderAndShortIDs:
         self.prefilled_txn = deser_vector(f, PrefilledTransaction)
         self.prefilled_txn_length = len(self.prefilled_txn)
         
-        if len(self.prefilled_txn) > 0 and self.prefilled_txn[-1].tx.hogex:
+        if f.tell() < len(f.getbuffer()):
             self.mweb_block = deser_mweb_block(f)
                 
     # When using version 2 compact blocks, we must serialize with_witness.
@@ -2312,6 +2320,37 @@ class MWEBCompactOutput:
     def __repr__(self):
         return "MWEBCompactOutput(output_commit=%s)" % (repr(self.output_commit))
 
+
+class MWEBNetUTXO:
+    __slots__ = ("leaf_index", "output", "output_format")
+
+    def __init__(self, output_format=MWEB_UTXO_FORMAT_HASH_ONLY):
+        self.leaf_index = 0
+        self.output = None
+        self.output_format = output_format
+
+    def deserialize(self, f):
+        self.leaf_index = deser_compact_size(f)
+        if self.output_format == MWEB_UTXO_FORMAT_FULL:
+            self.output = MWEBOutput()
+            self.output.deserialize(f)
+        elif self.output_format == MWEB_UTXO_FORMAT_HASH_ONLY:
+            self.output = Hash.deserialize(f)
+        elif self.output_format == MWEB_UTXO_FORMAT_COMPACT:
+            self.output = MWEBCompactOutput()
+            self.output.deserialize(f)
+        else:
+            raise ValueError("Unsupported MWEB UTXO serialization format %d" % self.output_format)
+
+    def serialize(self):
+        r = ser_compact_size(self.leaf_index)
+        r += self.output.serialize()
+        return r
+
+    def __repr__(self):
+        return "MWEBNetUTXO(leaf_index=%d, output=%s)" % (self.leaf_index, repr(self.output))
+
+
 class MWEBPegout:
     __slots__ = ("amount", "script")
 
@@ -2617,15 +2656,15 @@ class msg_getmwebutxos:
 
     def deserialize(self, f):
         self.block_hash = Hash.deserialize(f)
-        self.start_index = deser_varint(f)
-        self.num_requested = (struct.unpack("<B", f.read(1))[0] << 8) + struct.unpack("<B", f.read(1))[0]
+        self.start_index = deser_compact_size(f)
+        self.num_requested = struct.unpack("<H", f.read(2))[0]
         self.output_format = struct.unpack("B", f.read(1))[0]
 
     def serialize(self):
         r = b""
         r += self.block_hash.serialize()
-        r += ser_varint(self.start_index)
-        r += struct.pack("B", self.num_requested >> 8) + struct.pack("B", self.num_requested & 0xFF)
+        r += ser_compact_size(self.start_index)
+        r += struct.pack("<H", self.num_requested)
         r += struct.pack("B", self.output_format)
         return r
 
@@ -2646,22 +2685,22 @@ class msg_mwebutxos:
 
     def deserialize(self, f):
         self.block_hash = Hash.deserialize(f)
-        self.start_index = deser_varint(f)
+        self.start_index = deser_compact_size(f)
         self.output_format = struct.unpack("B", f.read(1))[0]
 
-        if self.output_format == 0:
-            self.utxos = deser_vector(f, Hash)
-        elif self.output_format == 1:
-            self.utxos = deser_vector(f, MWEBOutput)
-        else:
-            self.utxos = deser_vector(f, MWEBCompactOutput)
+        utxos_len = deser_compact_size(f)
+        self.utxos = []
+        for _ in range(utxos_len):
+            utxo = MWEBNetUTXO(self.output_format)
+            utxo.deserialize(f)
+            self.utxos.append(utxo)
 
         self.proof_hashes = deser_vector(f, Hash)
 
     def serialize(self):
         r = b""
         r += self.block_hash.serialize()
-        r += ser_varint(self.start_index)
+        r += ser_compact_size(self.start_index)
         r += struct.pack("B", self.output_format)
         r += ser_vector(self.utxos)
         r += ser_vector(self.proof_hashes)
