@@ -1,5 +1,6 @@
 #include <mw/node/BlockValidator.h>
 #include <mw/exceptions/ValidationException.h>
+#include <logging.h>
 #include <set>
 #include <unordered_map>
 
@@ -17,7 +18,7 @@ bool BlockValidator::ValidateBlock(
         ValidatePegOutCoins(pBlock, pegOutCoins);
         return true;
     } catch (const std::exception& e) {
-        LOG_ERROR("Failed to validate {}. Error: {}", *pBlock, e);
+        LogPrintf("Failed to validate %s. Error: %s\n", pBlock->Format(), e.what());
     }
 
     return false;

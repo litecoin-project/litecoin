@@ -1,5 +1,4 @@
 #include <mw/wallet/sign.h>
-#include <mw/common/Logger.h>
 #include <mw/crypto/Blinds.h>
 #include <mw/crypto/Pedersen.h>
 #include <mw/crypto/SecretKeys.h>

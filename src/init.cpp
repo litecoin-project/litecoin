@@ -747,9 +747,6 @@ void InitParameterInteraction(ArgsManager& args)
  */
 void InitLogging(const ArgsManager& args)
 {
-    // MWEB: Initialize MWEB Logger
-    LoggerAPI::Initialize([](const std::string& logstr) { LogPrintf("%s", logstr.c_str()); });
-	
     init::SetLoggingOptions(args);
     init::LogPackageVersion();
 }

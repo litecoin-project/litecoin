@@ -4,7 +4,6 @@
 #include <mw/crypto/Bulletproofs.h>
 #include <mw/crypto/Pedersen.h>
 #include <mw/crypto/Schnorr.h>
-#include <mw/common/Logger.h>
 
 MW_NAMESPACE
 

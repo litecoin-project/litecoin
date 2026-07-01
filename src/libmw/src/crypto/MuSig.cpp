@@ -2,7 +2,6 @@
 #include "Context.h"
 #include "ConversionUtil.h"
 
-#include <mw/common/Logger.h>
 #include <mw/exceptions/CryptoException.h>
 #include <mw/util/VectorUtil.h>
 

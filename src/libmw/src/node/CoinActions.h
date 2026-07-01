@@ -1,6 +1,5 @@
 #pragma once
 
-#include <mw/common/Logger.h>
 #include <mw/models/tx/Coin.h>
 #include <unordered_map>
 

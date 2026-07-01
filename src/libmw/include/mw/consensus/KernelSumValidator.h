@@ -7,7 +7,6 @@
 #include <mw/models/tx/TxBody.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/tx/Coin.h>
-#include <mw/common/Logger.h>
 
 class KernelSumValidator
 {
@@ -103,7 +102,6 @@ private:
             // secp256k1 can't serialize the point at infinity. For tx policy validation,
             // treat that as the identity element so we don't throw here.
             if (allow_infinity && e.GetMsg() == "secp256k1_pedersen_commit_sum error") {
-                LOG_DEBUG("Ignoring point-at-infinity commitment sum during tx validation.");
                 return Commitment{};
             }
 
@@ -142,11 +140,6 @@ private:
         }
 
         if (sum_coin_commitment != sum_excess_commitment) {
-            LOG_ERROR(
-                "Coin sum {} does not match kernel excess sum {}.",
-                sum_coin_commitment,
-                sum_excess_commitment
-            );
             ThrowValidation(EConsensusError::BLOCK_SUMS);
         }
     }

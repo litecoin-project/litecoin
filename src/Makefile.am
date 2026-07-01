@@ -620,7 +620,6 @@ libbitcoin_consensus_a_SOURCES = \
   consensus/validation.h \
   hash.cpp \
   hash.h \
-  libmw/src/common/Logger.cpp \
   libmw/src/crypto/Bulletproofs.cpp \
   libmw/src/crypto/ConversionUtil.cpp \
   libmw/src/crypto/MuSig.cpp \

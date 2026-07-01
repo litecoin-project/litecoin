@@ -1,6 +1,5 @@
 #include <mw/mmr/MMR.h>
 #include <mw/mmr/MMRUtil.h>
-#include <mw/common/Logger.h>
 
 using namespace mmr;
 

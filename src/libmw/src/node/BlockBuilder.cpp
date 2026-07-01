@@ -2,6 +2,7 @@
 #include <mw/crypto/Pedersen.h>
 #include <mw/consensus/Params.h>
 #include <mw/consensus/Weight.h>
+#include <logging.h>
 
 #include <unordered_set>
 #include <numeric>
@@ -13,14 +14,14 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
     // Check weight
     uint64_t weight = Weight::Calculate(pTransaction->GetBody());
     if ((weight + m_weight) > mw::MAX_BLOCK_WEIGHT) {
-        LOG_ERROR("Exceeds max block weight");
+        LogPrintf("Exceeds max block weight\n");
         return false;
     }
     
     // Verify pegin amount matches
     const auto actual_amount = pTransaction->GetPegInAmount();
     if (!actual_amount) {
-        LOG_ERROR("Invalid pegin amount");
+        LogPrintf("Invalid pegin amount\n");
         return false;
     }
 
@@ -28,7 +29,7 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
         [](const CAmount sum, const PegInCoin& pegin) { return sum + pegin.GetAmount(); }
     );
     if (*actual_amount != expected_amount) {
-        LOG_ERROR("Mismatched pegin amount");
+        LogPrintf("Mismatched pegin amount\n");
         return false;
     }
 
@@ -36,7 +37,7 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
     std::unordered_set<mw::Hash> pegin_ids;
     for (const PegInCoin& pegin : pegins) {
         if (pegin_ids.find(pegin.GetKernelID()) != pegin_ids.end()) {
-            LOG_ERROR("Duplicate pegin kernels");
+            LogPrintf("Duplicate pegin kernels\n");
             return false;
         }
 
@@ -46,13 +47,13 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
     // Verify pegin outputs are included
     std::vector<PegInCoin> pegin_coins = pTransaction->GetPegIns();
     if (pegin_coins.size() != pegins.size()) {
-        LOG_ERROR("Mismatched pegin count");
+        LogPrintf("Mismatched pegin count\n");
         return false;
     }
 
     for (const PegInCoin& pegin : pegin_coins) {
         if (pegin_ids.find(pegin.GetKernelID()) == pegin_ids.end()) {
-            LOG_ERROR("Pegin kernel {} not found", pegin.GetKernelID());
+            LogPrintf("Pegin kernel %s not found\n", pegin.GetKernelID().Format());
             return false;
         }
     }
@@ -61,7 +62,7 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
     try {
         pTransaction->Validate();
     } catch (std::exception& e) {
-        LOG_DEBUG("Failed to validate transaction {}. Error: {}", pTransaction, e.what());
+        LogPrintf("Failed to validate transaction %s. Error: %s\n", pTransaction->Format(), e.what());
         return false;
     }
     
@@ -77,19 +78,19 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
         Commitment commit = Pedersen::AddCommitments(input_commits, output_commits);
         assert(!commit.IsZero());
     } catch (std::exception& e) {
-        LOG_DEBUG("Staged inputs and outputs would sum to zero. Error: {}", e.what());
+        LogPrintf("Staged inputs and outputs would sum to zero. Error: %s\n", e.what());
         return false;
     }
 
     // Make sure all inputs are available.
     for (const mw::Input& input : pTransaction->GetInputs()) {
         if (m_stagedInputs.count(input.GetOutputID()) > 0) {
-            LOG_ERROR("Input {} already staged", input.GetOutputID());
+            LogPrintf("Input %s already staged\n", input.GetOutputID().Format());
             return false;
         }
 
         if (!m_pCoinsView->HasCoin(input.GetOutputID()) && m_stagedOutputs.count(input.GetOutputID()) == 0) {
-            LOG_ERROR("Input {} not found on chain", input.GetOutputID());
+            LogPrintf("Input %s not found on chain\n", input.GetOutputID().Format());
             return false;
         }
     }
@@ -97,12 +98,12 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
     // Make sure no duplicate outputs already on chain.
     for (const mw::Output& output : pTransaction->GetOutputs()) {
         if (m_pCoinsView->HasCoin(output.GetOutputID())) {
-            LOG_ERROR("Output {} already on chain", output.GetOutputID());
+            LogPrintf("Output %s already on chain\n", output.GetOutputID().Format());
             return false;
         }
 
         if (m_stagedOutputs.count(output.GetOutputID()) > 0) {
-            LOG_ERROR("Output {} already staged", output.GetOutputID());
+            LogPrintf("Output %s already staged\n", output.GetOutputID().Format());
             return false;
         }
     }

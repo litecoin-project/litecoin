@@ -1,5 +1,5 @@
 #include <mw/file/File.h>
-#include <mw/common/Logger.h>
+#include <logging.h>
 #include <util/system.h>
 
 #include <cerrno>
@@ -72,7 +72,7 @@ void File::Create()
     if (inFile.is_open()) {
         inFile.close();
     } else {
-        LOG_INFO("File {} does not exist. Creating it now.", m_path);
+        LogPrintf("File %s does not exist. Creating it now.\n", m_path.ToString());
         std::ofstream outFile(m_path.m_path, std::ios::out | std::ios::binary | std::ios::trunc);
         if (!outFile.is_open()) {
             ThrowFile_F("Failed to create file: {}", m_path);

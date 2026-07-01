@@ -2,7 +2,6 @@
 #include <mw/exceptions/ValidationException.h>
 #include <mw/consensus/Aggregation.h>
 #include <mw/consensus/KernelSumValidator.h>
-#include <mw/common/Logger.h>
 #include <mw/db/MMRInfoDB.h>
 
 #include "CoinActions.h"
