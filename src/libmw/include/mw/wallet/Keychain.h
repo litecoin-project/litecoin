@@ -5,6 +5,7 @@
 #include <mw/models/wallet/WalletCoin.h>
 #include <mw/models/wallet/StealthAddress.h>
 #include <cstdint>
+#include <map>
 #include <memory>
 
 // Forward Declarations
@@ -54,6 +55,8 @@ public:
     const SecretKey& GetScanSecret() const noexcept { return m_scanSecret; }
     SecretKey GetRewindKey() const;
     SecretKey GetSenderKey(uint64_t index) const;
+    void TopUpSenderPubKeys(uint64_t range_end);
+    std::optional<uint64_t> LookupSenderKeyIndex(const PublicKey& sender_pubkey) const;
 
     bool HasSpendPubKey() const noexcept { return m_spendPubkey.has_value(); }
     bool HasSpendSecret() const noexcept { return m_spendSecret.has_value(); }
@@ -73,6 +76,8 @@ private:
     SecretKey m_scanSecret;
     std::optional<PublicKey> m_spendPubkey;
     std::optional<SecretKey> m_spendSecret;
+    std::map<PublicKey, uint64_t> m_sender_pubkey;
+    uint64_t m_sender_pubkey_range_end{0};
 };
 
 END_NAMESPACE

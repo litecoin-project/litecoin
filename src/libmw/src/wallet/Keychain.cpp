@@ -189,4 +189,26 @@ SecretKey Keychain::GetSenderKey(uint64_t index) const
     return normalized.Total();
 }
 
+void Keychain::TopUpSenderPubKeys(uint64_t range_end)
+{
+    if (range_end <= m_sender_pubkey_range_end) {
+        return;
+    }
+
+    for (uint64_t index = m_sender_pubkey_range_end; index < range_end; ++index) {
+        m_sender_pubkey.emplace(PublicKey::From(GetSenderKey(index)), index);
+    }
+    m_sender_pubkey_range_end = range_end;
+}
+
+std::optional<uint64_t> Keychain::LookupSenderKeyIndex(const PublicKey& sender_pubkey) const
+{
+    const auto iter = m_sender_pubkey.find(sender_pubkey);
+    if (iter == m_sender_pubkey.end()) {
+        return std::nullopt;
+    }
+
+    return iter->second;
+}
+
 END_NAMESPACE

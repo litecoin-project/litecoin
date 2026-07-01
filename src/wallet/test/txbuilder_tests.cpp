@@ -814,6 +814,65 @@ BOOST_AUTO_TEST_CASE(MWEBSenderKeyScanAdvancesNextIndex)
     BOOST_CHECK(next_sender_key.value() == keychain->GetSenderKey(SENDER_INDEX + 1));
 }
 
+BOOST_AUTO_TEST_CASE(MWEBSenderKeyCacheFindsOldKeysBelowLookaheadWindow)
+{
+    const mw::Keychain::Ptr keychain = ActiveMWEBKeychain();
+    const CKeyID master_scan_keyid = PublicKey::From(keychain->GetScanSecret()).GetID();
+    static constexpr uint64_t NEXT_SENDER_INDEX{5000};
+    static constexpr uint64_t OLD_SENDER_INDEX{5};
+    static constexpr CAmount OUTPUT_AMOUNT{23456};
+
+    MWEBWallet().LoadNextSenderKeyIndex(master_scan_keyid, NEXT_SENDER_INDEX);
+
+    mw::Output output = mw::Output::Create(
+        nullptr,
+        keychain->GetSenderKey(OLD_SENDER_INDEX),
+        keychain->GetRewindKey(),
+        StealthAddress::Random(),
+        OUTPUT_AMOUNT,
+        std::vector<uint8_t>{}
+    );
+
+    mw::WalletCoin coin;
+    BOOST_CHECK(!MWEBWallet().RewindOutput(output, coin));
+    BOOST_REQUIRE(coin.sender_key.has_value());
+    BOOST_CHECK(*coin.sender_key == keychain->GetSenderKey(OLD_SENDER_INDEX));
+    BOOST_CHECK_EQUAL(coin.amount, OUTPUT_AMOUNT);
+
+    util::Result<SecretKey> next_sender_key = MWEBWallet().GenerateSenderKey();
+    BOOST_REQUIRE(next_sender_key);
+    BOOST_CHECK(next_sender_key.value() == keychain->GetSenderKey(NEXT_SENDER_INDEX));
+}
+
+BOOST_AUTO_TEST_CASE(MWEBSenderKeyCacheFindsKeypoolBoundary)
+{
+    const mw::Keychain::Ptr keychain = ActiveMWEBKeychain();
+    static constexpr uint64_t NEXT_SENDER_INDEX{7};
+    const uint64_t sender_index = NEXT_SENDER_INDEX + DEFAULT_KEYPOOL_SIZE - 1;
+    static constexpr CAmount OUTPUT_AMOUNT{34567};
+
+    MWEBWallet().LoadNextSenderKeyIndex(PublicKey::From(keychain->GetScanSecret()).GetID(), NEXT_SENDER_INDEX);
+
+    mw::Output output = mw::Output::Create(
+        nullptr,
+        keychain->GetSenderKey(sender_index),
+        keychain->GetRewindKey(),
+        StealthAddress::Random(),
+        OUTPUT_AMOUNT,
+        std::vector<uint8_t>{}
+    );
+
+    mw::WalletCoin coin;
+    BOOST_CHECK(!MWEBWallet().RewindOutput(output, coin));
+    BOOST_REQUIRE(coin.sender_key.has_value());
+    BOOST_CHECK(*coin.sender_key == keychain->GetSenderKey(sender_index));
+    BOOST_CHECK_EQUAL(coin.amount, OUTPUT_AMOUNT);
+
+    util::Result<SecretKey> next_sender_key = MWEBWallet().GenerateSenderKey();
+    BOOST_REQUIRE(next_sender_key);
+    BOOST_CHECK(next_sender_key.value() == keychain->GetSenderKey(sender_index + 1));
+}
+
 BOOST_AUTO_TEST_SUITE_END()
 
 } // namespace wallet

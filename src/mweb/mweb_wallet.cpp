@@ -3,9 +3,11 @@
 #include <mw/crypto/Hasher.h>
 #include <mw/models/tx/OutputMask.h>
 #include <wallet/coincontrol.h>
+#include <wallet/scriptpubkeyman.h>
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 #include <util/bip32.h>
+#include <util/system.h>
 #include <util/translation.h>
 
 #include <limits>
@@ -13,8 +15,6 @@
 using namespace MWEB;
 
 namespace {
-static constexpr uint64_t SENDER_KEY_LOOKAHEAD = 1000;
-
 void MergeSenderMetadata(mw::WalletCoin& target, const mw::WalletCoin& source)
 {
     if (source.sender_key && !target.sender_key) {
@@ -382,28 +382,26 @@ void Wallet::LoadNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t ne
 
 std::optional<Wallet::SenderKeyMatch> Wallet::FindSenderKey(const PublicKey& sender_pubkey)
 {
+    const int64_t configured_keypool = gArgs.GetIntArg("-keypool", wallet::DEFAULT_KEYPOOL_SIZE);
+    const uint64_t target_size = configured_keypool > 0 ? static_cast<uint64_t>(configured_keypool) : 1;
+
     for (const mw::Keychain::Ptr& keychain : GetAllKeychains()) {
         const CKeyID master_scan_keyid = PublicKey::From(keychain->GetScanSecret()).GetID();
         const uint64_t next_index = m_next_sender_key_indices[master_scan_keyid];
-        // Include recently issued keys so outputs from the transaction currently
-        // being committed can be recognized after GenerateSenderKey advances.
-        const uint64_t scan_begin = next_index > SENDER_KEY_LOOKAHEAD ? next_index - SENDER_KEY_LOOKAHEAD : 0;
-        const uint64_t scan_end = next_index > std::numeric_limits<uint64_t>::max() - SENDER_KEY_LOOKAHEAD
+        const uint64_t range_end = next_index > std::numeric_limits<uint64_t>::max() - target_size
             ? std::numeric_limits<uint64_t>::max()
-            : next_index + SENDER_KEY_LOOKAHEAD;
+            : next_index + target_size;
+        keychain->TopUpSenderPubKeys(range_end);
 
-        for (uint64_t index = scan_begin; index < scan_end; ++index) {
-            const SecretKey sender_key = keychain->GetSenderKey(index);
-            if (PublicKey::From(sender_key) == sender_pubkey) {
-                return SenderKeyMatch{
-                    keychain,
-                    master_scan_keyid,
-                    index,
-                    sender_key
-                };
-            }
+        const std::optional<uint64_t> index = keychain->LookupSenderKeyIndex(sender_pubkey);
+        if (index.has_value()) {
+            return SenderKeyMatch{
+                keychain,
+                master_scan_keyid,
+                *index,
+                keychain->GetSenderKey(*index)
+            };
         }
-
     }
 
     return std::nullopt;
