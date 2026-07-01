@@ -1,11 +1,10 @@
 #pragma once
 
-#include <mw/common/Traits.h>
 #include <string>
 #include <memory>
+#include <utility>
 
-template<typename T,
-    typename SFINAE = typename std::enable_if_t<std::is_base_of<Traits::ISerializable, T>::value>>
+template<typename T>
 struct DBEntry
 {
     DBEntry(const std::string& _key, const std::shared_ptr<const T>& _item)

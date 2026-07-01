@@ -219,6 +219,7 @@ BITCOIN_TESTS += \
   libmw/test/tests/crypto/Test_Keys.cpp \
   libmw/test/tests/crypto/Test_PublicKeys.cpp \
   libmw/test/tests/crypto/Test_RangeProofs.cpp \
+  libmw/test/tests/db/Test_CoinDB.cpp \
   libmw/test/tests/db/Test_LeafDB.cpp \
   libmw/test/tests/mmr/Test_Index.cpp \
   libmw/test/tests/mmr/Test_LeafIndex.cpp \

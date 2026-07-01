@@ -3,7 +3,7 @@
 
 static const DBTable COIN_TABLE = { 'U' };
 
-CoinDB::CoinDB(mw::DBWrapper* pDBWrapper, mw::DBBatch* pBatch)
+CoinDB::CoinDB(CDBWrapper* pDBWrapper, CDBBatch* pBatch)
     : m_pDatabase(std::make_unique<Database>(pDBWrapper, pBatch)) { }
 
 CoinDB::~CoinDB() { }

@@ -79,7 +79,7 @@ void PMMRCache::BatchWrite(
     const uint32_t /*index*/,
     const LeafIndex& firstLeafIdx,
     const std::vector<Leaf>& leaves,
-    const std::unique_ptr<mw::DBBatch>&)
+    CDBBatch*)
 {
     Rewind(firstLeafIdx.Get());
     for (const Leaf& leaf : leaves) {
@@ -87,7 +87,7 @@ void PMMRCache::BatchWrite(
     }
 }
 
-void PMMRCache::Flush(const uint32_t file_index, const std::unique_ptr<mw::DBBatch>& pBatch)
+void PMMRCache::Flush(const uint32_t file_index, CDBBatch* pBatch)
 {
     m_pBase->BatchWrite(file_index, m_firstLeaf, m_leaves, pBatch);
     m_firstLeaf = GetNextLeafIdx();

@@ -189,7 +189,6 @@ BITCOIN_CORE_H = \
   mapport.h \
   memusage.h \
   merkleblock.h \
-  mweb/mweb_db.h \
   mweb/mweb_miner.h \
   mweb/mweb_models.h \
   mweb/mweb_node.h \
@@ -389,8 +388,13 @@ libbitcoin_node_a_SOURCES = \
   kernel/coinstats.cpp \
   kernel/context.cpp \
   kernel/mempool_persist.cpp \
+  libmw/src/db/CoinDB.cpp \
+  libmw/src/db/LeafDB.cpp \
+  libmw/src/db/MMRInfoDB.cpp \
+  libmw/src/mmr/PMMR.cpp \
   libmw/src/node/BlockValidator.cpp \
   libmw/src/node/BlockBuilder.cpp \
+  libmw/src/node/CoinsViewDB.cpp \
   mapport.cpp \
   mweb/mweb_miner.cpp \
   mweb/mweb_node.cpp \
@@ -675,9 +679,6 @@ libbitcoin_common_a_SOURCES = \
   init/common.cpp \
   key.cpp \
   key_io.cpp \
-  libmw/src/db/CoinDB.cpp \
-  libmw/src/db/LeafDB.cpp \
-  libmw/src/db/MMRInfoDB.cpp \
   libmw/src/mmr/ILeafSet.cpp \
   libmw/src/mmr/IMMR.cpp \
   libmw/src/mmr/Index.cpp \
@@ -686,11 +687,9 @@ libbitcoin_common_a_SOURCES = \
   libmw/src/mmr/MemMMR.cpp \
   libmw/src/mmr/MMRUtil.cpp \
   libmw/src/mmr/PMMRCache.cpp \
-  libmw/src/mmr/PMMR.cpp \
   libmw/src/mmr/PruneList.cpp \
   libmw/src/mmr/Segment.cpp \
   libmw/src/node/CoinsViewCache.cpp \
-  libmw/src/node/CoinsViewDB.cpp \
   libmw/src/wallet/Keychain.cpp \
   merkleblock.cpp \
   mweb/mweb_policy.cpp \

@@ -261,6 +261,7 @@ int secp256k1_pedersen_blind_generator_blind_sum(const secp256k1_context* ctx, c
     }
 
     secp256k1_scalar_set_int(&sum, 0);
+    secp256k1_scalar_set_int(&tmp, 0);
     for (i = 0; i < n_total; i++) {
         int overflow = 0;
         secp256k1_scalar addend;

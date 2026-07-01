@@ -1,7 +1,7 @@
 #pragma once
 
+#include <dbwrapper.h>
 #include <mw/models/tx/Coin.h>
-#include <mw/interfaces/db_interface.h>
 #include <unordered_map>
 
 // Forward Declarations
@@ -12,7 +12,7 @@ class CoinDB
 public:
 	using UPtr = std::unique_ptr<CoinDB>;
 
-	CoinDB(mw::DBWrapper* pDBWrapper, mw::DBBatch* pBatch = nullptr);
+	CoinDB(CDBWrapper* pDBWrapper, CDBBatch* pBatch = nullptr);
 	~CoinDB();
 
 	//

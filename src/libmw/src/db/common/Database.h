@@ -4,7 +4,7 @@
 #include "DBTransaction.h"
 #include "DBEntry.h"
 
-#include <mw/interfaces/db_interface.h>
+#include <dbwrapper.h>
 #include <vector>
 #include <cassert>
 #include <memory>
@@ -14,7 +14,7 @@ class Database
 public:
     using Ptr = std::shared_ptr<Database>;
 
-    Database(mw::DBWrapper* pDatabase, mw::DBBatch* pBatch = nullptr)
+    Database(CDBWrapper* pDatabase, CDBBatch* pBatch = nullptr)
         : m_pDB(pDatabase), m_pTx(nullptr)
     {
         if (pBatch != nullptr) {
@@ -35,11 +35,9 @@ public:
             return m_pTx->Get<T>(table, key);
         }
 
-        std::vector<uint8_t> item_vec;
-        const bool status = m_pDB->Read(table.BuildKey(key), item_vec);
+        T item;
+        const bool status = m_pDB->Read(table.BuildKey(key), item);
         if (status) {
-            T item;
-            CDataStream(item_vec, SER_DISK, PROTOCOL_VERSION) >> item;
             return std::make_unique<DBEntry<T>>(key, std::move(item));
         }
 
@@ -55,9 +53,9 @@ public:
         if (m_pTx != nullptr) {
             m_pTx->Put(table, entries);
         } else {
-            auto pBatch = m_pDB->CreateBatch();
-            DBTransaction(m_pDB, pBatch.get()).Put(table, entries);
-            pBatch->Commit();
+            CDBBatch batch(*m_pDB);
+            DBTransaction(m_pDB, &batch).Put(table, entries);
+            m_pDB->WriteBatch(batch);
         }
     }
 
@@ -66,13 +64,13 @@ public:
         if (m_pTx != nullptr) {
             m_pTx->Delete(table, key);
         } else {
-            auto pBatch = m_pDB->CreateBatch();
-            DBTransaction(m_pDB, pBatch.get()).Delete(table, key);
-            pBatch->Commit();
+            CDBBatch batch(*m_pDB);
+            DBTransaction(m_pDB, &batch).Delete(table, key);
+            m_pDB->WriteBatch(batch);
         }
     }
 
 private:
-    mw::DBWrapper* m_pDB;
+    CDBWrapper* m_pDB;
     DBTransaction::UPtr m_pTx;
 };

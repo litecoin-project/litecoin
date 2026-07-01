@@ -38,9 +38,9 @@ BOOST_AUTO_TEST_CASE(BlockBuilder)
     ///////////////////////
     // Flush View
     ///////////////////////
-    auto pBatch = GetDB()->CreateBatch();
-    cached_view->Flush(pBatch);
-    pBatch->Commit();
+    CDBBatch batch(*GetDB());
+    cached_view->Flush(&batch);
+    GetDB()->WriteBatch(batch);
 
     ///////////////////////
     // BlockBuilder

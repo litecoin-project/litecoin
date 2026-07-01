@@ -7,7 +7,6 @@
 
 #include <chain.h>
 #include <pow.h>
-#include <mweb/mweb_db.h>
 #include <random.h>
 #include <shutdown.h>
 #include <uint256.h>
@@ -176,7 +175,7 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock, con
     }
 
     // MWEB: Flushes MWEB coins & MMRs
-    derivedView->Flush(std::make_unique<MWEB::DBBatch>(m_db.get(), batch));
+    derivedView->Flush(batch.get());
 
     // In the last batch, mark the database as consistent with hashBlock again.
     batch->Erase(DB_HEAD_BLOCKS);

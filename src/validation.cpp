@@ -25,7 +25,6 @@
 #include <logging.h>
 #include <logging/timer.h>
 #include <mw/node/CoinsView.h>
-#include <mweb/mweb_db.h>
 #include <mweb/mweb_node.h>
 #include <node/blockstorage.h>
 #include <node/interface_ui.h>
@@ -1636,7 +1635,7 @@ void Chainstate::InitCoinsDB(
     mw::CoinsViewDB::Ptr mweb_dbview = mw::CoinsViewDB::Open(
         FilePath{gArgs.GetDataDirNet()},
         pindex == nullptr ? nullptr : pindex->mweb_header,
-        std::make_shared<MWEB::DBWrapper>(CoinsDB().GetDB())
+        CoinsDB().GetDB()
     );
     CoinsDB().SetMWEBView(mweb_dbview);
 }

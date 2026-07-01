@@ -2,7 +2,6 @@
 #include <mw/exceptions/ValidationException.h>
 #include <mw/consensus/Aggregation.h>
 #include <mw/consensus/KernelSumValidator.h>
-#include <mw/db/MMRInfoDB.h>
 
 #include "CoinActions.h"
 
@@ -247,7 +246,7 @@ mw::Coin::CPtr CoinsViewCache::SpendCoin(const mw::Hash& output_id)
     return pCoin;
 }
 
-void CoinsViewCache::WriteBatch(const std::unique_ptr<mw::DBBatch>&, const CoinsViewUpdates& updates, const mw::Header::CPtr& pHeader)
+void CoinsViewCache::WriteBatch(CDBBatch*, const CoinsViewUpdates& updates, const mw::Header::CPtr& pHeader)
 {
     SetBestHeader(pHeader);
      
@@ -263,7 +262,7 @@ void CoinsViewCache::WriteBatch(const std::unique_ptr<mw::DBBatch>&, const Coins
     }
 }
 
-void CoinsViewCache::Flush(const std::unique_ptr<mw::DBBatch>& pBatch)
+void CoinsViewCache::Flush(CDBBatch* pBatch)
 {
     if (GetBestHeader() == nullptr) {
         return;
@@ -271,24 +270,12 @@ void CoinsViewCache::Flush(const std::unique_ptr<mw::DBBatch>& pBatch)
     
     m_pBase->WriteBatch(pBatch, *m_pUpdates, GetBestHeader());
 
-    MMRInfo mmr_info;
-    if (!m_pBase->IsCache()) {
-        auto current_mmr_info = MMRInfoDB(GetDatabase().get(), pBatch.get())
-            .GetLatest();
-        if (current_mmr_info) {
-            mmr_info = *current_mmr_info;
-        }
-
-        ++mmr_info.index;
-    }
+    MMRInfo mmr_info = m_pBase->GetNextMMRInfo(pBatch);
 
     m_pLeafSet->Flush(mmr_info.index);
     m_pOutputPMMR->Flush(mmr_info.index, pBatch);
 
-    if (!m_pBase->IsCache()) {
-        MMRInfoDB(GetDatabase().get(), pBatch.get())
-            .Save(mmr_info);
-    }
+    m_pBase->SaveMMRInfo(pBatch, mmr_info);
 
     m_pUpdates->Clear();
 }

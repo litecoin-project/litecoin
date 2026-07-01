@@ -11,7 +11,7 @@
 #include <mw/mmr/LeafIndex.h>
 #include <mw/mmr/Leaf.h>
 #include <mw/mmr/PruneList.h>
-#include <mw/interfaces/db_interface.h>
+#include <dbwrapper.h>
 
 /// <summary>
 /// An interface for interacting with MMRs.
@@ -99,7 +99,7 @@ public:
         const uint32_t file_index,
         const mmr::LeafIndex& firstLeafIdx,
         const std::vector<mmr::Leaf>& leaves,
-        const std::unique_ptr<mw::DBBatch>& pBatch
+        CDBBatch* pBatch
     ) = 0;
 };
 
@@ -126,7 +126,7 @@ public:
         const uint32_t,
         const mmr::LeafIndex&,
         const std::vector<mmr::Leaf>&,
-        const std::unique_ptr<mw::DBBatch>&) final {}
+        CDBBatch*) final {}
 
 private:
     std::vector<mw::Hash> m_hashes;
@@ -142,14 +142,14 @@ public:
         const char dbPrefix,
         const FilePath& mmr_dir,
         const uint32_t file_index,
-        const mw::DBWrapper::Ptr& pDBWrapper,
+        CDBWrapper* pDBWrapper,
         const std::shared_ptr<const PruneList>& pPruneList
     );
 
     PMMR(const char dbPrefix,
         const FilePath& mmr_dir,
         const AppendOnlyFile::Ptr& pHashFile,
-        const std::shared_ptr<mw::DBWrapper>& pDBWrapper,
+        CDBWrapper* pDBWrapper,
         const PruneList::CPtr& pPruneList
     ) :
         m_dbPrefix(dbPrefix),
@@ -166,7 +166,7 @@ public:
 
     mmr::Leaf GetLeaf(const mmr::LeafIndex& leafIdx) const final;
     mw::Hash GetHash(const mmr::Index& idx) const final;
-    mmr::LeafIndex GetNextLeafIdx() const noexcept final { return mmr::LeafIndex::At(GetNumLeaves()); }
+    mmr::LeafIndex GetNextLeafIdx() const noexcept final;
 
     uint64_t GetNumLeaves() const noexcept final;
     uint64_t GetNumNodes() const noexcept;
@@ -176,7 +176,7 @@ public:
         const uint32_t file_index,
         const mmr::LeafIndex& firstLeafIdx,
         const std::vector<mmr::Leaf>& leaves,
-        const std::unique_ptr<mw::DBBatch>& pBatch
+        CDBBatch* pBatch
     ) final;
     void Cleanup(const uint32_t current_file_index) const;
 
@@ -186,7 +186,7 @@ private:
     AppendOnlyFile::Ptr m_pHashFile;
     std::vector<mmr::Leaf> m_leaves;
     std::map<mmr::LeafIndex, size_t> m_leafMap;
-    std::shared_ptr<mw::DBWrapper> m_pDatabase;
+    CDBWrapper* m_pDatabase;
     PruneList::CPtr m_pPruneList;
 };
 
@@ -212,10 +212,10 @@ public:
         const uint32_t file_index,
         const mmr::LeafIndex& firstLeafIdx,
         const std::vector<mmr::Leaf>& leaves,
-        const std::unique_ptr<mw::DBBatch>& pBatch
+        CDBBatch* pBatch
     ) final;
 
-    void Flush(const uint32_t index, const std::unique_ptr<mw::DBBatch>& pBatch);
+    void Flush(const uint32_t index, CDBBatch* pBatch);
 
 private:
     IMMR::Ptr m_pBase;

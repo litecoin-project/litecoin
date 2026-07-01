@@ -1,7 +1,7 @@
 #pragma once
 
+#include <dbwrapper.h>
 #include <mw/mmr/MMRInfo.h>
-#include <mw/interfaces/db_interface.h>
 
 // Forward Declarations
 class Database;
@@ -9,7 +9,7 @@ class Database;
 class MMRInfoDB
 {
 public:
-    MMRInfoDB(mw::DBWrapper* pDBWrapper, mw::DBBatch* pBatch = nullptr);
+    MMRInfoDB(CDBWrapper* pDBWrapper, CDBBatch* pBatch = nullptr);
     ~MMRInfoDB();
 
     /// <summary>

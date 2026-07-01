@@ -106,9 +106,9 @@ BOOST_AUTO_TEST_CASE(ReorgChain)
     ///////////////////////
     // Flush View
     ///////////////////////
-    auto pBatch = pDatabase->CreateBatch();
-    pCachedView->Flush(pBatch);
-    pBatch->Commit();
+    CDBBatch batch(*pDatabase);
+    pCachedView->Flush(&batch);
+    pDatabase->WriteBatch(batch);
 
     BOOST_CHECK(pDBView->GetCoin(block1_tx1_output1.GetOutputID()) != nullptr);
     BOOST_CHECK(pCachedView->GetCoin(block1_tx1_output1.GetOutputID()) != nullptr);

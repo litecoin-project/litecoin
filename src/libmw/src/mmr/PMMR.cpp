@@ -10,7 +10,7 @@ PMMR::Ptr PMMR::Open(
     const char dbPrefix,
     const FilePath& mmr_dir,
     const uint32_t file_index,
-    const mw::DBWrapper::Ptr& pDBWrapper,
+    CDBWrapper* pDBWrapper,
     const PruneList::CPtr& pPruneList)
 {
     auto pHashFile = AppendOnlyFile::Load(
@@ -56,7 +56,7 @@ Leaf PMMR::GetLeaf(const LeafIndex& idx) const
         return m_leaves[it->second];
     }
 
-    LeafDB ldb(m_dbPrefix, m_pDatabase.get());
+    LeafDB ldb(m_dbPrefix, m_pDatabase);
     auto pLeaf = ldb.Get(idx);
     if (!pLeaf) {
         ThrowNotFound_F("Can't get leaf at position {}", idx.GetPosition());
@@ -85,6 +85,11 @@ uint64_t PMMR::GetNumLeaves() const noexcept
     return Index::At(num_hashes).GetLeafIndex();
 }
 
+LeafIndex PMMR::GetNextLeafIdx() const noexcept
+{
+    return LeafIndex::At(GetNumLeaves());
+}
+
 uint64_t PMMR::GetNumNodes() const noexcept
 {
     return LeafIndex::At(GetNumLeaves()).GetPosition();
@@ -105,7 +110,7 @@ void PMMR::BatchWrite(
     const uint32_t file_index,
     const LeafIndex& firstLeafIdx,
     const std::vector<Leaf>& leaves,
-    const std::unique_ptr<mw::DBBatch>& pBatch)
+    CDBBatch* pBatch)
 {
     Rewind(firstLeafIdx.Get());
     for (const Leaf& leaf : leaves) {
@@ -115,7 +120,7 @@ void PMMR::BatchWrite(
     m_pHashFile->Commit(GetPath(m_dir, m_dbPrefix, file_index));
 
     // Update database
-    LeafDB(m_dbPrefix, m_pDatabase.get(), pBatch.get())
+    LeafDB(m_dbPrefix, m_pDatabase, pBatch)
         .Add(m_leaves);
 
     m_leaves.clear();

@@ -48,9 +48,9 @@ BOOST_AUTO_TEST_CASE(MineChain)
     ///////////////////////
     // Flush View
     ///////////////////////
-    auto pBatch = pDatabase->CreateBatch();
-    pCachedView->Flush(pBatch);
-    pBatch->Commit();
+    CDBBatch batch(*pDatabase);
+    pCachedView->Flush(&batch);
+    pDatabase->WriteBatch(batch);
 
     BOOST_REQUIRE(pDBView->GetCoin(block1_tx1_output1.GetOutputID()) != nullptr);
     BOOST_REQUIRE(pCachedView->GetCoin(block1_tx1_output1.GetOutputID()) != nullptr);

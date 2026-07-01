@@ -7,8 +7,8 @@
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/tx/Coin.h>
 #include <mw/mmr/MMR.h>
+#include <mw/mmr/MMRInfo.h>
 #include <mw/mmr/LeafSet.h>
-#include <mw/interfaces/db_interface.h>
 #include <memory>
 
 // Forward Declarations
@@ -28,14 +28,14 @@ public:
     using Ptr = std::shared_ptr<ICoinsView>;
     using CPtr = std::shared_ptr<const ICoinsView>;
 
-    ICoinsView(const mw::Header::CPtr& pHeader, const std::shared_ptr<mw::DBWrapper>& pDBWrapper)
+    ICoinsView(const mw::Header::CPtr& pHeader, CDBWrapper* pDBWrapper)
         : m_pHeader(pHeader), m_pDatabase(pDBWrapper) { }
     virtual ~ICoinsView() = default;
 
     void SetBestHeader(const mw::Header::CPtr& pHeader) noexcept { m_pHeader = pHeader; }
     mw::Header::CPtr GetBestHeader() const noexcept { return m_pHeader; }
 
-    const std::shared_ptr<mw::DBWrapper>& GetDatabase() const noexcept { return m_pDatabase; }
+    CDBWrapper* GetDatabase() const noexcept { return m_pDatabase; }
 
     // Virtual functions
     virtual bool IsCache() const noexcept = 0;
@@ -45,7 +45,7 @@ public:
     virtual mw::Coin::CPtr SpendCoin(const mw::Hash& output_id) = 0;
 
     virtual void WriteBatch(
-        const mw::DBBatch::UPtr& pBatch,
+        CDBBatch* pBatch,
         const CoinsViewUpdates& updates,
         const mw::Header::CPtr& pHeader
     ) = 0;
@@ -73,9 +73,12 @@ public:
     /// </summary>
     virtual void Compact() const = 0;
 
+    virtual MMRInfo GetNextMMRInfo(CDBBatch* pBatch) const = 0;
+    virtual void SaveMMRInfo(CDBBatch* pBatch, const MMRInfo& mmr_info) = 0;
+
 private:
     mw::Header::CPtr m_pHeader;
-    std::shared_ptr<mw::DBWrapper> m_pDatabase;
+    CDBWrapper* m_pDatabase;
 };
 
 class CoinsViewCache : public mw::ICoinsView
@@ -110,18 +113,20 @@ public:
     void UndoBlock(const mw::BlockUndo::CPtr& pUndo);
 
     void WriteBatch(
-        const mw::DBBatch::UPtr& pBatch,
+        CDBBatch* pBatch,
         const CoinsViewUpdates& updates,
         const mw::Header::CPtr& pHeader
     ) final;
     void Compact() const final { m_pBase->Compact(); }
+    MMRInfo GetNextMMRInfo(CDBBatch*) const final { return {}; }
+    void SaveMMRInfo(CDBBatch*, const MMRInfo&) final {}
 
     /// <summary>
     /// Commits the changes from the cached CoinsView to the base CoinsView.
     /// Adds the cached updates to the database if the base CoinsView is a DB view.
     /// </summary>
     /// <param name="pBatch">The optional DB batch. This must be non-null when the base CoinsView is a DB view.</param>
-    void Flush(const mw::DBBatch::UPtr& pBatch = nullptr);
+    void Flush(CDBBatch* pBatch = nullptr);
 
     mw::Block::Ptr BuildNextBlock(const uint64_t height, const std::vector<mw::Transaction::CPtr>& transactions);
 
@@ -150,7 +155,7 @@ public:
     static CoinsViewDB::Ptr Open(
         const FilePath& datadir,
         const mw::Header::CPtr& pBestHeader,
-        const mw::DBWrapper::Ptr& pDBWrapper
+        CDBWrapper* pDBWrapper
     );
 
     bool IsCache() const noexcept final { return false; }
@@ -160,11 +165,13 @@ public:
     mw::Coin::CPtr SpendCoin(const mw::Hash& output_id) final;
 
     void WriteBatch(
-        const mw::DBBatch::UPtr& pBatch,
+        CDBBatch* pBatch,
         const CoinsViewUpdates& updates,
         const mw::Header::CPtr& pHeader
     ) final;
     void Compact() const final;
+    MMRInfo GetNextMMRInfo(CDBBatch* pBatch) const final;
+    void SaveMMRInfo(CDBBatch* pBatch, const MMRInfo& mmr_info) final;
 
     ILeafSet::Ptr GetLeafSet() const noexcept final { return m_pLeafSet; }
     IMMR::Ptr GetOutputPMMR() const noexcept final { return m_pOutputPMMR; }
@@ -174,7 +181,7 @@ public:
 private:
     CoinsViewDB(
         const mw::Header::CPtr& pBestHeader,
-        const mw::DBWrapper::Ptr& pDBWrapper,
+        CDBWrapper* pDBWrapper,
         const LeafSet::Ptr& pLeafSet,
         const PMMR::Ptr& pOutputPMMR
     ) : ICoinsView(pBestHeader, pDBWrapper),

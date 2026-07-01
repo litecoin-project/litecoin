@@ -12,8 +12,6 @@
 #include <test_framework/models/Tx.h>
 #include <test_framework/TestLeafSet.h>
 
-#include <mweb/mweb_db.h>
-
 TEST_NAMESPACE
 
 class Miner
