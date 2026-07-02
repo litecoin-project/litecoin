@@ -3381,7 +3381,7 @@ void CWallet::ListLockedCoins(std::vector<AnyOutputID>& vOutpts) const
     AssertLockHeld(cs_wallet);
     for (std::set<AnyOutputID>::iterator it = setLockedCoins.begin();
          it != setLockedCoins.end(); it++) {
-        AnyOutputID outpt = (*it);
+        const AnyOutputID& outpt = (*it);
         vOutpts.push_back(outpt);
     }
 }

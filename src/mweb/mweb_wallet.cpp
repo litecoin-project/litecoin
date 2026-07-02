@@ -322,7 +322,7 @@ std::vector<mw::Keychain::Ptr> Wallet::GetAllKeychains() const
     std::vector<mw::Keychain::Ptr> keychains;
     auto spk_mans = m_pWallet->GetAllScriptPubKeyMans();
     for (const auto& spk_man : spk_mans) {
-        auto keychain = spk_man->GetMWEBKeychain();
+        const auto& keychain = spk_man->GetMWEBKeychain();
         if (keychain) {
             keychains.push_back(keychain);
         }

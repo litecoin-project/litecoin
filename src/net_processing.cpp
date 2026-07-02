@@ -2739,10 +2739,10 @@ bool PeerManagerImpl::IsContinuationOfLowWorkHeadersSync(Peer& peer, CNode& pfro
         if (m_headers_presync_resume_state) {
             Assert(!headers.empty());
             if (m_headers_presync_resume_state->GetLastHeaderHash() == headers[0].hashPrevBlock) {
+                const int64_t presync_height = m_headers_presync_resume_state->GetPresyncHeight();
+                uint256 header_hash = m_headers_presync_resume_state->GetLastHeaderHash();
                 peer.m_headers_sync = std::move(m_headers_presync_resume_state);
                 peer.m_headers_sync->SetNodeId(peer.m_id);
-                const int64_t presync_height = m_headers_presync_resume_state->GetPresyncHeight();
-                const uint256 header_hash = m_headers_presync_resume_state->GetLastHeaderHash();
                 LogPrint(BCLog::NET, "Presync: resuming low-work headers sync with peer=%d from parked state (start=%s, height=%d)\n",
                     pfrom.GetId(), header_hash.ToString(), presync_height);
             }

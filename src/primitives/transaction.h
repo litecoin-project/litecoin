@@ -591,7 +591,7 @@ struct CMutableTransaction
     mw::MutableTx mweb_tx;
 
     /** Memory only. */
-    bool m_hogEx = false;
+    bool m_hogEx{false};
 
     explicit CMutableTransaction();
     explicit CMutableTransaction(const CTransaction& tx);
