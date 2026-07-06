@@ -23,7 +23,7 @@
             </intent-filter>
 
             <meta-data android:name="android.app.arguments" android:value="-testnet"/>
-            <meta-data android:name="android.app.lib_name" android:value="bitcoin-qt"/>
+            <meta-data android:name="android.app.lib_name" android:value="litecoin-qt"/>
             <meta-data android:name="android.app.repository" android:value="default"/>
             <meta-data android:name="android.app.bundle_local_qt_libs" android:value="1"/>
             <meta-data android:name="android.app.use_local_qt_libs" android:value="1"/>

@@ -8,7 +8,7 @@ Release Process
 * Update translations see [translation_process.md](https://github.com/bitcoin/bitcoin/blob/master/doc/translation_process.md#synchronising-translations).
 * Update release candidate version in `configure.ac` (`CLIENT_VERSION_RC`).
 * Update manpages (after rebuilding the binaries), see [gen-manpages.py](https://github.com/bitcoin/bitcoin/blob/master/contrib/devtools/README.md#gen-manpagespy).
-* Update bitcoin.conf and commit, see [gen-bitcoin-conf.sh](https://github.com/bitcoin/bitcoin/blob/master/contrib/devtools/README.md#gen-bitcoin-confsh).
+* Update litecoin.conf and commit, see [gen-bitcoin-conf.sh](https://github.com/bitcoin/bitcoin/blob/master/contrib/devtools/README.md#gen-bitcoin-confsh).
 
 ### Before every major and minor release
 
@@ -272,11 +272,11 @@ cat "$VERSION"/*/all.SHA256SUMS.asc > SHA256SUMS.asc
 
       - Install the new Bitcoin Core release
 
-      - Run bitcoind on regtest
+      - Run litecoind on regtest
 
       - Clone the [bitcoincore.org repository](https://github.com/bitcoin-core/bitcoincore.org)
 
-      - Run: `go run generate.go` while being in `contrib/doc-gen` folder, and with bitcoin-cli in PATH
+      - Run: `go run generate.go` while being in `contrib/doc-gen` folder, and with litecoin-cli in PATH
 
       - Add the generated files to git
 

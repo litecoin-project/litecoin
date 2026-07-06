@@ -1060,7 +1060,7 @@ bool CWallet::LoadToWallet(const uint256& hash, const UpdateWalletTxFn& fill_wtx
     if (!fill_wtx(wtx, ins.second)) {
         return false;
     }
-    // If wallet doesn't have a chain (e.g when using bitcoin-wallet tool),
+    // If wallet doesn't have a chain (e.g when using litecoin-wallet tool),
     // don't bother to update txn.
     if (HaveChain()) {
         bool active;
@@ -3059,7 +3059,7 @@ bool CWallet::AttachChain(const std::shared_ptr<CWallet>& walletInstance, interf
             // Wallet is assumed to be from another chain, if genesis block in the active
             // chain differs from the genesis block known to the wallet.
             if (chain.getBlockHash(0) != locator.vHave.back()) {
-                error = Untranslated("Wallet files should not be reused across chains. Restart bitcoind with -walletcrosschain to override.");
+                error = Untranslated("Wallet files should not be reused across chains. Restart litecoind with -walletcrosschain to override.");
                 return false;
             }
         }

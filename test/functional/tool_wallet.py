@@ -2,7 +2,7 @@
 # Copyright (c) 2018-2021 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Test bitcoin-wallet."""
+"""Test litecoin-wallet."""
 
 import hashlib
 import os
@@ -29,7 +29,7 @@ class ToolWalletTest(BitcoinTestFramework):
         self.skip_if_no_wallet_tool()
 
     def bitcoin_wallet_process(self, *args):
-        binary = self.config["environment"]["BUILDDIR"] + '/src/bitcoin-wallet' + self.config["environment"]["EXEEXT"]
+        binary = self.config["environment"]["BUILDDIR"] + '/src/litecoin-wallet' + self.config["environment"]["EXEEXT"]
         default_args = ['-datadir={}'.format(self.nodes[0].datadir), '-chain=%s' % self.chain]
         if not self.options.descriptors and 'create' in args:
             default_args.append('-legacy')
@@ -173,7 +173,7 @@ class ToolWalletTest(BitcoinTestFramework):
         self.assert_tool_output(load_output, *args)
         assert os.path.isdir(os.path.join(self.nodes[0].datadir, "regtest/wallets", wallet_name))
 
-        self.assert_tool_output("The dumpfile may contain private keys. To ensure the safety of your Bitcoin, do not share the dumpfile.\n", '-wallet={}'.format(wallet_name), '-dumpfile={}'.format(rt_dumppath), 'dump')
+        self.assert_tool_output("The dumpfile may contain private keys. To ensure the safety of your Litecoin, do not share the dumpfile.\n", '-wallet={}'.format(wallet_name), '-dumpfile={}'.format(rt_dumppath), 'dump')
 
         rt_dump_data = self.read_dump(rt_dumppath)
         wallet_dat = os.path.join(self.nodes[0].datadir, "regtest/wallets/", wallet_name, "wallet.dat")
@@ -185,11 +185,11 @@ class ToolWalletTest(BitcoinTestFramework):
     def test_invalid_tool_commands_and_args(self):
         self.log.info('Testing that various invalid commands raise with specific error messages')
         self.assert_raises_tool_error("Error parsing command line arguments: Invalid command 'foo'", 'foo')
-        # `bitcoin-wallet help` raises an error. Use `bitcoin-wallet -help`.
+        # `litecoin-wallet help` raises an error. Use `litecoin-wallet -help`.
         self.assert_raises_tool_error("Error parsing command line arguments: Invalid command 'help'", 'help')
         self.assert_raises_tool_error('Error: Additional arguments provided (create). Methods do not take arguments. Please refer to `-help`.', 'info', 'create')
         self.assert_raises_tool_error('Error parsing command line arguments: Invalid parameter -foo', '-foo')
-        self.assert_raises_tool_error('No method provided. Run `bitcoin-wallet -help` for valid methods.')
+        self.assert_raises_tool_error('No method provided. Run `litecoin-wallet -help` for valid methods.')
         self.assert_raises_tool_error('Wallet name must be provided when creating a new wallet.', 'create')
         locked_dir = os.path.join(self.options.tmpdir, "node0", "regtest", "wallets")
         error = 'Error initializing wallet database environment "{}"!'.format(locked_dir)
@@ -360,12 +360,12 @@ class ToolWalletTest(BitcoinTestFramework):
         bad_ver_wallet_dump = os.path.join(self.nodes[0].datadir, "wallet-bad_ver1.dump")
         dump_data["BITCOIN_CORE_WALLET_DUMP"] = "0"
         self.write_dump(dump_data, bad_ver_wallet_dump)
-        self.assert_raises_tool_error('Error: Dumpfile version is not supported. This version of bitcoin-wallet only supports version 1 dumpfiles. Got dumpfile with version 0', '-wallet=badload', '-dumpfile={}'.format(bad_ver_wallet_dump), 'createfromdump')
+        self.assert_raises_tool_error('Error: Dumpfile version is not supported. This version of litecoin-wallet only supports version 1 dumpfiles. Got dumpfile with version 0', '-wallet=badload', '-dumpfile={}'.format(bad_ver_wallet_dump), 'createfromdump')
         assert not os.path.isdir(os.path.join(self.nodes[0].datadir, "regtest/wallets", "badload"))
         bad_ver_wallet_dump = os.path.join(self.nodes[0].datadir, "wallet-bad_ver2.dump")
         dump_data["BITCOIN_CORE_WALLET_DUMP"] = "2"
         self.write_dump(dump_data, bad_ver_wallet_dump)
-        self.assert_raises_tool_error('Error: Dumpfile version is not supported. This version of bitcoin-wallet only supports version 1 dumpfiles. Got dumpfile with version 2', '-wallet=badload', '-dumpfile={}'.format(bad_ver_wallet_dump), 'createfromdump')
+        self.assert_raises_tool_error('Error: Dumpfile version is not supported. This version of litecoin-wallet only supports version 1 dumpfiles. Got dumpfile with version 2', '-wallet=badload', '-dumpfile={}'.format(bad_ver_wallet_dump), 'createfromdump')
         assert not os.path.isdir(os.path.join(self.nodes[0].datadir, "regtest/wallets", "badload"))
         bad_magic_wallet_dump = os.path.join(self.nodes[0].datadir, "wallet-bad_magic.dump")
         del dump_data["BITCOIN_CORE_WALLET_DUMP"]

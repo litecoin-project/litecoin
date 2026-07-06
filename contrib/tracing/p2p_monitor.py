@@ -3,7 +3,7 @@
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
-""" Interactive bitcoind P2P network traffic monitor utilizing USDT and the
+""" Interactive litecoind P2P network traffic monitor utilizing USDT and the
     net:inbound_message and net:outbound_message tracepoints. """
 
 # This script demonstrates what USDT for Bitcoin Core can enable. It uses BCC
@@ -247,7 +247,7 @@ def render(screen, peers, cur_list_pos, scroll, ROWS_AVALIABLE_FOR_LIST, info_pa
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("USAGE:", sys.argv[0], "path/to/bitcoind")
+        print("USAGE:", sys.argv[0], "path/to/litecoind")
         exit()
     path = sys.argv[1]
     main(path)

@@ -10,7 +10,7 @@ from bcc import BPF, USDT
 """Example logging Bitcoin Core utxo set cache flushes utilizing
     the utxocache:flush tracepoint."""
 
-# USAGE:  ./contrib/tracing/log_utxocache_flush.py path/to/bitcoind
+# USAGE:  ./contrib/tracing/log_utxocache_flush.py path/to/litecoind
 
 # BCC: The C program to be compiled to an eBPF program (by BCC) and loaded into
 # a sandboxed Linux kernel VM.
@@ -100,7 +100,7 @@ def main(bitcoind_path):
 
 if __name__ == "__main__":
     if len(sys.argv) < 2:
-        print("USAGE: ", sys.argv[0], "path/to/bitcoind")
+        print("USAGE: ", sys.argv[0], "path/to/litecoind")
         exit(1)
 
     path = sys.argv[1]

@@ -14,14 +14,14 @@ BEGIN
     BEGIN
         BLOCK "040904E4" // U.S. English - multilingual (hex)
         BEGIN
-            VALUE "CompanyName",        "Bitcoin"
-            VALUE "FileDescription",    "bitcoin-util (CLI Bitcoin utility)"
+            VALUE "CompanyName",        "Litecoin"
+            VALUE "FileDescription",    "litecoin-util (CLI Litecoin utility)"
             VALUE "FileVersion",        PACKAGE_VERSION
-            VALUE "InternalName",       "bitcoin-util"
+            VALUE "InternalName",       "litecoin-util"
             VALUE "LegalCopyright",     COPYRIGHT_STR
             VALUE "LegalTrademarks1",   "Distributed under the MIT software license, see the accompanying file COPYING or http://www.opensource.org/licenses/mit-license.php."
-            VALUE "OriginalFilename",   "bitcoin-util.exe"
-            VALUE "ProductName",        "bitcoin-util"
+            VALUE "OriginalFilename",   "litecoin-util.exe"
+            VALUE "ProductName",        "litecoin-util"
             VALUE "ProductVersion",     PACKAGE_VERSION
         END
     END

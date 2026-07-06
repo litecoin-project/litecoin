@@ -430,8 +430,8 @@ Signing is only possible with addresses of the type 'legacy'.</source>
         <translation type="unfinished">%s の開発者</translation>
     </message>
     <message>
-        <source>%s corrupt. Try using the wallet tool bitcoin-wallet to salvage or restoring a backup.</source>
-        <translation type="unfinished">%sが破損しています。ウォレットのツールbitcoin-walletを使って復旧するか、バックアップから復元してみてください。</translation>
+        <source>%s corrupt. Try using the wallet tool litecoin-wallet to salvage or restoring a backup.</source>
+        <translation type="unfinished">%sが破損しています。ウォレットのツールlitecoin-walletを使って復旧するか、バックアップから復元してみてください。</translation>
     </message>
     <message>
         <source>-maxtxfee is set very high! Fees this large could be paid on a single transaction.</source>
@@ -470,8 +470,8 @@ Signing is only possible with addresses of the type 'legacy'.</source>
         <translation type="unfinished">エラー: Dumpfileの識別子レコードが不正です。得られた値は"%s"で、期待値は"%s"です。</translation>
     </message>
     <message>
-        <source>Error: Dumpfile version is not supported. This version of bitcoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s</source>
-        <translation type="unfinished">エラー: Dumpfileのバージョンが未指定です。このバージョンのbitcoin-walletは、バージョン1のDumpfileのみをサポートします。バージョン%sのDumpfileを取得しました。</translation>
+        <source>Error: Dumpfile version is not supported. This version of litecoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s</source>
+        <translation type="unfinished">エラー: Dumpfileのバージョンが未指定です。このバージョンのlitecoin-walletは、バージョン1のDumpfileのみをサポートします。バージョン%sのDumpfileを取得しました。</translation>
     </message>
     <message>
         <source>Error: Legacy wallets only support the "legacy", "p2sh-segwit", and "bech32" address types</source>

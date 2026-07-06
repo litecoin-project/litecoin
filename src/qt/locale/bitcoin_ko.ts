@@ -437,7 +437,7 @@ Signing is only possible with addresses of the type 'legacy'.</source>
         <translation type="unfinished">%s 개발자들</translation>
     </message>
     <message>
-        <source>%s corrupt. Try using the wallet tool bitcoin-wallet to salvage or restoring a backup.</source>
+        <source>%s corrupt. Try using the wallet tool litecoin-wallet to salvage or restoring a backup.</source>
         <translation type="unfinished">%s가 손상되었습니다. '비트 코인-지갑'을 사용하여 백업을 구제하거나 복원하십시오.</translation>
     </message>
     <message>
@@ -477,7 +477,7 @@ Signing is only possible with addresses of the type 'legacy'.</source>
         <translation type="unfinished">오류 : 덤프파일 식별자 기록이 잘못되었습니다. "%s"이 아닌 "%s"를 얻었습니다.</translation>
     </message>
     <message>
-        <source>Error: Dumpfile version is not supported. This version of bitcoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s</source>
+        <source>Error: Dumpfile version is not supported. This version of litecoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s</source>
         <translation type="unfinished">오류 : 덤프파일 버젼이 지원되지 않습니다. 이 비트코인 지갑 버젼은 오직 버젼1의 덤프파일을 지원합니다. %s버젼의 덤프파일을 얻었습니다.</translation>
     </message>
     <message>

@@ -15,12 +15,12 @@ The following are some helpful notes on how to run Bitcoin Core on your native p
 
 Unpack the files into a directory and run:
 
-- `bin/bitcoin-qt` (GUI) or
-- `bin/bitcoind` (headless)
+- `bin/litecoin-qt` (GUI) or
+- `bin/litecoind` (headless)
 
 ### Windows
 
-Unpack the files into a directory, and then run bitcoin-qt.exe.
+Unpack the files into a directory, and then run litecoin-qt.exe.
 
 ### macOS
 
@@ -71,7 +71,7 @@ The Bitcoin repo's [root README](/README.md) contains relevant information on th
 
 ### Miscellaneous
 - [Assets Attribution](assets-attribution.md)
-- [bitcoin.conf Configuration File](bitcoin-conf.md)
+- [litecoin.conf Configuration File](bitcoin-conf.md)
 - [CJDNS Support](cjdns.md)
 - [Files](files.md)
 - [Fuzz-testing](fuzzing.md)

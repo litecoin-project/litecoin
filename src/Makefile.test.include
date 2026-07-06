@@ -7,11 +7,11 @@ noinst_PROGRAMS += test/fuzz/fuzz
 endif
 
 if ENABLE_TESTS
-bin_PROGRAMS += test/test_bitcoin
+bin_PROGRAMS += test/test_litecoin
 endif
 
 TEST_SRCDIR = test
-TEST_BINARY=test/test_bitcoin$(EXEEXT)
+TEST_BINARY=test/test_litecoin$(EXEEXT)
 FUZZ_BINARY=test/fuzz/fuzz$(EXEEXT)
 
 JSON_TEST_FILES = \
@@ -62,7 +62,7 @@ if USE_NATPMP
 FUZZ_SUITE_LD_COMMON += $(NATPMP_LIBS)
 endif
 
-# test_bitcoin binary #
+# test_litecoin binary #
 BITCOIN_TESTS =\
   test/addrman_tests.cpp \
   test/allocator_tests.cpp \
@@ -204,23 +204,23 @@ BITCOIN_TEST_SUITE += \
   wallet/test/init_test_fixture.h
 endif # ENABLE_WALLET
 
-test_test_bitcoin_SOURCES = $(BITCOIN_TEST_SUITE) $(BITCOIN_TESTS) $(JSON_TEST_FILES) $(RAW_TEST_FILES)
-test_test_bitcoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(TESTDEFS) $(BOOST_CPPFLAGS) $(EVENT_CFLAGS)
-test_test_bitcoin_LDADD = $(LIBTEST_UTIL)
+test_test_litecoin_SOURCES = $(BITCOIN_TEST_SUITE) $(BITCOIN_TESTS) $(JSON_TEST_FILES) $(RAW_TEST_FILES)
+test_test_litecoin_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(TESTDEFS) $(BOOST_CPPFLAGS) $(EVENT_CFLAGS)
+test_test_litecoin_LDADD = $(LIBTEST_UTIL)
 if ENABLE_WALLET
-test_test_bitcoin_LDADD += $(LIBBITCOIN_WALLET)
-test_test_bitcoin_CPPFLAGS += $(BDB_CPPFLAGS)
+test_test_litecoin_LDADD += $(LIBBITCOIN_WALLET)
+test_test_litecoin_CPPFLAGS += $(BDB_CPPFLAGS)
 endif
 
-test_test_bitcoin_LDADD += $(LIBBITCOIN_NODE) $(LIBBITCOIN_CLI) $(LIBBITCOIN_COMMON) $(LIBBITCOIN_UTIL) $(LIBBITCOIN_CONSENSUS) $(LIBBITCOIN_CRYPTO) $(LIBUNIVALUE) \
+test_test_litecoin_LDADD += $(LIBBITCOIN_NODE) $(LIBBITCOIN_CLI) $(LIBBITCOIN_COMMON) $(LIBBITCOIN_UTIL) $(LIBBITCOIN_CONSENSUS) $(LIBBITCOIN_CRYPTO) $(LIBUNIVALUE) \
   $(LIBLEVELDB) $(LIBMEMENV) $(LIBSECP256K1) $(EVENT_LIBS) $(EVENT_PTHREADS_LIBS) $(MINISKETCH_LIBS)
-test_test_bitcoin_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
+test_test_litecoin_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
-test_test_bitcoin_LDADD += $(BDB_LIBS) $(MINIUPNPC_LIBS) $(CRYPTO_LIBS) $(NATPMP_LIBS) $(SQLITE_LIBS)
-test_test_bitcoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS) -static
+test_test_litecoin_LDADD += $(BDB_LIBS) $(MINIUPNPC_LIBS) $(CRYPTO_LIBS) $(NATPMP_LIBS) $(SQLITE_LIBS)
+test_test_litecoin_LDFLAGS = $(RELDFLAGS) $(AM_LDFLAGS) $(LIBTOOL_APP_LDFLAGS) $(PTHREAD_FLAGS) -static
 
 if ENABLE_ZMQ
-test_test_bitcoin_LDADD += $(LIBBITCOIN_ZMQ) $(ZMQ_LIBS)
+test_test_litecoin_LDADD += $(LIBBITCOIN_ZMQ) $(ZMQ_LIBS)
 FUZZ_SUITE_LD_COMMON += $(LIBBITCOIN_ZMQ) $(ZMQ_LIBS)
 endif
 
@@ -341,7 +341,7 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/versionbits.cpp
 endif # ENABLE_FUZZ_BINARY
 
-nodist_test_test_bitcoin_SOURCES = $(GENERATED_TEST_FILES)
+nodist_test_test_litecoin_SOURCES = $(GENERATED_TEST_FILES)
 
 $(BITCOIN_TESTS): $(GENERATED_TEST_FILES)
 
@@ -363,7 +363,7 @@ bitcoin_test_check: $(TEST_BINARY) FORCE
 	$(MAKE) check-TESTS TESTS=$^
 
 bitcoin_test_clean : FORCE
-	rm -f $(CLEAN_BITCOIN_TEST) $(test_test_bitcoin_OBJECTS) $(TEST_BINARY)
+	rm -f $(CLEAN_BITCOIN_TEST) $(test_test_litecoin_OBJECTS) $(TEST_BINARY)
 
 check-local: $(BITCOIN_TESTS:.cpp=.cpp.test)
 if BUILD_BITCOIN_TX

@@ -378,8 +378,8 @@ Försök igen.</translation>
         <translation type="unfinished">%s-utvecklarna</translation>
     </message>
     <message>
-        <source>%s corrupt. Try using the wallet tool bitcoin-wallet to salvage or restoring a backup.</source>
-        <translation type="unfinished">%s är korrupt. Testa att använda verktyget bitcoin-wallet för att rädda eller återställa en backup.</translation>
+        <source>%s corrupt. Try using the wallet tool litecoin-wallet to salvage or restoring a backup.</source>
+        <translation type="unfinished">%s är korrupt. Testa att använda verktyget litecoin-wallet för att rädda eller återställa en backup.</translation>
     </message>
     <message>
         <source>-maxtxfee is set very high! Fees this large could be paid on a single transaction.</source>

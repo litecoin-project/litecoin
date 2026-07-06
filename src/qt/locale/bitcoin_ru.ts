@@ -462,8 +462,8 @@ Signing is only possible with addresses of the type 'legacy'.</source>
         <translation type="unfinished">Разработчики %s</translation>
     </message>
     <message>
-        <source>%s corrupt. Try using the wallet tool bitcoin-wallet to salvage or restoring a backup.</source>
-        <translation type="unfinished">%s испорчен. Попробуйте восстановить его с помощью инструмента bitcoin-wallet или из резервной копии.</translation>
+        <source>%s corrupt. Try using the wallet tool litecoin-wallet to salvage or restoring a backup.</source>
+        <translation type="unfinished">%s испорчен. Попробуйте восстановить его с помощью инструмента litecoin-wallet или из резервной копии.</translation>
     </message>
     <message>
         <source>-maxtxfee is set very high! Fees this large could be paid on a single transaction.</source>
@@ -502,7 +502,7 @@ Signing is only possible with addresses of the type 'legacy'.</source>
         <translation type="unfinished">Ошибка: запись идентификатора дамп-файла неверна. Обнаружено "%s", ожидалось "%s".</translation>
     </message>
     <message>
-        <source>Error: Dumpfile version is not supported. This version of bitcoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s</source>
+        <source>Error: Dumpfile version is not supported. This version of litecoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s</source>
         <translation type="unfinished">Ошибка: версия дамп-файла не поддерживается. Эта версия биткоин-кошелька поддерживает только дамп-файлы версии 1. Обнаружен дамп-файл версии %s</translation>
     </message>
     <message>

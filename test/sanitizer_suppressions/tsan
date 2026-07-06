@@ -10,7 +10,7 @@ race:BerkeleyBatch
 race:BerkeleyDatabase
 race:DatabaseBatch
 race:zmq::*
-race:bitcoin-qt
+race:litecoin-qt
 
 # deadlock (TODO fix)
 deadlock:Chainstate::ConnectTip

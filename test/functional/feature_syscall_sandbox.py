@@ -2,7 +2,7 @@
 # Copyright (c) 2021 The Bitcoin Core developers
 # Distributed under the MIT software license, see the accompanying
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
-"""Test bitcoind aborts if a disallowed syscall is used when compiled with the syscall sandbox."""
+"""Test litecoind aborts if a disallowed syscall is used when compiled with the syscall sandbox."""
 
 from test_framework.test_framework import BitcoinTestFramework, SkipTest
 
@@ -13,7 +13,7 @@ class SyscallSandboxTest(BitcoinTestFramework):
 
     def skip_test_if_missing_module(self):
         if not self.is_syscall_sandbox_compiled():
-            raise SkipTest("bitcoind has not been built with syscall sandbox enabled.")
+            raise SkipTest("litecoind has not been built with syscall sandbox enabled.")
         if self.disable_syscall_sandbox:
             raise SkipTest("--nosandbox passed to test runner.")
 

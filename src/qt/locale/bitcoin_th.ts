@@ -381,7 +381,7 @@ Signing is only possible with addresses of the type 'legacy'</translation>
         <translation type="unfinished">%s นักพัฒนา</translation>
     </message>
     <message>
-        <source>Error: Dumpfile version is not supported. This version of bitcoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s</source>
+        <source>Error: Dumpfile version is not supported. This version of litecoin-wallet only supports version 1 dumpfiles. Got dumpfile with version %s</source>
         <translation type="unfinished">ข้อผิดพลาด: ดัมพ์ไฟล์เวอร์ชัน ไม่รองรับเวอร์ชัน บิตคอยน์-วอลเล็ต รุ่นนี้รองรับไฟล์ดัมพ์เวอร์ชัน 1 เท่านั้น รับดัมพ์ไฟล์พร้อมเวอร์ชัน %s</translation>
     </message>
     <message>

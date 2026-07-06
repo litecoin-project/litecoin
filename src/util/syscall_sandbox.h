@@ -36,9 +36,9 @@ enum class SyscallSandboxPolicy {
 //!
 //! This function is a no-op unless SetupSyscallSandbox(...) has been called.
 //!
-//! SetupSyscallSandbox(...) is called during bitcoind initialization if Bitcoin Core was compiled
+//! SetupSyscallSandbox(...) is called during litecoind initialization if Bitcoin Core was compiled
 //! with seccomp-bpf support (--with-seccomp) *and* the parameter -sandbox=<mode> was passed to
-//! bitcoind.
+//! litecoind.
 //!
 //! This experimental feature is available under Linux x86_64 only.
 void SetSyscallSandboxPolicy(SyscallSandboxPolicy syscall_policy);
