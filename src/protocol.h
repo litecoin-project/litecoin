@@ -258,6 +258,32 @@ extern const char* CFCHECKPT;
  * @since protocol version 70016 as described by BIP 339.
  */
 extern const char* WTXIDRELAY;
+/**
+ * Contains a CMerkleBlockWithMWEB.
+ * Sent in response to a getdata message which requested a
+ * block using the inventory type MSG_MWEB_HEADER.
+ * @since protocol version 70017 as described by LIP-0006
+ */
+extern const char* MWEBHEADER;
+/**
+ * Contains a block hash and its serialized leafset.
+ * Sent in response to a getdata message which requested
+ * data using the inventory type MSG_MWEB_LEAFSET.
+ * @since protocol version 70017 as described by LIP-0006
+ */
+extern const char* MWEBLEAFSET;
+/**
+ * getmwebutxos requests a variable number of consecutive
+ * MWEB utxos at the time of the provided block hash.
+ * @since protocol version 70017 as described by LIP-0006
+ */
+extern const char* GETMWEBUTXOS;
+/**
+ * Contains a list of MWEB UTXOs that were requested in
+ * a getmwebutxos message.
+ * @since protocol version 70017 as described by LIP-0006
+ */
+extern const char* MWEBUTXOS;
 }; // namespace NetMsgType
 
 /* Get a vector of all valid message types (see above) */
@@ -285,8 +311,13 @@ enum ServiceFlags : uint64_t {
     // serving the last 288 (2 day) blocks
     // See BIP159 for details on how this is implemented.
     NODE_NETWORK_LIMITED = (1 << 10),
+    // NODE_MWEB indicates that a node can be asked for blocks and transactions including
+    // MWEB data.
+    NODE_MWEB = (1 << 24),
+    // NODE_MWEB_LIGHT_CLIENT indicates that a node can be asked for MWEB light client data.
+    NODE_MWEB_LIGHT_CLIENT = (1 << 23)
 
-    // Bits 24-31 are reserved for temporary experiments. Just pick a bit that
+    // Bits 25-31 are reserved for temporary experiments. Just pick a bit that
     // isn't getting used, or one not being used much, and notify the
     // bitcoin-development mailing list. Remember that service bits are just
     // unauthenticated advertisements, so your code must be robust against
@@ -446,7 +477,8 @@ public:
 
 /** getdata message type flags */
 const uint32_t MSG_WITNESS_FLAG = 1 << 30;
-const uint32_t MSG_TYPE_MASK = 0xffffffff >> 2;
+const uint32_t MSG_MWEB_FLAG = 1 << 29;
+const uint32_t MSG_TYPE_MASK = 0xffffffff >> 3;
 
 /** getdata / inv message types.
  * These numbers are defined by the protocol. When adding a new value, be sure
@@ -465,6 +497,10 @@ enum GetDataMsg : uint32_t {
     // MSG_FILTERED_WITNESS_BLOCK is defined in BIP144 as reserved for future
     // use and remains unused.
     // MSG_FILTERED_WITNESS_BLOCK = MSG_FILTERED_BLOCK | MSG_WITNESS_FLAG,
+    MSG_MWEB_BLOCK = MSG_WITNESS_BLOCK | MSG_MWEB_FLAG,
+    MSG_MWEB_TX = MSG_WITNESS_TX | MSG_MWEB_FLAG,
+    MSG_MWEB_HEADER = 8 | MSG_MWEB_FLAG,            //!< Defined in LIP-0006
+    MSG_MWEB_LEAFSET = 9 | MSG_MWEB_FLAG,           //!< Defined in LIP-0006
 };
 
 /** inv message data */
@@ -488,15 +524,18 @@ public:
     bool IsMsgFilteredBlk() const { return type == MSG_FILTERED_BLOCK; }
     bool IsMsgCmpctBlk() const { return type == MSG_CMPCT_BLOCK; }
     bool IsMsgWitnessBlk() const { return type == MSG_WITNESS_BLOCK; }
+    bool IsMsgMWEBBlk() const { return type == MSG_MWEB_BLOCK; }
+    bool IsMsgMWEBHeader() const { return type == MSG_MWEB_HEADER; }
+    bool IsMsgMWEBLeafset() const { return type == MSG_MWEB_LEAFSET; }
 
     // Combined-message helper methods
     bool IsGenTxMsg() const
     {
-        return type == MSG_TX || type == MSG_WTX || type == MSG_WITNESS_TX;
+        return type == MSG_TX || type == MSG_WTX || type == MSG_WITNESS_TX || type == MSG_MWEB_TX;
     }
     bool IsGenBlkMsg() const
     {
-        return type == MSG_BLOCK || type == MSG_FILTERED_BLOCK || type == MSG_CMPCT_BLOCK || type == MSG_WITNESS_BLOCK;
+        return type == MSG_BLOCK || type == MSG_FILTERED_BLOCK || type == MSG_CMPCT_BLOCK || type == MSG_WITNESS_BLOCK || type == MSG_MWEB_BLOCK || type == MSG_MWEB_HEADER;
     }
 
     uint32_t type;

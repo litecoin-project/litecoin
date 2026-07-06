@@ -84,6 +84,7 @@ static std::vector<RPCResult> DecodeTxDoc(const std::string& txid_field_doc)
         {RPCResult::Type::STR_HEX, "hash", "The transaction hash (differs from txid for witness transactions)"},
         {RPCResult::Type::NUM, "size", "The serialized transaction size"},
         {RPCResult::Type::NUM, "vsize", "The virtual transaction size (differs from size for witness transactions)"},
+        {RPCResult::Type::NUM, "mweb_weight", "The transaction's MWEB weight"},
         {RPCResult::Type::NUM, "weight", "The transaction's weight (between vsize*4-3 and vsize*4)"},
         {RPCResult::Type::NUM, "version", "The version"},
         {RPCResult::Type::NUM_TIME, "locktime", "The lock time"},
@@ -94,6 +95,7 @@ static std::vector<RPCResult> DecodeTxDoc(const std::string& txid_field_doc)
                 {RPCResult::Type::STR_HEX, "coinbase", /*optional=*/true, "The coinbase value (only if coinbase transaction)"},
                 {RPCResult::Type::STR_HEX, "txid", /*optional=*/true, "The transaction id (if not coinbase transaction)"},
                 {RPCResult::Type::NUM, "vout", /*optional=*/true, "The output number (if not coinbase transaction)"},
+                {RPCResult::Type::STR_HEX, "output_id", /*optional=*/true, "The MWEB output id (only if MWEB input)"},
                 {RPCResult::Type::OBJ, "scriptSig", /*optional=*/true, "The script (if not coinbase transaction)",
                 {
                     {RPCResult::Type::STR, "asm", "Disassembly of the signature script"},
@@ -103,22 +105,47 @@ static std::vector<RPCResult> DecodeTxDoc(const std::string& txid_field_doc)
                 {
                     {RPCResult::Type::STR_HEX, "hex", "hex-encoded witness data (if any)"},
                 }},
-                {RPCResult::Type::NUM, "sequence", "The script sequence number"},
+                {RPCResult::Type::NUM, "sequence", /*optional=*/true, "The script sequence number (only if non-MWEB input)"},
             }},
         }},
         {RPCResult::Type::ARR, "vout", "",
         {
             {RPCResult::Type::OBJ, "", "",
             {
-                {RPCResult::Type::STR_AMOUNT, "value", "The value in " + CURRENCY_UNIT},
-                {RPCResult::Type::NUM, "n", "index"},
-                {RPCResult::Type::OBJ, "scriptPubKey", "",
+                {RPCResult::Type::STR_AMOUNT, "value", /*optional=*/true, "The value in " + CURRENCY_UNIT + " (only if non-MWEB output)"},
+                {RPCResult::Type::NUM, "n", /*optional=*/true, "index (only if non-MWEB output)"},
+                {RPCResult::Type::STR_HEX, "output_id", /*optional=*/true, "The MWEB output id (only if MWEB output)"},
+                {RPCResult::Type::OBJ, "scriptPubKey", /*optional=*/true, "The scriptPubKey (only if non-MWEB output)",
                 {
                     {RPCResult::Type::STR, "asm", "Disassembly of the public key script"},
                     {RPCResult::Type::STR, "desc", "Inferred descriptor for the output"},
                     {RPCResult::Type::STR_HEX, "hex", "The raw public key script bytes, hex-encoded"},
                     {RPCResult::Type::STR, "type", "The type, eg 'pubkeyhash'"},
                     {RPCResult::Type::STR, "address", /*optional=*/true, "The Litecoin address (only if a well-defined address exists)"},
+                }},
+            }},
+        }},
+        {RPCResult::Type::ARR, "vkern", /*optional=*/true, "",
+        {
+            {RPCResult::Type::OBJ, "", "",
+            {
+                {RPCResult::Type::STR_HEX, "kernel_id", "The MWEB kernel id"},
+                {RPCResult::Type::STR_AMOUNT, "fee", "The MWEB kernel fee in " + CURRENCY_UNIT},
+                {RPCResult::Type::STR_AMOUNT, "pegin", "The MWEB kernel peg-in amount in " + CURRENCY_UNIT},
+                {RPCResult::Type::ARR, "pegout", "",
+                {
+                    {RPCResult::Type::OBJ, "", "",
+                    {
+                        {RPCResult::Type::STR_AMOUNT, "value", "The peg-out value in " + CURRENCY_UNIT},
+                        {RPCResult::Type::OBJ, "scriptPubKey", "",
+                        {
+                            {RPCResult::Type::STR, "asm", "Disassembly of the public key script"},
+                            {RPCResult::Type::STR, "desc", "Inferred descriptor for the output"},
+                            {RPCResult::Type::STR_HEX, "hex", "The raw public key script bytes, hex-encoded"},
+                            {RPCResult::Type::STR, "type", "The type, eg 'pubkeyhash'"},
+                            {RPCResult::Type::STR, "address", /*optional=*/true, "The Litecoin address (only if a well-defined address exists)"},
+                        }},
+                    }},
                 }},
             }},
         }},

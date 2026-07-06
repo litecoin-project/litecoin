@@ -74,7 +74,10 @@ static RPCHelpMan sendrawtransaction()
                                                      CFeeRate(AmountFromValue(request.params[1]));
 
             int64_t virtual_size = GetVirtualTransactionSize(*tx);
-            CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size);
+            int64_t mweb_weight = tx->mweb_tx.GetMWEBWeight();
+            CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFeePerK() == 0
+                ? 0
+                : max_raw_tx_fee_rate.GetFee(virtual_size, mweb_weight);
 
             std::string err_string;
             AssertLockNotHeld(cs_main);
@@ -120,6 +123,7 @@ static RPCHelpMan testmempoolaccept()
                     {RPCResult::Type::BOOL, "allowed", /*optional=*/true, "Whether this tx would be accepted to the mempool and pass client-specified maxfeerate. "
                                                        "If not present, the tx was not fully validated due to a failure in another tx in the list."},
                     {RPCResult::Type::NUM, "vsize", /*optional=*/true, "Virtual transaction size as defined in BIP 141. This is different from actual serialized size for witness transactions as witness data is discounted (only present when 'allowed' is true)"},
+                    {RPCResult::Type::NUM, "mweb_weight", /*optional=*/true, "The MWEB weight of the transaction"},
                     {RPCResult::Type::OBJ, "fees", /*optional=*/true, "Transaction fees (only present if 'allowed' is true)",
                     {
                         {RPCResult::Type::STR_AMOUNT, "base", "transaction fee in " + CURRENCY_UNIT},
@@ -202,7 +206,10 @@ static RPCHelpMan testmempoolaccept()
                     const CAmount fee = tx_result.m_base_fees.value();
                     // Check that fee does not exceed maximum fee
                     const int64_t virtual_size = tx_result.m_vsize.value();
-                    const CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFee(virtual_size);
+                    const int64_t mweb_weight = tx_result.m_mweb_weight.value();
+                    const CAmount max_raw_tx_fee = max_raw_tx_fee_rate.GetFeePerK() == 0
+                        ? 0
+                        : max_raw_tx_fee_rate.GetFee(virtual_size, mweb_weight);
                     if (max_raw_tx_fee && fee > max_raw_tx_fee) {
                         result_inner.pushKV("allowed", false);
                         result_inner.pushKV("reject-reason", "max-fee-exceeded");
@@ -212,6 +219,7 @@ static RPCHelpMan testmempoolaccept()
                         // These can be used to calculate the feerate.
                         result_inner.pushKV("allowed", true);
                         result_inner.pushKV("vsize", virtual_size);
+                        result_inner.pushKV("mweb_weight", mweb_weight);
                         UniValue fees(UniValue::VOBJ);
                         fees.pushKV("base", ValueFromAmount(fee));
                         result_inner.pushKV("fees", fees);
@@ -237,12 +245,15 @@ static std::vector<RPCResult> MempoolEntryDescription()
     return {
         RPCResult{RPCResult::Type::NUM, "vsize", "virtual transaction size as defined in BIP 141. This is different from actual serialized size for witness transactions as witness data is discounted."},
         RPCResult{RPCResult::Type::NUM, "weight", "transaction weight as defined in BIP 141."},
+        RPCResult{RPCResult::Type::NUM, "mwebweight", "transaction MWEB weight"},
         RPCResult{RPCResult::Type::NUM_TIME, "time", "local time transaction entered pool in seconds since 1 Jan 1970 GMT"},
         RPCResult{RPCResult::Type::NUM, "height", "block height when transaction entered pool"},
         RPCResult{RPCResult::Type::NUM, "descendantcount", "number of in-mempool descendant transactions (including this one)"},
         RPCResult{RPCResult::Type::NUM, "descendantsize", "virtual transaction size of in-mempool descendants (including this one)"},
+        RPCResult{RPCResult::Type::NUM, "descendantmwebweight", "transaction MWEB weight of in-mempool descendants (including this one)"},
         RPCResult{RPCResult::Type::NUM, "ancestorcount", "number of in-mempool ancestor transactions (including this one)"},
         RPCResult{RPCResult::Type::NUM, "ancestorsize", "virtual transaction size of in-mempool ancestors (including this one)"},
+        RPCResult{RPCResult::Type::NUM, "ancestormwebweight", "transaction MWEB weight of in-mempool ancestors (including this one)"},
         RPCResult{RPCResult::Type::STR_HEX, "wtxid", "hash of serialized transaction, including witness data"},
         RPCResult{RPCResult::Type::OBJ, "fees", "",
             {
@@ -266,12 +277,15 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
 
     info.pushKV("vsize", (int)e.GetTxSize());
     info.pushKV("weight", (int)e.GetTxWeight());
+    info.pushKV("mwebweight", (int)e.GetMWEBWeight());
     info.pushKV("time", count_seconds(e.GetTime()));
     info.pushKV("height", (int)e.GetHeight());
     info.pushKV("descendantcount", e.GetCountWithDescendants());
     info.pushKV("descendantsize", e.GetSizeWithDescendants());
+    info.pushKV("descendantmwebweight", e.GetMWEBWeightWithDescendants());
     info.pushKV("ancestorcount", e.GetCountWithAncestors());
     info.pushKV("ancestorsize", e.GetSizeWithAncestors());
+    info.pushKV("ancestormwebweight", e.GetMWEBWeightWithAncestors());
     info.pushKV("wtxid", pool.vTxHashes[e.vTxHashesIdx].first.ToString());
 
     UniValue fees(UniValue::VOBJ);
@@ -283,10 +297,11 @@ static void entryToJSON(const CTxMemPool& pool, UniValue& info, const CTxMemPool
 
     const CTransaction& tx = e.GetTx();
     std::set<std::string> setDepends;
-    for (const CTxIn& txin : tx.vin)
+    for (const AnyInput& input : tx.GetInputs())
     {
-        if (pool.exists(GenTxid::Txid(txin.prevout.hash)))
-            setDepends.insert(txin.prevout.hash.ToString());
+        auto txiter = pool.GetIter(input.GetID());
+        if (txiter.has_value())
+            setDepends.insert(txiter.value()->GetTx().GetHash().ToString());
     }
 
     UniValue depends(UniValue::VARR);
@@ -564,6 +579,11 @@ static RPCHelpMan getmempoolentry()
         throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Transaction not in mempool");
     }
 
+    if (RPCSerializationFlags() & SERIALIZE_NO_MWEB && it->GetTx().IsMWEBOnly()) {
+        // Don't return MWEB-only transactions to clients that don't support them.
+        throw JSONRPCError(RPC_DESERIALIZATION_ERROR, "MWEB-only transaction not serializable for rpcserialversion<2");
+    }
+
     const CTxMemPoolEntry &e = *it;
     UniValue info(UniValue::VOBJ);
     entryToJSON(mempool, info, e);
@@ -769,6 +789,7 @@ static RPCHelpMan submitpackage()
                         {RPCResult::Type::STR_HEX, "txid", "The transaction hash in hex"},
                         {RPCResult::Type::STR_HEX, "other-wtxid", /*optional=*/true, "The wtxid of a different transaction with the same txid but different witness found in the mempool. This means the submitted transaction was ignored."},
                         {RPCResult::Type::NUM, "vsize", "Virtual transaction size as defined in BIP 141."},
+                        {RPCResult::Type::NUM, "mweb_weight", /*optional=*/true, "The MWEB weight of the transaction"},
                         {RPCResult::Type::OBJ, "fees", "Transaction fees", {
                             {RPCResult::Type::STR_AMOUNT, "base", "transaction fee in " + CURRENCY_UNIT},
                         }},
@@ -865,6 +886,7 @@ static RPCHelpMan submitpackage()
                 if (it->second.m_result_type == MempoolAcceptResult::ResultType::VALID ||
                     it->second.m_result_type == MempoolAcceptResult::ResultType::MEMPOOL_ENTRY) {
                     result_inner.pushKV("vsize", int64_t{it->second.m_vsize.value()});
+                    result_inner.pushKV("mweb_weight", int64_t{it->second.m_mweb_weight.value()});
                     UniValue fees(UniValue::VOBJ);
                     fees.pushKV("base", ValueFromAmount(it->second.m_base_fees.value()));
                     result_inner.pushKV("fees", fees);

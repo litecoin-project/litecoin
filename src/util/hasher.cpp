@@ -11,6 +11,10 @@ SaltedTxidHasher::SaltedTxidHasher() : k0(GetRand<uint64_t>()), k1(GetRand<uint6
 
 SaltedOutpointHasher::SaltedOutpointHasher() : k0(GetRand<uint64_t>()), k1(GetRand<uint64_t>()) {}
 
+SaltedOutputIDHasher::SaltedOutputIDHasher() : k0(GetRand<uint64_t>()), k1(GetRand<uint64_t>()) {}
+
+SaltedMWHashHasher::SaltedMWHashHasher() : k0(GetRand<uint64_t>()), k1(GetRand<uint64_t>()) {}
+
 SaltedSipHasher::SaltedSipHasher() : m_k0(GetRand<uint64_t>()), m_k1(GetRand<uint64_t>()) {}
 
 size_t SaltedSipHasher::operator()(const Span<const unsigned char>& script) const

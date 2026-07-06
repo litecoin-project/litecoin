@@ -50,11 +50,8 @@ TransactionError BroadcastTransaction(NodeContext& node, const CTransactionRef t
         // If the transaction is already confirmed in the chain, don't do anything
         // and return early.
         CCoinsViewCache &view = node.chainman->ActiveChainstate().CoinsTip();
-        for (size_t o = 0; o < tx->vout.size(); o++) {
-            const Coin& existingCoin = view.AccessCoin(COutPoint(txid, o));
-            // IsSpent doesn't mean the coin is spent, it means the output doesn't exist.
-            // So if the output does exist, then this transaction exists in the chain.
-            if (!existingCoin.IsSpent()) return TransactionError::ALREADY_IN_CHAIN;
+        for (const AnyOutput& o : tx->GetOutputs()) {
+            if (view.HaveCoin(o.GetID())) return TransactionError::ALREADY_IN_CHAIN;
         }
 
         if (auto mempool_tx = node.mempool->get(txid); mempool_tx) {

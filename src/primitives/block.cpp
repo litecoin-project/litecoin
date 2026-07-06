@@ -36,5 +36,18 @@ std::string CBlock::ToString() const
     for (const auto& tx : vtx) {
         s << "  " << tx->ToString() << "\n";
     }
+    if (!mweb_block.IsNull()) {
+        s << "  " + mweb_block.ToString() + "\n";
+    }
     return s.str();
+}
+
+CTransactionRef CBlock::GetHogEx() const noexcept
+{
+    if (vtx.size() >= 2 && vtx.back()->IsHogEx()) {
+        assert(!vtx.back()->vout.empty());
+        return vtx.back();
+    }
+
+    return nullptr;
 }

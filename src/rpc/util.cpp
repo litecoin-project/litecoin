@@ -281,6 +281,7 @@ public:
         UniValue obj(UniValue::VOBJ);
         obj.pushKV("isscript", false);
         obj.pushKV("iswitness", false);
+        obj.pushKV("ismweb", false);
         return obj;
     }
 
@@ -289,6 +290,7 @@ public:
         UniValue obj(UniValue::VOBJ);
         obj.pushKV("isscript", true);
         obj.pushKV("iswitness", false);
+        obj.pushKV("ismweb", false);
         return obj;
     }
 
@@ -299,6 +301,7 @@ public:
         obj.pushKV("iswitness", true);
         obj.pushKV("witness_version", 0);
         obj.pushKV("witness_program", HexStr(id));
+        obj.pushKV("ismweb", false);
         return obj;
     }
 
@@ -309,6 +312,7 @@ public:
         obj.pushKV("iswitness", true);
         obj.pushKV("witness_version", 0);
         obj.pushKV("witness_program", HexStr(id));
+        obj.pushKV("ismweb", false);
         return obj;
     }
 
@@ -319,6 +323,16 @@ public:
         obj.pushKV("iswitness", true);
         obj.pushKV("witness_version", 1);
         obj.pushKV("witness_program", HexStr(tap));
+        obj.pushKV("ismweb", false);
+        return obj;
+    }
+
+    UniValue operator()(const StealthAddress& id) const
+    {
+        UniValue obj(UniValue::VOBJ);
+        obj.pushKV("isscript", false);
+        obj.pushKV("iswitness", false);
+        obj.pushKV("ismweb", true);
         return obj;
     }
 
@@ -328,6 +342,7 @@ public:
         obj.pushKV("iswitness", true);
         obj.pushKV("witness_version", (int)id.version);
         obj.pushKV("witness_program", HexStr({id.program, id.length}));
+        obj.pushKV("ismweb", false);
         return obj;
     }
 };
@@ -584,6 +599,9 @@ UniValue RPCHelpMan::HandleRequest(const JSONRPCRequest& request) const
     }
     const UniValue ret = m_fun(*this, request);
     if (gArgs.GetBoolArg("-rpcdoccheck", DEFAULT_RPC_DOC_CHECK)) {
+        if (!std::any_of(m_results.m_results.begin(), m_results.m_results.end(), [&ret](const RPCResult& res) { return res.MatchesType(ret); })) {
+            LogPrintf(ret.write(1, 2).c_str());
+        }
         CHECK_NONFATAL(std::any_of(m_results.m_results.begin(), m_results.m_results.end(), [&ret](const RPCResult& res) { return res.MatchesType(ret); }));
     }
     return ret;

@@ -23,7 +23,10 @@ noinst_PROGRAMS =
 TESTS =
 BENCHMARKS =
 
-BITCOIN_INCLUDES=-I$(builddir) -I$(srcdir)/$(MINISKETCH_INCLUDE_DIR_INT) -I$(srcdir)/secp256k1/include -I$(srcdir)/$(UNIVALUE_INCLUDE_DIR_INT) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS)
+UNIVALUE_INCLUDES=-I$(srcdir)/$(UNIVALUE_INCLUDE_DIR_INT)
+SECP256K1_INCLUDES=-I$(srcdir)/secp256k1/include
+LIBMW_INCLUDES=-I$(srcdir)/libmw/include -I$(srcdir)/libmw/deps/caches/include -I$(srcdir)/libmw/deps/mio/include $(BOOST_CPPFLAGS) $(LIBFMT_CFLAGS)
+BITCOIN_INCLUDES=-I$(builddir) -I$(srcdir)/$(MINISKETCH_INCLUDE_DIR_INT) $(SECP256K1_INCLUDES) $(UNIVALUE_INCLUDES) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS) $(LIBMW_INCLUDES)
 
 LIBBITCOIN_NODE=libbitcoin_node.a
 LIBBITCOIN_COMMON=libbitcoin_common.a
@@ -186,6 +189,10 @@ BITCOIN_CORE_H = \
   mapport.h \
   memusage.h \
   merkleblock.h \
+  mweb/mweb_miner.h \
+  mweb/mweb_models.h \
+  mweb/mweb_node.h \
+  mweb/mweb_policy.h \
   net.h \
   net_permissions.h \
   net_processing.h \
@@ -238,6 +245,7 @@ BITCOIN_CORE_H = \
   rpc/server_util.h \
   rpc/util.h \
   scheduler.h \
+  script/address.h \
   script/descriptor.h \
   script/keyorigin.h \
   script/miniscript.h \
@@ -376,7 +384,16 @@ libbitcoin_node_a_SOURCES = \
   kernel/coinstats.cpp \
   kernel/context.cpp \
   kernel/mempool_persist.cpp \
+  libmw/src/db/CoinDB.cpp \
+  libmw/src/db/LeafDB.cpp \
+  libmw/src/db/MMRInfoDB.cpp \
+  libmw/src/mmr/PMMR.cpp \
+  libmw/src/node/BlockValidator.cpp \
+  libmw/src/node/BlockBuilder.cpp \
+  libmw/src/node/CoinsViewDB.cpp \
   mapport.cpp \
+  mweb/mweb_miner.cpp \
+  mweb/mweb_node.cpp \
   net.cpp \
   net_processing.cpp \
   netgroup.cpp \
@@ -498,7 +515,7 @@ libbitcoin_wallet_tool_a_SOURCES = \
   $(BITCOIN_CORE_H)
 
 # crypto primitives library
-crypto_libbitcoin_crypto_base_la_CPPFLAGS = $(AM_CPPFLAGS) $(SSL_CFLAGS)
+crypto_libbitcoin_crypto_base_la_CPPFLAGS = $(AM_CPPFLAGS) $(SSL_CFLAGS) $(BITCOIN_INCLUDES)
 
 # Specify -static in both CXXFLAGS and LDFLAGS so libtool will only build a
 # static version of this library. We don't need a dynamic version, and a dynamic
@@ -539,7 +556,8 @@ crypto_libbitcoin_crypto_base_la_SOURCES = \
   crypto/sha512.cpp \
   crypto/sha512.h \
   crypto/siphash.cpp \
-  crypto/siphash.h
+  crypto/siphash.h \
+  libmw/src/crypto/Hasher.cpp
 
 if USE_ASM
 crypto_libbitcoin_crypto_base_la_SOURCES += crypto/sha256_sse4.cpp
@@ -595,6 +613,22 @@ libbitcoin_consensus_a_SOURCES = \
   consensus/validation.h \
   hash.cpp \
   hash.h \
+  libmw/src/crypto/Bulletproofs.cpp \
+  libmw/src/crypto/ConversionUtil.cpp \
+  libmw/src/crypto/KeyDerivation.cpp \
+  libmw/src/crypto/MuSig.cpp \
+  libmw/src/crypto/Pedersen.cpp \
+  libmw/src/crypto/PublicKeys.cpp \
+  libmw/src/crypto/Schnorr.cpp \
+  libmw/src/crypto/SecretKeys.cpp \
+  libmw/src/models/crypto/Commitment.cpp \
+  libmw/src/models/crypto/PublicKey.cpp \
+  libmw/src/models/block/Block.cpp \
+  libmw/src/models/tx/Input.cpp \
+  libmw/src/models/tx/Kernel.cpp \
+  libmw/src/models/tx/Output.cpp \
+  libmw/src/models/tx/Transaction.cpp \
+  libmw/src/models/tx/TxBody.cpp \
   prevector.h \
   primitives/block.cpp \
   primitives/block.h \
@@ -635,7 +669,19 @@ libbitcoin_common_a_SOURCES = \
   init/common.cpp \
   key.cpp \
   key_io.cpp \
+  libmw/src/mmr/ILeafSet.cpp \
+  libmw/src/mmr/IMMR.cpp \
+  libmw/src/mmr/Index.cpp \
+  libmw/src/mmr/LeafSet.cpp \
+  libmw/src/mmr/LeafSetCache.cpp \
+  libmw/src/mmr/MemMMR.cpp \
+  libmw/src/mmr/MMRUtil.cpp \
+  libmw/src/mmr/PMMRCache.cpp \
+  libmw/src/mmr/PruneList.cpp \
+  libmw/src/mmr/Segment.cpp \
+  libmw/src/node/CoinsViewCache.cpp \
   merkleblock.cpp \
+  mweb/mweb_policy.cpp \
   net_types.cpp \
   netaddress.cpp \
   netbase.cpp \
@@ -649,6 +695,7 @@ libbitcoin_common_a_SOURCES = \
   rpc/external_signer.cpp \
   rpc/util.cpp \
   scheduler.cpp \
+  script/address.cpp \
   script/descriptor.cpp \
   script/miniscript.cpp \
   script/sign.cpp \
@@ -668,6 +715,7 @@ libbitcoin_util_a_SOURCES = \
   interfaces/echo.cpp \
   interfaces/handler.cpp \
   interfaces/init.cpp \
+  libmw/src/file/File.cpp \
   logging.cpp \
   random.cpp \
   randomenv.cpp \
@@ -970,7 +1018,7 @@ libbitcoinconsensus_la_SOURCES = support/cleanse.cpp $(crypto_libbitcoin_crypto_
 
 libbitcoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
 libbitcoinconsensus_la_LIBADD = $(LIBSECP256K1) $(CRYPTO_LIBS)
-libbitcoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj -I$(srcdir)/secp256k1/include -DBUILD_BITCOIN_INTERNAL $(SSL_CFLAGS)
+libbitcoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj $(SECP256K1_INCLUDES) -DBUILD_BITCOIN_INTERNAL $(SSL_CFLAGS) $(UNIVALUE_INCLUDES) $(LIBMW_INCLUDES)
 libbitcoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
 endif

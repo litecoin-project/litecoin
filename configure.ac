@@ -1665,6 +1665,8 @@ if test "$use_zmq" = "yes"; then
   esac
 fi
 
+PKG_CHECK_MODULES([LIBFMT], [fmt],, [AC_MSG_ERROR(libfmt not found.)])
+
 dnl libmultiprocess library check
 
 libmultiprocess_found=no

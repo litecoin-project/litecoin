@@ -72,6 +72,12 @@ public:
     const T& operator*() const LIFETIMEBOUND { return value(); }
     T* operator->() LIFETIMEBOUND { return &value(); }
     T& operator*() LIFETIMEBOUND { return value(); }
+
+    util::Error error() const
+    {
+        assert(!has_value());
+        return util::Error{std::get<0>(m_variant)};
+    }
 };
 
 template <typename T>

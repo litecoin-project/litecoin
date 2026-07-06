@@ -34,24 +34,30 @@ bool CheckPackage(const Package& txns, PackageValidationState& state)
     // An unsorted package will fail anyway on missing-inputs, but it's better to quit earlier and
     // fail on something less ambiguous (missing-inputs could also be an orphan or trying to
     // spend nonexistent coins).
-    std::unordered_set<uint256, SaltedTxidHasher> later_txids;
-    std::transform(txns.cbegin(), txns.cend(), std::inserter(later_txids, later_txids.end()),
-                   [](const auto& tx) { return tx->GetHash(); });
+    std::unordered_set<AnyOutputID, SaltedOutputIDHasher> later_output_ids;
     for (const auto& tx : txns) {
-        for (const auto& input : tx->vin) {
-            if (later_txids.find(input.prevout.hash) != later_txids.end()) {
+        for (const AnyOutput& output : tx->GetOutputs()) {
+            later_output_ids.insert(output.GetID());
+        }
+    }
+    for (const auto& tx : txns) {
+        for (const AnyInput& input : tx->GetInputs()) {
+            if (later_output_ids.find(input.GetID()) != later_output_ids.end()) {
                 // The parent is a subsequent transaction in the package.
                 return state.Invalid(PackageValidationResult::PCKG_POLICY, "package-not-sorted");
             }
         }
-        later_txids.erase(tx->GetHash());
+        for (const AnyOutput& output : tx->GetOutputs()) {
+            later_output_ids.erase(output.GetID());
+        }
     }
 
     // Don't allow any conflicting transactions, i.e. spending the same inputs, in a package.
-    std::unordered_set<COutPoint, SaltedOutpointHasher> inputs_seen;
+    std::unordered_set<AnyOutputID, SaltedOutputIDHasher> inputs_seen;
     for (const auto& tx : txns) {
-        for (const auto& input : tx->vin) {
-            if (inputs_seen.find(input.prevout) != inputs_seen.end()) {
+        std::vector<AnyInput> inputs = tx->GetInputs();
+        for (const AnyInput& input : inputs) {
+            if (inputs_seen.find(input.GetID()) != inputs_seen.end()) {
                 // This input is also present in another tx in the package.
                 return state.Invalid(PackageValidationResult::PCKG_POLICY, "conflict-in-package");
             }
@@ -59,8 +65,9 @@ bool CheckPackage(const Package& txns, PackageValidationState& state)
         // Batch-add all the inputs for a tx at a time. If we added them 1 at a time, we could
         // catch duplicate inputs within a single tx.  This is a more severe, consensus error,
         // and we want to report that from CheckTransaction instead.
-        std::transform(tx->vin.cbegin(), tx->vin.cend(), std::inserter(inputs_seen, inputs_seen.end()),
-                       [](const auto& input) { return input.prevout; });
+        for (const AnyInput& input : inputs) {
+            inputs_seen.insert(input.GetID());
+        }
     }
     return true;
 }
@@ -72,12 +79,17 @@ bool IsChildWithParents(const Package& package)
 
     // The package is expected to be sorted, so the last transaction is the child.
     const auto& child = package.back();
-    std::unordered_set<uint256, SaltedTxidHasher> input_txids;
-    std::transform(child->vin.cbegin(), child->vin.cend(),
-                   std::inserter(input_txids, input_txids.end()),
-                   [](const auto& input) { return input.prevout.hash; });
+    std::unordered_set<AnyOutputID, SaltedOutputIDHasher> input_ids;
+    for (const AnyInput& input : child->GetInputs()) {
+        input_ids.insert(input.GetID());
+    }
 
     // Every transaction must be a parent of the last transaction in the package.
     return std::all_of(package.cbegin(), package.cend() - 1,
-                       [&input_txids](const auto& ptx) { return input_txids.count(ptx->GetHash()) > 0; });
+                       [&input_ids](const auto& ptx) {
+                           const std::vector<AnyOutput> outputs = ptx->GetOutputs();
+                           return std::any_of(outputs.cbegin(), outputs.cend(), [&input_ids](const AnyOutput& output) {
+                               return input_ids.count(output.GetID()) > 0;
+                           });
+                       });
 }

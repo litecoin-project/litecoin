@@ -92,8 +92,20 @@ bool CCoinsViewDB::GetCoin(const COutPoint &outpoint, Coin &coin) const {
     return m_db->Read(CoinEntry(&outpoint), coin);
 }
 
-bool CCoinsViewDB::HaveCoin(const COutPoint &outpoint) const {
-    return m_db->Exists(CoinEntry(&outpoint));
+bool CCoinsViewDB::HaveCoin(const AnyOutputID& output_id) const {
+    if (output_id.IsMWEB()) {
+        assert(GetMWEBView() != nullptr);
+        return GetMWEBView()->HasCoin(output_id.ToMWEB());
+    } else {
+        return m_db->Exists(CoinEntry(&output_id.ToOutPoint()));
+    }
+}
+
+bool CCoinsViewDB::GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const {
+    assert(GetMWEBView() != nullptr);
+    coin = GetMWEBView()->GetCoin(output_id);
+
+    return coin != nullptr;
 }
 
 uint256 CCoinsViewDB::GetBestBlock() const {
@@ -111,8 +123,13 @@ std::vector<uint256> CCoinsViewDB::GetHeadBlocks() const {
     return vhashHeadBlocks;
 }
 
-bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) {
-    CDBBatch batch(*m_db);
+bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock, const mw::CoinsViewCache::Ptr& derivedView) {
+    if (m_mweb_flush_failed) {
+        LogPrintf("%s: refusing to write coin database after a failed MWEB flush\n", __func__);
+        return false;
+    }
+
+    std::shared_ptr<CDBBatch> batch = std::make_shared<CDBBatch>(*m_db);
     size_t count = 0;
     size_t changed = 0;
     size_t batch_size = (size_t)gArgs.GetIntArg("-dbbatchsize", nDefaultDbBatchSize);
@@ -133,25 +150,25 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) {
     // transition from old_tip to hashBlock.
     // A vector is used for future extensibility, as we may want to support
     // interrupting after partial writes from multiple independent reorgs.
-    batch.Erase(DB_BEST_BLOCK);
-    batch.Write(DB_HEAD_BLOCKS, Vector(hashBlock, old_tip));
+    batch->Erase(DB_BEST_BLOCK);
+    batch->Write(DB_HEAD_BLOCKS, Vector(hashBlock, old_tip));
 
     for (CCoinsMap::iterator it = mapCoins.begin(); it != mapCoins.end();) {
         if (it->second.flags & CCoinsCacheEntry::DIRTY) {
             CoinEntry entry(&it->first);
             if (it->second.coin.IsSpent())
-                batch.Erase(entry);
+                batch->Erase(entry);
             else
-                batch.Write(entry, it->second.coin);
+                batch->Write(entry, it->second.coin);
             changed++;
         }
         count++;
         CCoinsMap::iterator itOld = it++;
         mapCoins.erase(itOld);
-        if (batch.SizeEstimate() > batch_size) {
-            LogPrint(BCLog::COINDB, "Writing partial batch of %.2f MiB\n", batch.SizeEstimate() * (1.0 / 1048576.0));
-            m_db->WriteBatch(batch);
-            batch.Clear();
+        if (batch->SizeEstimate() > batch_size) {
+            LogPrint(BCLog::COINDB, "Writing partial batch of %.2f MiB\n", batch->SizeEstimate() * (1.0 / 1048576.0));
+            m_db->WriteBatch(*batch);
+            batch->Clear();
             if (crash_simulate) {
                 static FastRandomContext rng;
                 if (rng.randrange(crash_simulate) == 0) {
@@ -162,12 +179,32 @@ bool CCoinsViewDB::BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) {
         }
     }
 
-    // In the last batch, mark the database as consistent with hashBlock again.
-    batch.Erase(DB_HEAD_BLOCKS);
-    batch.Write(DB_BEST_BLOCK, hashBlock);
+    // MWEB: Flushes MWEB coins & MMRs. This writes and syncs the new MMR/leafset
+    // file generation now; the corresponding leveldb entries (coins, leaves,
+    // MMRInfo) go into this final batch so they commit atomically with
+    // DB_BEST_BLOCK. On failure the batch is discarded, leaving leveldb at the
+    // old MMRInfo generation (any new-generation files are orphans that later
+    // flushes overwrite). The failure is latched because the coin updates
+    // erased from mapCoins above are now neither in memory nor on disk: a
+    // subsequent flush (e.g. at shutdown) must not mark the database
+    // consistent. The caller aborts the node and restart recovers, replaying
+    // from DB_HEAD_BLOCKS if a partial batch was committed.
+    try {
+        derivedView->Flush(batch.get());
+    } catch (const std::exception& e) {
+        LogPrintf("%s: MWEB flush failed: %s\n", __func__, e.what());
+        m_mweb_flush_failed = true;
+        return false;
+    }
 
-    LogPrint(BCLog::COINDB, "Writing final batch of %.2f MiB\n", batch.SizeEstimate() * (1.0 / 1048576.0));
-    bool ret = m_db->WriteBatch(batch);
+    // In the last batch, mark the database as consistent with hashBlock again.
+    batch->Erase(DB_HEAD_BLOCKS);
+    batch->Write(DB_BEST_BLOCK, hashBlock);
+
+    // Publish the new chainstate tip only after the new MWEB files have been durably written.
+    LogPrint(BCLog::COINDB, "Writing final batch of %.2f MiB\n", batch->SizeEstimate() * (1.0 / 1048576.0));
+    bool ret = m_db->WriteBatch(*batch, true);
+    derivedView->Compact(); // MWEB: Cleanup old MMR files
     LogPrint(BCLog::COINDB, "Committed %u changed transaction outputs (out of %u) to coin database...\n", (unsigned int)changed, (unsigned int)count);
     return ret;
 }
@@ -323,6 +360,9 @@ bool CBlockTreeDB::LoadBlockIndexGuts(const Consensus::Params& consensusParams, 
                 pindexNew->nNonce         = diskindex.nNonce;
                 pindexNew->nStatus        = diskindex.nStatus;
                 pindexNew->nTx            = diskindex.nTx;
+                pindexNew->mweb_header    = diskindex.mweb_header;
+                pindexNew->hogex_hash     = diskindex.hogex_hash;
+                pindexNew->mweb_amount    = diskindex.mweb_amount;
 
                 // Litecoin: Disable PoW Sanity check while loading block index from disk.
                 // We use the sha256 hash for the block index for performance reasons, which is recorded for later use.

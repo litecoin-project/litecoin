@@ -17,14 +17,22 @@
 #include <unordered_map>
 
 CBlockHeaderAndShortTxIDs::CBlockHeaderAndShortTxIDs(const CBlock& block) :
-        nonce(GetRand<uint64_t>()),
-        shorttxids(block.vtx.size() - 1), prefilledtxn(1), header(block) {
+        nonce(GetRand<uint64_t>()), prefilledtxn(1), header(block), mweb_block(block.mweb_block) {
     FillShortTxIDSelector();
     //TODO: Use our mempool prior to block acceptance to predictively fill more than just the coinbase
     prefilledtxn[0] = {0, block.vtx[0]};
+
+    // MWEB: Include HogEx transaction
+    if (!mweb_block.IsNull()) {
+        prefilledtxn.push_back({(uint16_t)(block.vtx.size() - 2), block.vtx.back()});
+    }
+
+    shorttxids.reserve(block.vtx.size() - 1);
     for (size_t i = 1; i < block.vtx.size(); i++) {
         const CTransaction& tx = *block.vtx[i];
-        shorttxids[i - 1] = GetShortID(tx.GetWitnessHash());
+        if (!tx.IsHogEx()) {
+            shorttxids.push_back(GetShortID(tx.GetWitnessHash()));
+        }
     }
 }
 
@@ -52,8 +60,10 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
     if (cmpctblock.shorttxids.size() + cmpctblock.prefilledtxn.size() > MAX_BLOCK_WEIGHT / MIN_SERIALIZABLE_TRANSACTION_WEIGHT)
         return READ_STATUS_INVALID;
 
-    assert(header.IsNull() && txn_available.empty());
+    if (!header.IsNull() || !txn_available.empty()) return READ_STATUS_INVALID;
+
     header = cmpctblock.header;
+    mweb_block = cmpctblock.mweb_block;
     txn_available.resize(cmpctblock.BlockTxCount());
 
     int32_t lastprefilledindex = -1;
@@ -167,16 +177,21 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
     return READ_STATUS_OK;
 }
 
-bool PartiallyDownloadedBlock::IsTxAvailable(size_t index) const {
-    assert(!header.IsNull());
+bool PartiallyDownloadedBlock::IsTxAvailable(size_t index) const
+{
+    if (header.IsNull()) return false;
+
     assert(index < txn_available.size());
     return txn_available[index] != nullptr;
 }
 
-ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<CTransactionRef>& vtx_missing) {
-    assert(!header.IsNull());
+ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<CTransactionRef>& vtx_missing)
+{
+    if (header.IsNull()) return READ_STATUS_INVALID;
+
     uint256 hash = header.GetHash();
     block = header;
+    block.mweb_block = mweb_block;
     block.vtx.resize(txn_available.size());
 
     size_t tx_missing_offset = 0;
@@ -196,8 +211,19 @@ ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<
     if (vtx_missing.size() != tx_missing_offset)
         return READ_STATUS_INVALID;
 
+    // We need to clear the MWEB transaction data from the block's transactions,
+    // which should already be included in the mweb_block.
+    for (size_t i = 0; i < block.vtx.size(); i++) {
+        if (block.vtx[i]->HasMWEBTx()) {
+            CMutableTransaction mutable_tx(*block.vtx[i]);
+            mutable_tx.mweb_tx.SetNull();
+            block.vtx[i] = MakeTransactionRef(std::move(mutable_tx));
+        }
+    }
+
     BlockValidationState state;
-    if (!CheckBlock(block, state, Params().GetConsensus())) {
+    CheckBlockFn check_block = m_check_block_mock ? m_check_block_mock : CheckBlock;
+    if (!check_block(block, state, Params().GetConsensus(), /*fCheckPoW=*/true, /*fCheckMerkleRoot=*/true)) {
         // TODO: We really want to just check merkle tree manually here,
         // but that is expensive, and CheckBlock caches a block's
         // "checked-status" (in the CBlock?). CBlock should be able to
