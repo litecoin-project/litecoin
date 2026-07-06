@@ -747,7 +747,9 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
                 //
                 // If replaceability signaling is ignored due to node setting,
                 // replacement is always allowed.
-                if (!m_pool.m_full_rbf && !SignalsOptInRBF(*ptxConflicting)) {
+                //
+                // Litecoin: Only support BIP125 RBF when -mempoolreplacement arg is set
+                if (!m_pool.m_full_rbf && (!m_pool.m_enable_rbf || !SignalsOptInRBF(*ptxConflicting))) {
                     return state.Invalid(TxValidationResult::TX_MEMPOOL_POLICY, "txn-mempool-conflict");
                 }
 
