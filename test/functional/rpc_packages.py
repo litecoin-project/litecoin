@@ -36,6 +36,7 @@ class RPCPackagesTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.setup_clean_chain = True
+        self.extra_args = [["-mempoolreplacement=1"]]
 
     def assert_testres_equal(self, package_hex, testres_expected):
         """Shuffle package_hex and assert that the testmempoolaccept result matches testres_expected. This should only

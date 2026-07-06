@@ -105,7 +105,7 @@ class ZMQTest (BitcoinTestFramework):
         self.num_nodes = 2
         # This test isn't testing txn relay/timing, so set whitelist on the
         # peers for instant txn relay. This speeds up the test run time 2-3x.
-        self.extra_args = [["-whitelist=noban@127.0.0.1"]] * self.num_nodes
+        self.extra_args = [["-whitelist=noban@127.0.0.1", "-mempoolreplacement=1"]] * self.num_nodes
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_py3_zmq()
@@ -402,7 +402,7 @@ class ZMQTest (BitcoinTestFramework):
         bump_txid = self.nodes[0].sendrawtransaction(orig_tx['tx'].serialize().hex())
         # Mine the pre-bump tx
         txs_to_add = [orig_tx['hex']] + [tx['hex'] for tx in more_tx]
-        block = create_block(int(self.nodes[0].getbestblockhash(), 16), create_coinbase(self.nodes[0].getblockcount()+1), txlist=txs_to_add)
+        block = create_block(int(self.nodes[0].getbestblockhash(), 16), create_coinbase(self.nodes[0].getblockcount()+1), txlist=txs_to_add, version=0x20000000)
         add_witness_commitment(block)
         block.solve()
         assert_equal(self.nodes[0].submitblock(block.serialize().hex()), None)

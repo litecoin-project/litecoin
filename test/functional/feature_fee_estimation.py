@@ -129,9 +129,9 @@ class EstimateFeeTest(BitcoinTestFramework):
         self.num_nodes = 3
         # Force fSendTrickle to true (via whitelist.noban)
         self.extra_args = [
-            ["-whitelist=noban@127.0.0.1"],
-            ["-whitelist=noban@127.0.0.1", "-blockmaxweight=68000"],
-            ["-whitelist=noban@127.0.0.1", "-blockmaxweight=32000"],
+            ["-whitelist=noban@127.0.0.1", "-mempoolreplacement=1"],
+            ["-whitelist=noban@127.0.0.1", "-mempoolreplacement=1", "-blockmaxweight=68000"],
+            ["-whitelist=noban@127.0.0.1", "-mempoolreplacement=1", "-blockmaxweight=32000"],
         ]
 
     def setup_network(self):

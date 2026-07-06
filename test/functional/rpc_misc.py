@@ -20,6 +20,7 @@ class RpcMiscTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
         self.supports_cli = False
+        self.extra_args = [["-blockfilterindex=0", "-peerblockfilters=0"]]
 
     def run_test(self):
         node = self.nodes[0]

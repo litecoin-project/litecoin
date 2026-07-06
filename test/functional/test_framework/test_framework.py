@@ -46,7 +46,7 @@ TEST_EXIT_PASSED = 0
 TEST_EXIT_FAILED = 1
 TEST_EXIT_SKIPPED = 77
 
-TMPDIR_PREFIX = "bitcoin_func_test_"
+TMPDIR_PREFIX = "litecoin_func_test_"
 
 
 class SkipTest(Exception):
@@ -77,9 +77,9 @@ class BitcoinTestMetaClass(type):
 
 
 class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
-    """Base class for a bitcoin test script.
+    """Base class for a litecoin test script.
 
-    Individual bitcoin test scripts should subclass this class and override the set_test_params() and run_test() methods.
+    Individual litecoin test scripts should subclass this class and override the set_test_params() and run_test() methods.
 
     Individual tests can also override the following methods to customize the test setup:
 

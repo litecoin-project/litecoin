@@ -178,7 +178,7 @@ class RpcCreateMultiSigTest(BitcoinTestFramework):
         mredeem = msig["redeemScript"]
         assert_equal(desc, msig['descriptor'])
         if self.output_type == 'bech32':
-            assert madd[0:4] == "bcrt"  # actually a bech32 address
+            assert madd[0:4] == "rltc"  # actually a bech32 address
 
         if self.is_bdb_compiled():
             # compare against addmultisigaddress

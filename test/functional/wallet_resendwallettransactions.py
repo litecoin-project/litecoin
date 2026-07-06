@@ -20,6 +20,7 @@ from test_framework.util import (
 class ResendWalletTransactionsTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
+        self.extra_args = [['-mempoolreplacement=1']]
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -46,7 +47,7 @@ class ResendWalletTransactionsTest(BitcoinTestFramework):
         # after the last time we tried to broadcast. Use mocktime and give an extra minute to be sure.
         block_time = int(time.time()) + 6 * 60
         node.setmocktime(block_time)
-        block = create_block(int(node.getbestblockhash(), 16), create_coinbase(node.getblockcount() + 1), block_time)
+        block = create_block(int(node.getbestblockhash(), 16), create_coinbase(node.getblockcount() + 1), block_time, version=0x20000000)
         block.solve()
         node.submitblock(block.serialize().hex())
 
@@ -99,7 +100,7 @@ class ResendWalletTransactionsTest(BitcoinTestFramework):
 
         block_time = entry_time + 6 * 60
         node.setmocktime(block_time)
-        block = create_block(int(node.getbestblockhash(), 16), create_coinbase(node.getblockcount() + 1), block_time)
+        block = create_block(int(node.getbestblockhash(), 16), create_coinbase(node.getblockcount() + 1), block_time, version=0x20000000)
         block.solve()
         node.submitblock(block.serialize().hex())
         # Set correct m_best_block_time, which is used in ResubmitWalletTransactions

@@ -51,7 +51,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
         self.extra_args = [
             ["-addresstype=bech32", "-keypool=2"], # current wallet version
             ["-usehd=1", "-keypool=2"],            # v0.16.3 wallet
-            ["-usehd=0", "-keypool=2"]             # v0.15.2 wallet
+            ["-usehd=0", "-keypool=2"]             # v0.15.1 wallet
         ]
         self.wallet_names = [self.default_wallet_name, None, None]
 
@@ -67,7 +67,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
         self.add_nodes(self.num_nodes, extra_args=self.extra_args, versions=[
             None,
             160300,
-            150200,
+            150100,
         ])
         self.start_nodes()
         self.import_deterministic_coinbase_privkeys()
@@ -75,9 +75,9 @@ class UpgradeWalletTest(BitcoinTestFramework):
     def dumb_sync_blocks(self):
         """
         Little helper to sync older wallets.
-        Notice that v0.15.2's regtest is hardforked, so there is
+        Notice that v0.15.1's regtest is hardforked, so there is
         no sync for it.
-        v0.15.2 is only being used to test for version upgrade
+        v0.15.1 is only being used to test for version upgrade
         and master hash key presence.
         v0.16.3 is being used to test for version upgrade and balances.
         Further info: https://github.com/bitcoin/bitcoin/pull/18774#discussion_r416967844

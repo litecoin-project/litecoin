@@ -104,7 +104,7 @@ implements the test logic.
 
 - `P2PConnection` is the class used to connect to a litecoind.  `P2PInterface`
 contains the higher level logic for processing P2P payloads and connecting to
-the Bitcoin Core node application logic. For custom behaviour, subclass the
+the Litecoin Core node application logic. For custom behaviour, subclass the
 P2PInterface object and override the callback methods.
 
 `P2PConnection`s can be used as such:

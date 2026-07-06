@@ -51,8 +51,8 @@ class SignetMinerTest(BitcoinTestFramework):
                 f'--cli={node.cli.binary} -datadir={node.cli.datadir}',
                 'generate',
                 f'--address={node.getnewaddress()}',
-                f'--grind-cmd={self.options.bitcoinutil} grind',
-                '--nbits=1d00ffff',
+                f'--grind-cmd={self.options.litecoinutil} grind',
+                '--nbits=207fffff',
                 f'--set-block-time={int(time.time())}',
             ], check=True, stderr=subprocess.STDOUT)
         assert_equal(node.getblockcount(), 1)

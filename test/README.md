@@ -18,7 +18,7 @@ tests and lint scripts can be run as explained in the sections below.
 
 # Running tests locally
 
-Before tests can be run locally, Bitcoin Core must be built.  See the [building instructions](/doc#building) for help.
+Before tests can be run locally, Litecoin Core must be built.  See the [building instructions](/doc#building) for help.
 
 ## Fuzz tests
 

@@ -33,7 +33,7 @@ class MempoolCompatibilityTest(BitcoinTestFramework):
             versions=[
                 160300,  # Last release with legacy txindex
                 None,  # For MiniWallet, without migration code
-                200100,  # Any release with migration code (0.17.x - 22.x)
+                210202,  # Any release with migration code (0.17.x - 22.x)
             ],
         )
         self.start_nodes()
