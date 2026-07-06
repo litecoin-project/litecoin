@@ -859,7 +859,14 @@ bool AppInitParameterInteraction(const ArgsManager& args, bool use_syscall_sandb
     }
 
     // parse and validate enabled filter types
+    // Litecoin defaults block filters on, but not when pruning or reindexing the
+    // chainstate and the user has not explicitly requested them.
+    const bool fReindexChainState = args.GetBoolArg("-reindex-chainstate", false);
+    const bool fPrune = args.GetIntArg("-prune", 0) > 0;
     std::string blockfilterindex_value = args.GetArg("-blockfilterindex", DEFAULT_BLOCKFILTERINDEX);
+    if ((fReindexChainState || fPrune) && !args.IsArgSet("-blockfilterindex")) {
+        blockfilterindex_value = "0";
+    }
     if (blockfilterindex_value == "" || blockfilterindex_value == "1") {
         g_enabled_filter_types = AllBlockFilterTypes();
     } else if (blockfilterindex_value != "0") {
@@ -874,7 +881,11 @@ bool AppInitParameterInteraction(const ArgsManager& args, bool use_syscall_sandb
     }
 
     // Signal NODE_COMPACT_FILTERS if peerblockfilters and basic filters index are both enabled.
-    if (args.GetBoolArg("-peerblockfilters", DEFAULT_PEERBLOCKFILTERS)) {
+    bool peerblockfilters = args.GetBoolArg("-peerblockfilters", DEFAULT_PEERBLOCKFILTERS);
+    if ((fReindexChainState || fPrune) && !args.IsArgSet("-peerblockfilters")) {
+        peerblockfilters = false;
+    }
+    if (peerblockfilters) {
         if (g_enabled_filter_types.count(BlockFilterType::BASIC) != 1) {
             return InitError(_("Cannot set -peerblockfilters without -blockfilterindex."));
         }
