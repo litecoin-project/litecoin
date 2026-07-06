@@ -30,7 +30,7 @@ qt_test_test_litecoin_qt_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BITCOIN
   $(QT_INCLUDES) $(QT_TEST_INCLUDES) $(BOOST_CPPFLAGS)
 
 qt_test_test_litecoin_qt_SOURCES = \
-  init/litecoin-qt.cpp \
+  init/bitcoin-qt.cpp \
   qt/test/apptests.cpp \
   qt/test/optiontests.cpp \
   qt/test/rpcnestedtests.cpp \

@@ -321,7 +321,6 @@ test_fuzz_fuzz_SOURCES = \
  test/fuzz/secp256k1_ec_seckey_import_export_der.cpp \
  test/fuzz/secp256k1_ecdsa_signature_parse_der_lax.cpp \
  test/fuzz/signature_checker.cpp \
- test/fuzz/signet.cpp \
  test/fuzz/socks5.cpp \
  test/fuzz/span.cpp \
  test/fuzz/spanparsing.cpp \
@@ -350,19 +349,19 @@ CLEAN_BITCOIN_TEST = test/*.gcda test/*.gcno test/fuzz/*.gcda test/fuzz/*.gcno t
 CLEANFILES += $(CLEAN_BITCOIN_TEST)
 
 if TARGET_WINDOWS
-bitcoin_test: $(TEST_BINARY)
+litecoin_test: $(TEST_BINARY)
 else
 if ENABLE_BENCH
-bitcoin_test: $(TEST_BINARY) $(BENCH_BINARY)
+litecoin_test: $(TEST_BINARY) $(BENCH_BINARY)
 else
-bitcoin_test: $(TEST_BINARY)
+litecoin_test: $(TEST_BINARY)
 endif
 endif
 
-bitcoin_test_check: $(TEST_BINARY) FORCE
+litecoin_test_check: $(TEST_BINARY) FORCE
 	$(MAKE) check-TESTS TESTS=$^
 
-bitcoin_test_clean : FORCE
+litecoin_test_clean : FORCE
 	rm -f $(CLEAN_BITCOIN_TEST) $(test_test_litecoin_OBJECTS) $(TEST_BINARY)
 
 check-local: $(BITCOIN_TESTS:.cpp=.cpp.test)
@@ -375,7 +374,7 @@ endif
 if TARGET_WINDOWS
 else
 if ENABLE_BENCH
-	@echo "Running bench/bench_bitcoin (one iteration sanity check)..."
+	@echo "Running bench/bench_litecoin (one iteration sanity check)..."
 	$(BENCH_BINARY) --sanity-check > /dev/null
 endif
 endif

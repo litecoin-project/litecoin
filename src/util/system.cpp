@@ -837,7 +837,7 @@ static std::string FormatException(const std::exception* pex, std::string_view t
     char pszModule[MAX_PATH] = "";
     GetModuleFileNameA(nullptr, pszModule, sizeof(pszModule));
 #else
-    const char* pszModule = "bitcoin";
+    const char* pszModule = "litecoin";
 #endif
     if (pex)
         return strprintf(
@@ -856,12 +856,12 @@ void PrintExceptionContinue(const std::exception* pex, std::string_view thread_n
 
 fs::path GetDefaultDataDir()
 {
-    // Windows: C:\Users\Username\AppData\Roaming\Bitcoin
-    // macOS: ~/Library/Application Support/Bitcoin
-    // Unix-like: ~/.bitcoin
+    // Windows: C:\Users\Username\AppData\Roaming\Litecoin
+    // macOS: ~/Library/Application Support/Litecoin
+    // Unix-like: ~/.litecoin
 #ifdef WIN32
     // Windows
-    return GetSpecialFolderPath(CSIDL_APPDATA) / "Bitcoin";
+    return GetSpecialFolderPath(CSIDL_APPDATA) / "Litecoin";
 #else
     fs::path pathRet;
     char* pszHome = getenv("HOME");
@@ -871,10 +871,10 @@ fs::path GetDefaultDataDir()
         pathRet = fs::path(pszHome);
 #ifdef MAC_OSX
     // macOS
-    return pathRet / "Library/Application Support/Bitcoin";
+    return pathRet / "Library/Application Support/Litecoin";
 #else
     // Unix-like
-    return pathRet / ".bitcoin";
+    return pathRet / ".litecoin";
 #endif
 #endif
 }

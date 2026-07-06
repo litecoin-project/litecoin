@@ -46,8 +46,8 @@ static const int TOOLTIP_WRAP_THRESHOLD = 80;
 /* Number of frames in spinner animation */
 #define SPINNER_FRAMES 36
 
-#define QAPP_ORG_NAME "Bitcoin"
-#define QAPP_ORG_DOMAIN "bitcoin.org"
+#define QAPP_ORG_NAME "Litecoin"
+#define QAPP_ORG_DOMAIN "litecoin.org"
 #define QAPP_APP_NAME_DEFAULT "Litecoin-Qt"
 #define QAPP_APP_NAME_TESTNET "Litecoin-Qt-testnet"
 #define QAPP_APP_NAME_SIGNET "Litecoin-Qt-signet"

@@ -601,7 +601,7 @@ and its `cs_KeyStore` lock for example).
 Threads
 -------
 
-- [Main thread (`bitcoind`)](https://doxygen.bitcoincore.org/bitcoind_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97)
+- [Main thread (`litecoind`)](https://doxygen.bitcoincore.org/bitcoind_8cpp.html#a0ddf1224851353fc92bfbff6f499fa97)
   : Started from `main()` in `bitcoind.cpp`. Responsible for starting up and
   shutting down the application.
 

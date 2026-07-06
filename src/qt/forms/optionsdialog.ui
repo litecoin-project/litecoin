@@ -286,7 +286,7 @@
             <item>
              <widget class="QLineEdit" name="externalSignerPath">
               <property name="toolTip">
-               <string>Full path to a Bitcoin Core compatible script (e.g. C:\Downloads\hwi.exe or /Users/you/Downloads/hwi.py). Beware: malware can steal your coins!</string>
+               <string>Full path to a Litecoin Core compatible script (e.g. C:\Downloads\hwi.exe or /Users/you/Downloads/hwi.py). Beware: malware can steal your coins!</string>
               </property>
              </widget>
             </item>
@@ -318,7 +318,7 @@
        <item>
         <widget class="QCheckBox" name="mapPortUpnp">
          <property name="toolTip">
-          <string>Automatically open the Bitcoin client port on the router. This only works when your router supports UPnP and it is enabled.</string>
+          <string>Automatically open the Litecoin client port on the router. This only works when your router supports UPnP and it is enabled.</string>
          </property>
          <property name="text">
           <string>Map port using &amp;UPnP</string>
@@ -328,7 +328,7 @@
        <item>
         <widget class="QCheckBox" name="mapPortNatpmp">
          <property name="toolTip">
-          <string>Automatically open the Bitcoin client port on the router. This only works when your router supports NAT-PMP and it is enabled. The external port could be random.</string>
+          <string>Automatically open the Litecoin client port on the router. This only works when your router supports NAT-PMP and it is enabled. The external port could be random.</string>
          </property>
          <property name="text">
           <string>Map port using NA&amp;T-PMP</string>
@@ -348,7 +348,7 @@
        <item>
         <widget class="QCheckBox" name="connectSocks">
          <property name="toolTip">
-          <string>Connect to the Bitcoin network through a SOCKS5 proxy.</string>
+          <string>Connect to the Litecoin network through a SOCKS5 proxy.</string>
          </property>
          <property name="text">
           <string>&amp;Connect through SOCKS5 proxy (default proxy):</string>
@@ -535,7 +535,7 @@
        <item>
         <widget class="QCheckBox" name="connectSocksTor">
          <property name="toolTip">
-          <string>Connect to the Bitcoin network through a separate SOCKS5 proxy for Tor onion services.</string>
+          <string>Connect to the Litecoin network through a separate SOCKS5 proxy for Tor onion services.</string>
          </property>
          <property name="text">
           <string>Use separate SOCKS&amp;5 proxy to reach peers via Tor onion services:</string>
@@ -804,14 +804,14 @@
               <item>
                <widget class="QLabel" name="embeddedFont_label_1">
                 <property name="text">
-                 <string notr="true">111.11111111 BTC</string>
+                 <string notr="true">111.11111111 LTC</string>
                 </property>
                </widget>
               </item>
               <item>
                <widget class="QLabel" name="embeddedFont_label_9">
                 <property name="text">
-                 <string notr="true">909.09090909 BTC</string>
+                 <string notr="true">909.09090909 LTC</string>
                 </property>
                </widget>
               </item>
@@ -853,14 +853,14 @@
               <item>
                <widget class="QLabel" name="systemFont_label_1">
                 <property name="text">
-                 <string notr="true">111.11111111 BTC</string>
+                 <string notr="true">111.11111111 LTC</string>
                 </property>
                </widget>
               </item>
               <item>
                <widget class="QLabel" name="systemFont_label_9">
                 <property name="text">
-                 <string notr="true">909.09090909 BTC</string>
+                 <string notr="true">909.09090909 LTC</string>
                 </property>
                </widget>
               </item>
