@@ -183,6 +183,7 @@ BASE_SCRIPTS = [
     'rpc_whitelist.py',
     'feature_proxy.py',
     'feature_syscall_sandbox.py',
+    'p2p_headers_presync_reuse.py',
     'wallet_signrawtransactionwithwallet.py --legacy-wallet',
     'wallet_signrawtransactionwithwallet.py --descriptors',
     'rpc_signrawtransactionwithkey.py',
