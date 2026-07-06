@@ -48,6 +48,8 @@ static const secp256k1_fe secp256k1_fe_const_b = SECP256K1_FE_CONST(
     0x3d3486b2, 0x159a9ca5, 0xc75638be, 0xb23a69bc,
     0x946a45ab, 0x24801247, 0xb4ed2b8e, 0x26b6a417
 );
+
+const int CURVE_B = 2;
 #  elif EXHAUSTIVE_TEST_ORDER == 199
 static const secp256k1_ge secp256k1_ge_const_g = SECP256K1_G_ORDER_199;
 
@@ -55,6 +57,8 @@ static const secp256k1_fe secp256k1_fe_const_b = SECP256K1_FE_CONST(
     0x2cca28fa, 0xfc614b80, 0x2a3db42b, 0x00ba00b1,
     0xbea8d943, 0xdace9ab2, 0x9536daea, 0x0074defb
 );
+
+const int CURVE_B = 4;
 #  else
 #    error No known generator for the specified exhaustive test group order.
 #  endif
@@ -62,6 +66,8 @@ static const secp256k1_fe secp256k1_fe_const_b = SECP256K1_FE_CONST(
 static const secp256k1_ge secp256k1_ge_const_g = SECP256K1_G;
 
 static const secp256k1_fe secp256k1_fe_const_b = SECP256K1_FE_CONST(0, 0, 0, 0, 0, 0, 0, 7);
+
+const int CURVE_B = 7;
 #endif
 
 static void secp256k1_ge_set_gej_zinv(secp256k1_ge *r, const secp256k1_gej *a, const secp256k1_fe *zi) {
@@ -209,6 +215,17 @@ static void secp256k1_ge_clear(secp256k1_ge *r) {
     r->infinity = 0;
     secp256k1_fe_clear(&r->x);
     secp256k1_fe_clear(&r->y);
+}
+
+static int secp256k1_ge_set_xquad(secp256k1_ge *r, const secp256k1_fe *x) {
+    secp256k1_fe x2, x3, c;
+    r->x = *x;
+    secp256k1_fe_sqr(&x2, x);
+    secp256k1_fe_mul(&x3, x, &x2);
+    r->infinity = 0;
+    secp256k1_fe_set_int(&c, CURVE_B);
+    secp256k1_fe_add(&c, &x3);
+    return secp256k1_fe_sqrt(&r->y, &c);
 }
 
 static int secp256k1_ge_set_xo_var(secp256k1_ge *r, const secp256k1_fe *x, int odd) {
@@ -672,6 +689,20 @@ static SECP256K1_INLINE void secp256k1_ge_storage_cmov(secp256k1_ge_storage *r, 
 static void secp256k1_ge_mul_lambda(secp256k1_ge *r, const secp256k1_ge *a) {
     *r = *a;
     secp256k1_fe_mul(&r->x, &r->x, &secp256k1_const_beta);
+}
+
+static int secp256k1_gej_has_quad_y_var(const secp256k1_gej *a) {
+    secp256k1_fe yz;
+
+    if (a->infinity) {
+        return 0;
+    }
+
+    /* We rely on the fact that the Jacobi symbol of 1 / a->z^3 is the same as
+     * that of a->z. Thus a->y / a->z^3 is a quadratic residue iff a->y * a->z
+       is */
+    secp256k1_fe_mul(&yz, &a->y, &a->z);
+    return secp256k1_fe_is_quad_var(&yz);
 }
 
 static int secp256k1_ge_is_in_correct_subgroup(const secp256k1_ge* ge) {

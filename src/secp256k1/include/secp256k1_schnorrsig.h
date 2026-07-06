@@ -135,6 +135,27 @@ SECP256K1_API int secp256k1_schnorrsig_sign(
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(3) SECP256K1_ARG_NONNULL(4)
   SECP256K1_DEPRECATED("Use secp256k1_schnorrsig_sign32 instead");
 
+/** Create a Schnorr signature.
+ *
+ * Returns 1 on success, 0 on failure.
+ *  Args:    ctx: pointer to a context object, initialized for signing (cannot be NULL)
+ *  Out:     sig: pointer to the returned signature (cannot be NULL)
+ *       nonce_is_negated: a pointer to an integer indicates if signing algorithm negated the
+ *                nonce (can be NULL)
+ *  In:    msg32: the 32-byte message hash being signed (cannot be NULL)
+ *        seckey: pointer to a 32-byte secret key (cannot be NULL)
+ *       noncefp: pointer to a nonce generation function. If NULL, secp256k1_nonce_function_bipschnorr is used
+ *         ndata: pointer to arbitrary data used by the nonce generation function (can be NULL)
+ */
+SECP256K1_API int secp256k1_schnorrsig_sign_mweb(
+    const secp256k1_context* ctx,
+    unsigned char* sig,
+    int* nonce_is_negated,
+    const unsigned char* msg32,
+    const unsigned char* seckey,
+    secp256k1_nonce_function noncefp,
+    void* ndata) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(4) SECP256K1_ARG_NONNULL(5);
+
 /** Create a Schnorr signature with a more flexible API.
  *
  *  Same arguments as secp256k1_schnorrsig_sign except that it allows signing
@@ -174,6 +195,28 @@ SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_schnorrsig_verify(
     size_t msglen,
     const secp256k1_xonly_pubkey *pubkey
 ) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2) SECP256K1_ARG_NONNULL(5);
+
+/** Verifies a set of Schnorr signatures.
+ *
+ * Returns 1 if all succeeded, 0 otherwise. In particular, returns 1 if n_sigs is 0.
+ *
+ *  Args:    ctx: a secp256k1 context object, initialized for verification.
+ *       scratch: scratch space used for the multiexponentiation
+ *  In:      sig: array of signatures, or NULL if there are no signatures
+ *         msg32: array of messages, or NULL if there are no signatures
+ *            pk: array of public keys, or NULL if there are no signatures
+ *        n_sigs: number of signatures in above arrays. Must be smaller than
+ *                2^31 and smaller than half the maximum size_t value. Must be 0
+ *                if above arrays are NULL.
+ */
+SECP256K1_API SECP256K1_WARN_UNUSED_RESULT int secp256k1_schnorrsig_verify_batch(
+	const secp256k1_context* ctx,
+	secp256k1_scratch_space* scratch,
+	const uint8_t* const* sig,
+	const unsigned char* const* msg32,
+	const secp256k1_pubkey* const* pk,
+	size_t n_sigs
+) SECP256K1_ARG_NONNULL(1) SECP256K1_ARG_NONNULL(2);
 
 #ifdef __cplusplus
 }

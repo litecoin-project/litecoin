@@ -2055,7 +2055,7 @@ LIBS_TEMP="$LIBS"
 unset LIBS
 LIBS="$LIBS_TEMP"
 
-ac_configure_args="${ac_configure_args} --disable-shared --with-pic --enable-benchmark=no --enable-module-recovery --enable-module-schnorrsig"
+ac_configure_args="${ac_configure_args} --disable-shared --with-pic --enable-benchmark=no --enable-module-recovery --enable-module-schnorrsig --enable-module-generator --enable-module-commitment --enable-module-bulletproof --enable-module-aggsig"
 AC_CONFIG_SUBDIRS([src/secp256k1])
 
 AC_OUTPUT
