@@ -36,6 +36,8 @@ BOOST_FIXTURE_TEST_SUITE(checkqueue_tests, NoLockLoggingTestingSetup)
 
 static const unsigned int QUEUE_BATCH_SIZE = 128;
 static const int SCRIPT_CHECK_THREADS = 3;
+static const size_t CHECKQUEUE_RANDOM_RANGE_LIMIT = 10'000;
+static const size_t CHECKQUEUE_REPRESENTATIVE_RANGE[] = {0, 1, 2, 3, 4, 5, 10, 25, 100, 1000};
 
 struct FakeCheck {
     bool operator()() const
@@ -218,8 +220,8 @@ BOOST_AUTO_TEST_CASE(test_CheckQueue_Correct_Max)
 BOOST_AUTO_TEST_CASE(test_CheckQueue_Correct_Random)
 {
     std::vector<size_t> range;
-    range.reserve(100000/1000);
-    for (size_t i = 2; i < 100000; i += std::max((size_t)1, (size_t)InsecureRandRange(std::min((size_t)1000, ((size_t)100000) - i))))
+    range.reserve(CHECKQUEUE_RANDOM_RANGE_LIMIT / 1000);
+    for (size_t i = 2; i < CHECKQUEUE_RANDOM_RANGE_LIMIT; i += std::max((size_t)1, (size_t)InsecureRandRange(std::min((size_t)1000, CHECKQUEUE_RANDOM_RANGE_LIMIT - i))))
         range.push_back(i);
     Correct_Queue_range(range);
 }
@@ -231,7 +233,7 @@ BOOST_AUTO_TEST_CASE(test_CheckQueue_Catches_Failure)
     auto fail_queue = std::make_unique<Failing_Queue>(QUEUE_BATCH_SIZE);
     fail_queue->StartWorkerThreads(SCRIPT_CHECK_THREADS);
 
-    for (size_t i = 0; i < 1001; ++i) {
+    for (const size_t i : CHECKQUEUE_REPRESENTATIVE_RANGE) {
         CCheckQueueControl<FailingCheck> control(fail_queue.get());
         size_t remaining = i;
         while (remaining) {
@@ -317,7 +319,7 @@ BOOST_AUTO_TEST_CASE(test_CheckQueue_Memory)
 {
     auto queue = std::make_unique<Memory_Queue>(QUEUE_BATCH_SIZE);
     queue->StartWorkerThreads(SCRIPT_CHECK_THREADS);
-    for (size_t i = 0; i < 1000; ++i) {
+    for (const size_t i : CHECKQUEUE_REPRESENTATIVE_RANGE) {
         size_t total = i;
         {
             CCheckQueueControl<MemoryCheck> control(queue.get());

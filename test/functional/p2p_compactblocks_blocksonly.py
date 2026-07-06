@@ -8,6 +8,7 @@ from test_framework.messages import (
     MSG_BLOCK,
     MSG_CMPCT_BLOCK,
     MSG_WITNESS_FLAG,
+    MSG_MWEB_FLAG,
     CBlock,
     CBlockHeader,
     CInv,
@@ -49,7 +50,7 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
         p2p_conn_low_bw = self.nodes[3].add_p2p_connection(P2PInterface())
         for conn in [p2p_conn_blocksonly, p2p_conn_high_bw, p2p_conn_low_bw]:
             assert_equal(conn.message_count['sendcmpct'], 1)
-            conn.send_and_ping(msg_sendcmpct(announce=False, version=2))
+            conn.send_and_ping(msg_sendcmpct(announce=False, version=3))
 
         # Nodes:
         #   0 -> blocksonly
@@ -95,7 +96,7 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
 
         p2p_conn_blocksonly.send_message(msg_headers(headers=[CBlockHeader(block1)]))
         p2p_conn_blocksonly.sync_send_with_ping()
-        assert_equal(p2p_conn_blocksonly.last_message['getdata'].inv, [CInv(MSG_BLOCK | MSG_WITNESS_FLAG, block1.sha256)])
+        assert_equal(p2p_conn_blocksonly.last_message['getdata'].inv, [CInv(MSG_BLOCK | MSG_WITNESS_FLAG | MSG_MWEB_FLAG, block1.sha256)])
 
         p2p_conn_high_bw.send_message(msg_headers(headers=[CBlockHeader(block1)]))
         p2p_conn_high_bw.sync_send_with_ping()
@@ -119,7 +120,7 @@ class P2PCompactBlocksBlocksOnly(BitcoinTestFramework):
         p2p_conn_blocksonly.wait_until(lambda: test_for_cmpctblock(block0))
 
         # Request BIP152 high bandwidth mode from the -blocksonly node.
-        p2p_conn_blocksonly.send_and_ping(msg_sendcmpct(announce=True, version=2))
+        p2p_conn_blocksonly.send_and_ping(msg_sendcmpct(announce=True, version=3))
 
         block2 = self.build_block_on_tip()
         self.nodes[0].submitblock(block1.serialize().hex())

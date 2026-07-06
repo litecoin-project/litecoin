@@ -66,8 +66,8 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
     connman.Handshake(
         /*node=*/dummyNode1,
         /*successfully_connected=*/true,
-        /*remote_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS),
-        /*local_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS),
+        /*remote_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_MWEB),
+        /*local_services=*/ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_MWEB),
         /*version=*/PROTOCOL_VERSION,
         /*relay_txs=*/true);
     TestOnlyResetTimeData();
@@ -91,8 +91,8 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
     }
 
     int64_t nStartTime = GetTime();
-    // Wait 61 minutes
-    SetMockTime(nStartTime + 61 * 60);
+    // Wait 62 minutes
+    SetMockTime(nStartTime+62*60);
     {
         LOCK(dummyNode1.cs_sendProcessing);
         BOOST_CHECK(peerman.SendMessages(&dummyNode1)); // should result in getheaders
@@ -101,8 +101,8 @@ BOOST_AUTO_TEST_CASE(outbound_slow_chain_eviction)
         LOCK(dummyNode1.cs_vSend);
         BOOST_CHECK(dummyNode1.vSendMsg.size() > 0);
     }
-    // Wait 3 more minutes
-    SetMockTime(nStartTime + 64 * 60);
+    // Wait 3 more minutes (2 minutes HEADERS_RESPONSE_TIME + buffer)
+    SetMockTime(nStartTime+65*60);
     {
         LOCK(dummyNode1.cs_sendProcessing);
         BOOST_CHECK(peerman.SendMessages(&dummyNode1)); // should result in disconnect
@@ -127,7 +127,7 @@ static void AddRandomOutboundPeer(NodeId& id, std::vector<CNode*>& vNodes, PeerM
     CNode &node = *vNodes.back();
     node.SetCommonVersion(PROTOCOL_VERSION);
 
-    peerLogic.InitializeNode(node, ServiceFlags(NODE_NETWORK | NODE_WITNESS));
+    peerLogic.InitializeNode(node, ServiceFlags(NODE_NETWORK | NODE_WITNESS | NODE_MWEB));
     node.fSuccessfullyConnected = true;
 
     connman.AddTestNode(node);

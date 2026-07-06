@@ -189,7 +189,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
                 return
 
             txout_value = (initial_value - fee) // tree_width
-            if txout_value < fee:
+            if txout_value < fee or txout_value < 0.0001 * COIN:
                 return
 
             tx = self.wallet.send_self_transfer_multi(
@@ -273,7 +273,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
             utxos_to_spend=[tx0_outpoint],
             sequence=0,
             num_outputs=100,
-            amount_per_output=1000,
+            amount_per_output=10000,
         )["hex"]
 
         # This will raise an exception due to insufficient fee
@@ -566,7 +566,7 @@ class ReplaceByFeeTest(BitcoinTestFramework):
             utxos_to_spend=[tx0_outpoint],
             sequence=0,
             num_outputs=100,
-            amount_per_output=int(0.00001 * COIN),
+            amount_per_output=int(0.0001 * COIN),
         )["hex"]
 
         # Verify tx1b cannot replace tx1a.

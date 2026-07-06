@@ -27,6 +27,7 @@ class RpcCreateMultiSigTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 3
+        self.extra_args = [["-dustrelayfee=0"]] * self.num_nodes
         self.supports_cli = False
         if self.is_bdb_compiled():
             self.requires_wallet = True

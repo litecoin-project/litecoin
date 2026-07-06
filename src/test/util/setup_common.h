@@ -182,6 +182,7 @@ struct TestChain100Setup : public TestingSetup {
 
     std::vector<CTransactionRef> m_coinbase_txns; // For convenience, coinbase transactions
     CKey coinbaseKey; // private/public key needed to spend coinbase transactions
+    bool m_build_block_with_mempool{false}; // include mempool txns when building blocks
 };
 
 /**
