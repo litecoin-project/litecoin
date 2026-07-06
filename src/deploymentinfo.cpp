@@ -21,8 +21,6 @@ std::string DeploymentName(Consensus::BuriedDeployment dep)
 {
     assert(ValidDeployment(dep));
     switch (dep) {
-    case Consensus::DEPLOYMENT_P2SH:
-        return "bip16";
     case Consensus::DEPLOYMENT_HEIGHTINCB:
         return "bip34";
     case Consensus::DEPLOYMENT_CLTV:

@@ -25,7 +25,6 @@ enum BuriedDeployment : int16_t {
     DEPLOYMENT_DERSIG,
     DEPLOYMENT_CSV,
     DEPLOYMENT_SEGWIT,
-    DEPLOYMENT_P2SH,
 };
 constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_SEGWIT; }
 
@@ -80,8 +79,6 @@ struct Params {
      * - fail if the default script verify flags are applied.
      */
     std::map<uint256, uint32_t> script_flag_exceptions;
-   /** Block height at which BIP16 becomes active */
-    int BIP16Height;
     /** Block height and hash at which BIP34 becomes active */
     int BIP34Height;
     uint256 BIP34Hash;
@@ -142,8 +139,6 @@ struct Params {
             return CSVHeight;
         case DEPLOYMENT_SEGWIT:
             return SegwitHeight;
-        case DEPLOYMENT_P2SH:
-            return BIP16Height;
         } // no default case, so the compiler can warn about missing cases
         return std::numeric_limits<int>::max();
     }
