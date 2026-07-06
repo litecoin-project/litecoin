@@ -8,7 +8,7 @@
 
 static void HexStrBench(benchmark::Bench& bench)
 {
-    auto const& data = benchmark::data::block413567;
+    auto const& data = benchmark::data::block878439;
     bench.batch(data.size()).unit("byte").run([&] {
         auto hex = HexStr(data);
         ankerl::nanobench::doNotOptimizeAway(hex);
