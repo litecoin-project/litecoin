@@ -10,6 +10,7 @@
 #include <serialize.h>
 #include <uint256.h>
 #include <util/time.h>
+#include <mweb/mweb_models.h>
 
 /** A 256-byte blob to use instead of uint256 for representing PoW (scrypt) hashes.
  * This provides type safety for calls to CheckProofOfWork, ensuring consumers
@@ -86,6 +87,8 @@ public:
     // memory only
     mutable bool fChecked;
 
+    MWEB::Block mweb_block;
+
     CBlock()
     {
         SetNull();
@@ -101,6 +104,11 @@ public:
     {
         READWRITEAS(CBlockHeader, obj);
         READWRITE(obj.vtx);
+        if (!(s.GetVersion() & SERIALIZE_NO_MWEB)) {
+            if (obj.vtx.size() >= 2 && obj.vtx.back()->IsHogEx()) {
+                READWRITE(obj.mweb_block);
+            }
+        }
     }
 
     void SetNull()
@@ -108,6 +116,7 @@ public:
         CBlockHeader::SetNull();
         vtx.clear();
         fChecked = false;
+        mweb_block.SetNull();
     }
 
     CBlockHeader GetBlockHeader() const
@@ -123,6 +132,9 @@ public:
     }
 
     std::string ToString() const;
+
+    // Returns the hogex (integrating) transaction, if it exists.
+    CTransactionRef GetHogEx() const noexcept;
 };
 
 /** Describes a place in the block chain to another node such that if the

@@ -11,6 +11,7 @@
 #include <chrono>
 #include <limits>
 #include <map>
+#include <vector>
 
 namespace Consensus {
 
@@ -31,6 +32,7 @@ constexpr bool ValidDeployment(BuriedDeployment dep) { return dep <= DEPLOYMENT_
 enum DeploymentPos : uint16_t {
     DEPLOYMENT_TESTDUMMY,
     DEPLOYMENT_TAPROOT, // Deployment of Schnorr/Taproot (BIPs 340-342)
+    DEPLOYMENT_MWEB, // Deployment of MWEB (LIPs 0002-0004)
     // NOTE: Also add new deployments to VersionBitsDeploymentInfo in versionbits.cpp
     MAX_VERSION_BITS_DEPLOYMENTS
 };
@@ -125,6 +127,12 @@ struct Params {
      */
     bool signet_blocks{false};
     std::vector<uint8_t> signet_challenge;
+
+    /** Optional one-block grandfather for the known MWEB input-metadata exploit. */
+    uint256 mweb_input_metadata_grandfather_blockhash;
+
+    /** Frozen MWEB output IDs that may not be spent. */
+    std::vector<uint256> frozen_mweb_output_ids;
 
     int DeploymentHeight(BuriedDeployment dep) const
     {

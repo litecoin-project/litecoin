@@ -145,7 +145,7 @@ std::optional<std::string> PaysMoreThanConflicts(const CTxMemPool::setEntries& i
         // descendants. While that does mean high feerate children are ignored when deciding whether
         // or not to replace, we do require the replacement to pay more overall fees too, mitigating
         // most cases.
-        CFeeRate original_feerate(mi->GetModifiedFee(), mi->GetTxSize());
+        CFeeRate original_feerate(mi->GetModifiedFee(), mi->GetTxSize(), mi->GetMWEBWeight());
         if (replacement_feerate <= original_feerate) {
             return strprintf("rejecting replacement %s; new feerate %s <= old feerate %s",
                              txid.ToString(),
@@ -174,11 +174,11 @@ std::optional<std::string> PaysForRBF(CAmount original_fees,
     // vector where attackers can cause a transaction to be replaced (and relayed) repeatedly by
     // increasing the fee by tiny amounts.
     CAmount additional_fees = replacement_fees - original_fees;
-    if (additional_fees < relay_fee.GetFee(replacement_vsize)) {
+    if (additional_fees < relay_fee.GetFee(replacement_vsize, 0)) {
         return strprintf("rejecting replacement %s, not enough additional fees to relay; %s < %s",
                          txid.ToString(),
                          FormatMoney(additional_fees),
-                         FormatMoney(relay_fee.GetFee(replacement_vsize)));
+                         FormatMoney(relay_fee.GetFee(replacement_vsize, 0)));
     }
     return std::nullopt;
 }

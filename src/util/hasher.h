@@ -52,6 +52,48 @@ public:
     }
 };
 
+class SaltedOutputIDHasher
+{
+private:
+    /** Salt */
+    const uint64_t k0, k1;
+
+public:
+    SaltedOutputIDHasher();
+
+    /**
+     * Having the hash noexcept allows libstdc++'s unordered_map to recalculate
+     * the hash during rehash, so it does not have to cache the value. This
+     * reduces node's memory by sizeof(size_t). The required recalculation has
+     * a slight performance penalty (around 1.6%), but this is compensated by
+     * memory savings of about 9% which allow for a larger dbcache setting.
+     *
+     * @see https://gcc.gnu.org/onlinedocs/gcc-9.2.0/libstdc++/manual/manual/unordered_associative.html
+     */
+    size_t operator()(const AnyOutputID& output_id) const noexcept {
+        if (output_id.IsMWEB()) {
+            return SipHashUint256(k0, k1, uint256(output_id.ToMWEB().vec()));
+        } else {
+            const COutPoint& outpoint = output_id.ToOutPoint();
+            return SipHashUint256Extra(k0, k1, outpoint.hash, outpoint.n);
+        }
+    }
+};
+
+class SaltedMWHashHasher
+{
+private:
+    /** Salt */
+    const uint64_t k0, k1;
+
+public:
+    SaltedMWHashHasher();
+
+    size_t operator()(const mw::Hash& output_id) const {
+        return SipHashUint256(k0, k1, uint256(output_id.vec()));
+    }
+};
+
 struct FilterHeaderHasher
 {
     size_t operator()(const uint256& hash) const { return ReadLE64(hash.begin()); }

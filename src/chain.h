@@ -126,7 +126,8 @@ enum BlockStatus : uint32_t {
 
     BLOCK_HAVE_DATA          =    8, //!< full block available in blk*.dat
     BLOCK_HAVE_UNDO          =   16, //!< undo data available in rev*.dat
-    BLOCK_HAVE_MASK          =   BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO,
+    BLOCK_HAVE_MWEB         =   (1 << 28), //! BlockIndex contains MWEB block info (mweb_header, hogex hash, and hogex amount)
+    BLOCK_HAVE_MASK          =   BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO | BLOCK_HAVE_MWEB,
 
     BLOCK_FAILED_VALID       =   32, //!< stage after last reached validness failed
     BLOCK_FAILED_CHILD       =   64, //!< descends from failed block
@@ -206,6 +207,11 @@ public:
     uint32_t nTime{0};
     uint32_t nBits{0};
     uint32_t nNonce{0};
+
+    //! MWEB data (only populated when BLOCK_HAVE_MWEB is set)
+    mw::Header::CPtr mweb_header{nullptr};
+    uint256 hogex_hash{};
+    CAmount mweb_amount{0};
 
     //! (memory only) Sequential id assigned to distinguish order in which blocks are received.
     int32_t nSequenceId{0};
@@ -392,6 +398,12 @@ public:
         if (obj.nStatus & (BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO)) READWRITE(VARINT_MODE(obj.nFile, VarIntMode::NONNEGATIVE_SIGNED));
         if (obj.nStatus & BLOCK_HAVE_DATA) READWRITE(VARINT(obj.nDataPos));
         if (obj.nStatus & BLOCK_HAVE_UNDO) READWRITE(VARINT(obj.nUndoPos));
+
+        if (obj.nStatus & BLOCK_HAVE_MWEB) {
+            READWRITE(obj.mweb_header);
+            READWRITE(obj.hogex_hash);
+            READWRITE(VARINT_MODE(obj.mweb_amount, VarIntMode::NONNEGATIVE_SIGNED));
+        }
 
         // block header
         READWRITE(obj.nVersion);

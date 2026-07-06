@@ -14,7 +14,6 @@
 #include <pow.h>
 #include <reverse_iterator.h>
 #include <shutdown.h>
-#include <signet.h>
 #include <streams.h>
 #include <undo.h>
 #include <util/syscall_sandbox.h>
@@ -482,11 +481,14 @@ static bool UndoWriteToDisk(const CBlockUndo& blockundo, FlatFilePos& pos, const
 
 bool UndoReadFromDisk(CBlockUndo& blockundo, const CBlockIndex* pindex)
 {
-    const FlatFilePos pos{WITH_LOCK(::cs_main, return pindex->GetUndoPos())};
+    FlatFilePos pos{WITH_LOCK(::cs_main, return pindex->GetUndoPos())};
 
     if (pos.IsNull()) {
         return error("%s: no undo data available", __func__);
     }
+
+    // Rewind 4 bytes in order to read the size
+    pos.nPos -= 4;
 
     // Open history file to read
     CAutoFile filein(OpenUndoFile(pos, true), SER_DISK, CLIENT_VERSION);
@@ -494,12 +496,16 @@ bool UndoReadFromDisk(CBlockUndo& blockundo, const CBlockIndex* pindex)
         return error("%s: OpenUndoFile failed", __func__);
     }
 
+    // Read undo size
+    unsigned int undo_size = 0;
+    filein >> undo_size;
+
     // Read block
     uint256 hashChecksum;
     CHashVerifier<CAutoFile> verifier(&filein); // We need a CHashVerifier as reserializing may lose data
     try {
         verifier << pindex->pprev->GetBlockHash();
-        verifier >> blockundo;
+        UnserializeBlockUndo(blockundo, verifier, undo_size);
         filein >> hashChecksum;
     } catch (const std::exception& e) {
         return error("%s: Deserialize or I/O error - %s", __func__, e.what());
@@ -730,11 +736,6 @@ bool ReadBlockFromDisk(CBlock& block, const FlatFilePos& pos, const Consensus::P
     // Check the header
     if (!CheckProofOfWork(block.GetPoWHash(), block.nBits, consensusParams)) {
         return error("ReadBlockFromDisk: Errors in block header at %s", pos.ToString());
-    }
-
-    // Signet only: check block solution
-    if (consensusParams.signet_blocks && !CheckSignetBlockSolution(block, consensusParams)) {
-        return error("ReadBlockFromDisk: Errors in block solution at %s", pos.ToString());
     }
 
     return true;

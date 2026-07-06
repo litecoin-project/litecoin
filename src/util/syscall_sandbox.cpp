@@ -589,6 +589,7 @@ public:
         allowed_syscalls.insert(__NR_fstatfs);         // get file system status
         allowed_syscalls.insert(__NR_fsync);           // synchronize a file's in-core state with storage device
         allowed_syscalls.insert(__NR_ftruncate);       // truncate a file to a specified length
+        allowed_syscalls.insert(__NR_truncate);        // truncate a file to a specified length
         allowed_syscalls.insert(__NR_getcwd);          // get current working directory
         allowed_syscalls.insert(__NR_getdents);        // get directory entries
         allowed_syscalls.insert(__NR_getdents64);      // get directory entries

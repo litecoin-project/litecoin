@@ -11,6 +11,7 @@
 #include <consensus/amount.h>
 #include <consensus/consensus.h>
 #include <consensus/validation.h>
+#include <mweb/mweb_policy.h>
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <script/interpreter.h>
@@ -59,7 +60,7 @@ CAmount GetDustThreshold(const CTxOut& txout, const CFeeRate& dustRelayFeeIn)
         nSize += (32 + 4 + 1 + 107 + 4); // the 148 mentioned above
     }
 
-    return dustRelayFeeIn.GetFee(nSize);
+    return dustRelayFeeIn.GetFee(nSize, 0);
 }
 
 bool IsDust(const CTxOut& txout, const CFeeRate& dustRelayFeeIn)
@@ -128,9 +129,15 @@ bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_dat
         }
     }
 
+    // MWEB: Also check pegout scripts
+    std::vector<CTxOut> txouts = tx.vout;
+    for (const PegOutCoin& pegout : tx.mweb_tx.GetPegOuts()) {
+        txouts.push_back(CTxOut(pegout.GetAmount(), pegout.GetScriptPubKey()));
+    }
+
     unsigned int nDataOut = 0;
     TxoutType whichType;
-    for (const CTxOut& txout : tx.vout) {
+    for (const CTxOut& txout : txouts) {
         if (!::IsStandard(txout.scriptPubKey, max_datacarrier_bytes, whichType)) {
             reason = "scriptpubkey";
             return false;
@@ -150,6 +157,11 @@ bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_dat
     // only one OP_RETURN txout is permitted
     if (nDataOut > 1) {
         reason = "multi-op-return";
+        return false;
+    }
+
+    // MWEB: Check MWEB standard transaction policies
+    if (!MWEB::Policy::IsStandardTx(tx, reason)) {
         return false;
     }
 

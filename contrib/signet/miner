@@ -382,7 +382,7 @@ def do_generate(args):
             continue
 
         # gbt
-        tmpl = json.loads(args.bcli("getblocktemplate", '{"rules":["signet","segwit"]}'))
+        tmpl = json.loads(args.bcli("getblocktemplate", '{"rules":["signet","mweb","segwit"]}'))
         if tmpl["previousblockhash"] != bci["bestblockhash"]:
             logging.warning("GBT based off unexpected block (%s not %s), retrying", tmpl["previousblockhash"], bci["bestblockhash"])
             time.sleep(1)

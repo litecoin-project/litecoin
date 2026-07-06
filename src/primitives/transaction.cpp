@@ -63,28 +63,33 @@ std::string CTxOut::ToString() const
 }
 
 CMutableTransaction::CMutableTransaction() : nVersion(CTransaction::CURRENT_VERSION), nLockTime(0) {}
-CMutableTransaction::CMutableTransaction(const CTransaction& tx) : vin(tx.vin), vout(tx.vout), nVersion(tx.nVersion), nLockTime(tx.nLockTime) {}
+CMutableTransaction::CMutableTransaction(const CTransaction& tx) : vin(tx.vin), vout(tx.vout), nVersion(tx.nVersion), nLockTime(tx.nLockTime), mweb_tx(tx.mweb_tx.ToMutable()), m_hogEx(tx.m_hogEx) {}
 
 uint256 CMutableTransaction::GetHash() const
 {
-    return SerializeHash(*this, SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS);
+    return SerializeHash(*this, SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB);
 }
 
 uint256 CTransaction::ComputeHash() const
 {
-    return SerializeHash(*this, SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS);
+    if (IsMWEBOnly()) {
+        return uint256(mweb_tx.m_transaction->GetHash().vec());
+    }
+
+    return SerializeHash(*this, SER_GETHASH, SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB);
 }
 
 uint256 CTransaction::ComputeWitnessHash() const
 {
-    if (!HasWitness()) {
+    if (!HasWitness() || IsMWEBOnly()) {
         return hash;
     }
-    return SerializeHash(*this, SER_GETHASH, 0);
+
+    return SerializeHash(*this, SER_GETHASH, SERIALIZE_NO_MWEB);
 }
 
-CTransaction::CTransaction(const CMutableTransaction& tx) : vin(tx.vin), vout(tx.vout), nVersion(tx.nVersion), nLockTime(tx.nLockTime), hash{ComputeHash()}, m_witness_hash{ComputeWitnessHash()} {}
-CTransaction::CTransaction(CMutableTransaction&& tx) : vin(std::move(tx.vin)), vout(std::move(tx.vout)), nVersion(tx.nVersion), nLockTime(tx.nLockTime), hash{ComputeHash()}, m_witness_hash{ComputeWitnessHash()} {}
+CTransaction::CTransaction(const CMutableTransaction& tx) : vin(tx.vin), vout(tx.vout), nVersion(tx.nVersion), nLockTime(tx.nLockTime), mweb_tx(tx.mweb_tx), m_hogEx(tx.m_hogEx), hash{ComputeHash()}, m_witness_hash{ComputeWitnessHash()} {}
+CTransaction::CTransaction(CMutableTransaction&& tx) : vin(std::move(tx.vin)), vout(std::move(tx.vout)), nVersion(tx.nVersion), nLockTime(tx.nLockTime), mweb_tx(tx.mweb_tx), m_hogEx(tx.m_hogEx), hash{ComputeHash()}, m_witness_hash{ComputeWitnessHash()} {}
 
 CAmount CTransaction::GetValueOut() const
 {
@@ -118,5 +123,84 @@ std::string CTransaction::ToString() const
         str += "    " + tx_in.scriptWitness.ToString() + "\n";
     for (const auto& tx_out : vout)
         str += "    " + tx_out.ToString() + "\n";
+
+    if (!mweb_tx.IsNull()) {
+        str += "    " + mweb_tx.ToString() + "\n";
+    }
+
     return str;
+}
+
+std::vector<AnyInput> CTransaction::GetInputs() const noexcept
+{
+    std::vector<AnyInput> inputs;
+
+    for (const CTxIn& txin : vin) {
+        inputs.push_back(txin);
+    }
+
+    for (const mw::Hash& spent_id : mweb_tx.GetSpentIDs()) {
+        inputs.push_back(spent_id);
+    }
+
+    return inputs;
+}
+
+bool CTransaction::HasOutput(const AnyOutputID& output_id) const noexcept
+{
+    if (output_id.IsMWEB()) {
+        return mweb_tx.GetOutputIDs().count(output_id.ToMWEB()) > 0;
+    } else {
+        return vout.size() > output_id.ToOutPoint().n;
+    }
+}
+
+AnyOutput CTransaction::GetOutput(const size_t index) const noexcept
+{
+    assert(vout.size() > index);
+    return AnyOutput{COutPoint(GetHash(), index), vout[index]};
+}
+
+AnyOutput CTransaction::GetOutput(const AnyOutputID& output_id) const noexcept
+{
+    if (output_id.IsMWEB()) {
+        mw::Output output;
+        bool has_output = mweb_tx.GetOutput(output_id.ToMWEB(), output);
+        assert(has_output);
+        return AnyOutput{output};
+    } else {
+        const COutPoint& outpoint = output_id.ToOutPoint();
+        assert(vout.size() > outpoint.n);
+        return AnyOutput{outpoint, vout[outpoint.n]};
+    }
+}
+
+std::vector<AnyOutput> CTransaction::GetOutputs() const noexcept
+{
+    std::vector<AnyOutput> outputs;
+
+    for (size_t n = 0; n < vout.size(); n++) {
+        outputs.push_back(AnyOutput{COutPoint(GetHash(), n), vout[n]});
+    }
+
+    for (const mw::Output& output : mweb_tx.GetOutputs()) {
+        outputs.push_back(AnyOutput{output});
+    }
+
+    return outputs;
+}
+
+std::vector<AnyInput> CMutableTransaction::GetInputs() const noexcept
+{
+    std::vector<AnyInput> inputs;
+
+    for (const CTxIn& txin : vin) {
+        inputs.push_back(txin);
+    }
+
+    for (const mw::MutableInput& mweb_input : mweb_tx.inputs) {
+        inputs.push_back(mweb_input.output_id);
+    }
+
+    return inputs;
 }

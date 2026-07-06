@@ -948,7 +948,7 @@ static RPCHelpMan addpeeraddress()
 
     if (LookupHost(addr_string, net_addr, false)) {
         CService service{net_addr, port};
-        CAddress address{MaybeFlipIPv6toCJDNS(service), ServiceFlags{NODE_NETWORK | NODE_WITNESS}};
+        CAddress address{MaybeFlipIPv6toCJDNS(service), ServiceFlags{NODE_NETWORK | NODE_WITNESS | NODE_MWEB}};
         address.nTime = Now<NodeSeconds>();
         // The source address is set equal to the address. This is equivalent to the peer
         // announcing itself.

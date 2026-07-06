@@ -177,6 +177,7 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     entry.pushKV("version", static_cast<int64_t>(static_cast<uint32_t>(tx.nVersion)));
     entry.pushKV("size", (int)::GetSerializeSize(tx, PROTOCOL_VERSION));
     entry.pushKV("vsize", (GetTransactionWeight(tx) + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR);
+    entry.pushKV("mweb_weight", tx.mweb_tx.GetMWEBWeight());
     entry.pushKV("weight", GetTransactionWeight(tx));
     entry.pushKV("locktime", (int64_t)tx.nLockTime);
 
@@ -188,9 +189,10 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
     CAmount amt_total_in = 0;
     CAmount amt_total_out = 0;
 
-    for (unsigned int i = 0; i < tx.vin.size(); i++) {
-        const CTxIn& txin = tx.vin[i];
+    for (size_t i = 0; i < tx.vin.size(); i++) {
         UniValue in(UniValue::VOBJ);
+
+        const CTxIn& txin = tx.vin[i];
         if (tx.IsCoinBase()) {
             in.pushKV("coinbase", HexStr(txin.scriptSig));
         } else {
@@ -201,13 +203,14 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
             o.pushKV("hex", HexStr(txin.scriptSig));
             in.pushKV("scriptSig", o);
         }
-        if (!tx.vin[i].scriptWitness.IsNull()) {
+        if (!txin.scriptWitness.IsNull()) {
             UniValue txinwitness(UniValue::VARR);
-            for (const auto& item : tx.vin[i].scriptWitness.stack) {
+            for (const auto& item : txin.scriptWitness.stack) {
                 txinwitness.push_back(HexStr(item));
             }
             in.pushKV("txinwitness", txinwitness);
         }
+
         if (have_undo) {
             const Coin& prev_coin = txundo->vprevout[i];
             const CTxOut& prev_txout = prev_coin.out;
@@ -227,34 +230,82 @@ void TxToUniv(const CTransaction& tx, const uint256& block_hash, UniValue& entry
             }
         }
         in.pushKV("sequence", (int64_t)txin.nSequence);
+
         vin.push_back(in);
     }
+
+    for (const mw::Hash& spent_id : tx.mweb_tx.GetSpentIDs()) {
+        UniValue in(UniValue::VOBJ);
+        in.pushKV("output_id", spent_id.ToHex());
+        vin.push_back(in);
+    }
+
     entry.pushKV("vin", vin);
 
     UniValue vout(UniValue::VARR);
-    for (unsigned int i = 0; i < tx.vout.size(); i++) {
-        const CTxOut& txout = tx.vout[i];
-
+    int64_t n = 0;
+    for (const AnyOutput& output : tx.GetOutputs()) {
         UniValue out(UniValue::VOBJ);
 
-        out.pushKV("value", ValueFromAmount(txout.nValue));
-        out.pushKV("n", (int64_t)i);
+        if (output.IsMWEB()) {
+            out.pushKV("output_id", output.ToMWEBOutputID().ToHex());
+        } else {
+            const CTxOut& txout = output.GetTxOut();
+            out.pushKV("value", ValueFromAmount(txout.nValue));
+            out.pushKV("n", n++);
 
-        UniValue o(UniValue::VOBJ);
-        ScriptToUniv(txout.scriptPubKey, /*out=*/o, /*include_hex=*/true, /*include_address=*/true);
-        out.pushKV("scriptPubKey", o);
-        vout.push_back(out);
+            UniValue o(UniValue::VOBJ);
+            ScriptToUniv(txout.scriptPubKey, /*out=*/o, /*include_hex=*/true, /*include_address=*/true);
+            out.pushKV("scriptPubKey", o);
 
-        if (have_undo) {
-            amt_total_out += txout.nValue;
+            if (have_undo) {
+                amt_total_out += txout.nValue;
+            }
         }
+
+        vout.push_back(out);
     }
     entry.pushKV("vout", vout);
 
+    if (tx.HasMWEBTx()) {
+        UniValue vkern(UniValue::VARR);
+
+        for (const mw::Kernel& kernel : tx.mweb_tx.m_transaction->GetKernels()) {
+            UniValue kern(UniValue::VOBJ);
+            kern.pushKV("kernel_id", kernel.GetKernelID().ToHex());
+
+            kern.pushKV("fee", ValueFromAmount(kernel.GetFee()));
+            kern.pushKV("pegin", ValueFromAmount(kernel.GetPegIn()));
+
+            UniValue pegouts(UniValue::VARR);
+            for (const PegOutCoin& pegout : kernel.GetPegOuts()) {
+                UniValue uni_pegout(UniValue::VOBJ);
+                uni_pegout.pushKV("value", ValueFromAmount(pegout.GetAmount()));
+
+                UniValue p(UniValue::VOBJ);
+                ScriptToUniv(pegout.GetScriptPubKey(), p, /*include_hex=*/true, /*include_address=*/true);
+                uni_pegout.pushKV("scriptPubKey", p);
+
+                pegouts.push_back(uni_pegout);
+            }
+            kern.pushKV("pegout", pegouts);
+
+            vkern.push_back(kern);
+        }
+
+        entry.pushKV("vkern", vkern);
+    }
+
     if (have_undo) {
-        const CAmount fee = amt_total_in - amt_total_out;
-        CHECK_NONFATAL(MoneyRange(fee));
-        entry.pushKV("fee", ValueFromAmount(fee));
+        const auto mweb_fee = tx.mweb_tx.GetFee();
+        if (mweb_fee) {
+            const CAmount fee = (amt_total_in - amt_total_out) + *mweb_fee;
+            CHECK_NONFATAL(MoneyRange(*mweb_fee));
+            CHECK_NONFATAL(MoneyRange(fee));
+            entry.pushKV("fee", ValueFromAmount(fee));
+        } else {
+            entry.pushKV("fee", UniValue(UniValue::VNULL));
+        }
     }
 
     if (!block_hash.IsNull()) {

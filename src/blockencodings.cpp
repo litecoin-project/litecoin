@@ -17,14 +17,22 @@
 #include <unordered_map>
 
 CBlockHeaderAndShortTxIDs::CBlockHeaderAndShortTxIDs(const CBlock& block) :
-        nonce(GetRand<uint64_t>()),
-        shorttxids(block.vtx.size() - 1), prefilledtxn(1), header(block) {
+        nonce(GetRand<uint64_t>()), prefilledtxn(1), header(block), mweb_block(block.mweb_block) {
     FillShortTxIDSelector();
     //TODO: Use our mempool prior to block acceptance to predictively fill more than just the coinbase
     prefilledtxn[0] = {0, block.vtx[0]};
+
+    // MWEB: Include HogEx transaction
+    if (!mweb_block.IsNull()) {
+        prefilledtxn.push_back({(uint16_t)(block.vtx.size() - 2), block.vtx.back()});
+    }
+
+    shorttxids.reserve(block.vtx.size() - 1);
     for (size_t i = 1; i < block.vtx.size(); i++) {
         const CTransaction& tx = *block.vtx[i];
-        shorttxids[i - 1] = GetShortID(tx.GetWitnessHash());
+        if (!tx.IsHogEx()) {
+            shorttxids.push_back(GetShortID(tx.GetWitnessHash()));
+        }
     }
 }
 
@@ -54,6 +62,7 @@ ReadStatus PartiallyDownloadedBlock::InitData(const CBlockHeaderAndShortTxIDs& c
 
     assert(header.IsNull() && txn_available.empty());
     header = cmpctblock.header;
+    mweb_block = cmpctblock.mweb_block;
     txn_available.resize(cmpctblock.BlockTxCount());
 
     int32_t lastprefilledindex = -1;
@@ -177,6 +186,7 @@ ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<
     assert(!header.IsNull());
     uint256 hash = header.GetHash();
     block = header;
+    block.mweb_block = mweb_block;
     block.vtx.resize(txn_available.size());
 
     size_t tx_missing_offset = 0;
@@ -195,6 +205,16 @@ ReadStatus PartiallyDownloadedBlock::FillBlock(CBlock& block, const std::vector<
 
     if (vtx_missing.size() != tx_missing_offset)
         return READ_STATUS_INVALID;
+
+    // We need to clear the MWEB transaction data from the block's transactions,
+    // which should already be included in the mweb_block.
+    for (size_t i = 0; i < block.vtx.size(); i++) {
+        if (block.vtx[i]->HasMWEBTx()) {
+            CMutableTransaction mutable_tx(*block.vtx[i]);
+            mutable_tx.mweb_tx.SetNull();
+            block.vtx[i] = MakeTransactionRef(std::move(mutable_tx));
+        }
+    }
 
     BlockValidationState state;
     if (!CheckBlock(block, state, Params().GetConsensus())) {

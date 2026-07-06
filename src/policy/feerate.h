@@ -49,20 +49,23 @@ public:
      *
      * param@[in]   nFeePaid    The fee paid by a transaction, in litoshis
      * param@[in]   num_bytes   The vsize of a transaction, in vbytes
+     * param@[in]   mweb_weight The MWEB weight of a transaction
      */
-    CFeeRate(const CAmount& nFeePaid, uint32_t num_bytes);
+    CFeeRate(const CAmount& nFeePaid, uint32_t num_bytes, uint32_t mweb_weight);
+    CFeeRate(const CAmount& nFeePaid, uint32_t num_bytes) : CFeeRate(nFeePaid, num_bytes, 0) {}
 
     /**
-     * Return the fee in litoshis for the given vsize in vbytes.
+     * Return the fee in litoshis for the given vsize in vbytes and MWEB weight.
      * If the calculated fee would have fractional litoshis, then the
      * returned fee will always be rounded up to the nearest litoshi.
      */
-    CAmount GetFee(uint32_t num_bytes) const;
+    CAmount GetFee(uint32_t num_bytes, uint32_t mweb_weight) const;
+    CAmount GetFee(uint32_t num_bytes) const { return GetFee(num_bytes, 0); }
 
     /**
      * Return the fee in litoshis for a vsize of 1000 vbytes
      */
-    CAmount GetFeePerK() const { return GetFee(1000); }
+    CAmount GetFeePerK() const { return GetFee(1000, 0); }
     friend bool operator<(const CFeeRate& a, const CFeeRate& b) { return a.nSatoshisPerK < b.nSatoshisPerK; }
     friend bool operator>(const CFeeRate& a, const CFeeRate& b) { return a.nSatoshisPerK > b.nSatoshisPerK; }
     friend bool operator==(const CFeeRate& a, const CFeeRate& b) { return a.nSatoshisPerK == b.nSatoshisPerK; }

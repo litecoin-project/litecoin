@@ -8,15 +8,20 @@
 
 #include <stdlib.h>
 #include <stdint.h>
+#include <mw/consensus/Params.h>
 
 /** The maximum allowed size for a serialized block, in bytes (only for buffer size limits) */
 static const unsigned int MAX_BLOCK_SERIALIZED_SIZE = 4000000;
+/** MWEB: The maximum size of an MWEB block is just over 11 MB, plus 4 MB for a full segwit block. */
+static const unsigned int MAX_BLOCK_SERIALIZED_SIZE_WITH_MWEB = MAX_BLOCK_SERIALIZED_SIZE + mw::MAX_BLOCK_BYTES;
 /** The maximum allowed weight for a block, see BIP 141 (network rule) */
 static const unsigned int MAX_BLOCK_WEIGHT = 4000000;
 /** The maximum allowed number of signature check operations in a block (network rule) */
 static const int64_t MAX_BLOCK_SIGOPS_COST = 80000;
 /** Coinbase transaction outputs can only be spent after this number of new blocks (network rule) */
 static const int COINBASE_MATURITY = 100;
+/** MWEB: Pegout transaction outputs can only be spent after this number of new blocks (network rule) */
+static const int PEGOUT_MATURITY = 6;
 
 static const int WITNESS_SCALE_FACTOR = 4;
 

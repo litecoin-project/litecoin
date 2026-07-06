@@ -9,6 +9,7 @@
 #include <coins.h>
 #include <dbwrapper.h>
 #include <sync.h>
+#include <mw/node/CoinsView.h>
 
 #include <memory>
 #include <optional>
@@ -51,6 +52,7 @@ class CCoinsViewDB final : public CCoinsView
 {
 protected:
     std::unique_ptr<CDBWrapper> m_db;
+    mw::ICoinsView::Ptr mweb_view;
     fs::path m_ldb_path;
     bool m_is_memory;
 public:
@@ -60,11 +62,15 @@ public:
     explicit CCoinsViewDB(fs::path ldb_path, size_t nCacheSize, bool fMemory, bool fWipe);
 
     bool GetCoin(const COutPoint &outpoint, Coin &coin) const override;
-    bool HaveCoin(const COutPoint &outpoint) const override;
+    bool HaveCoin(const AnyOutputID& index) const override;
     uint256 GetBestBlock() const override;
     std::vector<uint256> GetHeadBlocks() const override;
-    bool BatchWrite(CCoinsMap &mapCoins, const uint256 &hashBlock) override;
+    bool BatchWrite(CCoinsMap& mapCoins, const uint256& hashBlock, const mw::CoinsViewCache::Ptr& derivedView) override;
     std::unique_ptr<CCoinsViewCursor> Cursor() const override;
+    CDBWrapper* GetDB() noexcept { return m_db.get(); }
+    void SetMWEBView(const mw::ICoinsView::Ptr& view) { mweb_view = view; }
+    mw::ICoinsView::Ptr GetMWEBView() const final { return mweb_view; }
+    bool GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& coin) const final;
 
     //! Whether an unsupported database format is used.
     bool NeedsUpgrade();

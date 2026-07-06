@@ -97,6 +97,7 @@ void BlockAssembler::resetBlock()
     // Reserve space for coinbase tx
     nBlockWeight = 4000;
     nBlockSigOpsCost = 400;
+    nBlockMWEBWeight = 0;
 
     // These counters do not include coinbase tx
     nBlockTx = 0;
@@ -136,6 +137,11 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblock->nTime = TicksSinceEpoch<std::chrono::seconds>(GetAdjustedTime());
     m_lock_time_cutoff = pindexPrev->GetMedianTimePast();
 
+    fIncludeMWEB = DeploymentActiveAfter(pindexPrev, m_chainstate.m_chainman, Consensus::DEPLOYMENT_MWEB);
+    if (fIncludeMWEB) {
+        mweb_miner.NewBlock(m_chainstate.m_chainman, nHeight);
+    }
+
     int nPackagesSelected = 0;
     int nDescendantsUpdated = 0;
     if (m_mempool) {
@@ -143,10 +149,15 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
         addPackageTxs(*m_mempool, nPackagesSelected, nDescendantsUpdated);
     }
 
+    if (fIncludeMWEB) {
+        mweb_miner.AddHogExTransaction(pindexPrev, pblock, pblocktemplate.get(), nFees);
+    }
+
     int64_t nTime1 = GetTimeMicros();
 
     m_last_block_num_txs = nBlockTx;
     m_last_block_weight = nBlockWeight;
+    m_last_block_mweb_weight = nBlockMWEBWeight;
 
     // Create coinbase transaction.
     CMutableTransaction coinbaseTx;
@@ -160,7 +171,7 @@ std::unique_ptr<CBlockTemplate> BlockAssembler::CreateNewBlock(const CScript& sc
     pblocktemplate->vchCoinbaseCommitment = m_chainstate.m_chainman.GenerateCoinbaseCommitment(*pblock, pindexPrev);
     pblocktemplate->vTxFees[0] = -nFees;
 
-    LogPrintf("CreateNewBlock(): block weight: %u txs: %u fees: %ld sigops %d\n", GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost);
+    LogPrintf("CreateNewBlock(): block weight: %ld txs: %lu fees: %ld sigops: %lu MWEB weight: %lu\n", GetBlockWeight(*pblock), nBlockTx, nFees, nBlockSigOpsCost, nBlockMWEBWeight);
 
     // Fill in header
     pblock->hashPrevBlock  = pindexPrev->GetBlockHash();
@@ -192,13 +203,16 @@ void BlockAssembler::onlyUnconfirmed(CTxMemPool::setEntries& testSet)
     }
 }
 
-bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost) const
+bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost, int64_t packageMWEBWeight) const
 {
     // TODO: switch to weight-based accounting for packages instead of vsize-based accounting.
     if (nBlockWeight + WITNESS_SCALE_FACTOR * packageSize >= nBlockMaxWeight) {
         return false;
     }
     if (nBlockSigOpsCost + packageSigOpsCost >= MAX_BLOCK_SIGOPS_COST) {
+        return false;
+    }
+    if (nBlockMWEBWeight + packageMWEBWeight >= mw::MAX_MINE_WEIGHT) {
         return false;
     }
     return true;
@@ -216,23 +230,56 @@ bool BlockAssembler::TestPackageTransactions(const CTxMemPool::setEntries& packa
     return true;
 }
 
-void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
+bool BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
 {
-    pblocktemplate->block.vtx.emplace_back(iter->GetSharedTx());
-    pblocktemplate->vTxFees.push_back(iter->GetFee());
-    pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost());
+    if (iter->GetTx().HasMWEBTx() && !mweb_miner.AddMWEBTransaction(iter)) {
+        return false;
+    }
+
+    CTransactionRef pTx = iter->GetSharedTx();
+    if (!pTx->IsMWEBOnly()) {
+        CAmount hogex_fee = 0;
+        int64_t hogex_sigops = 0;
+
+        if (pTx->HasMWEBTx()) {
+            const auto tx_fee = pTx->mweb_tx.GetFee();
+            if (!tx_fee || *tx_fee > iter->GetFee()) {
+                LogPrintf("Invalid MWEB fee amount\n");
+                return false;
+            }
+
+            hogex_fee = *tx_fee;
+            hogex_sigops = MWEB::Miner::GetHogExSigOpCost(*pTx);
+            if (hogex_sigops > iter->GetSigOpCost()) {
+                LogPrintf("Invalid MWEB sigop cost\n");
+                return false;
+            }
+
+            CMutableTransaction mutable_tx(*pTx);
+            mutable_tx.mweb_tx.SetNull();
+            pTx = MakeTransactionRef(std::move(mutable_tx));
+        }
+
+        pblocktemplate->block.vtx.emplace_back(pTx);
+        pblocktemplate->vTxFees.push_back(iter->GetFee() - hogex_fee);
+        pblocktemplate->vTxSigOpsCost.push_back(iter->GetSigOpCost() - hogex_sigops);
+        ++nBlockTx;
+    }
+
     nBlockWeight += iter->GetTxWeight();
-    ++nBlockTx;
     nBlockSigOpsCost += iter->GetSigOpCost();
+    nBlockMWEBWeight += iter->GetMWEBWeight();
     nFees += iter->GetFee();
     inBlock.insert(iter);
 
     bool fPrintPriority = gArgs.GetBoolArg("-printpriority", DEFAULT_PRINTPRIORITY);
     if (fPrintPriority) {
         LogPrintf("fee rate %s txid %s\n",
-                  CFeeRate(iter->GetModifiedFee(), iter->GetTxSize()).ToString(),
+                  CFeeRate(iter->GetModifiedFee(), iter->GetTxSize(), iter->GetMWEBWeight()).ToString(),
                   iter->GetTx().GetHash().ToString());
     }
+
+    return true;
 }
 
 /** Add descendants of given transactions to mapModifiedTx with ancestor
@@ -240,6 +287,7 @@ void BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
  * of updated descendants. */
 static int UpdatePackagesForAdded(const CTxMemPool& mempool,
                                   const CTxMemPool::setEntries& alreadyAdded,
+                                  const CTxMemPool::setEntries& failedTx,
                                   indexed_modified_transaction_set& mapModifiedTx) EXCLUSIVE_LOCKS_REQUIRED(mempool.cs)
 {
     AssertLockHeld(mempool.cs);
@@ -250,7 +298,7 @@ static int UpdatePackagesForAdded(const CTxMemPool& mempool,
         mempool.CalculateDescendants(it, descendants);
         // Insert all descendants (not yet in block) into the modified set
         for (CTxMemPool::txiter desc : descendants) {
-            if (alreadyAdded.count(desc)) {
+            if (alreadyAdded.count(desc) || failedTx.count(desc)) {
                 continue;
             }
             ++nDescendantsUpdated;
@@ -258,6 +306,7 @@ static int UpdatePackagesForAdded(const CTxMemPool& mempool,
             if (mit == mapModifiedTx.end()) {
                 CTxMemPoolModifiedEntry modEntry(desc);
                 modEntry.nSizeWithAncestors -= it->GetTxSize();
+                modEntry.nMWEBWeightWithAncestors -= it->GetMWEBWeight();
                 modEntry.nModFeesWithAncestors -= it->GetModifiedFee();
                 modEntry.nSigOpCostWithAncestors -= it->GetSigOpCost();
                 mapModifiedTx.insert(modEntry);
@@ -363,20 +412,22 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
         assert(!inBlock.count(iter));
 
         uint64_t packageSize = iter->GetSizeWithAncestors();
+        uint64_t packageMWEBWeight = iter->GetMWEBWeightWithAncestors();
         CAmount packageFees = iter->GetModFeesWithAncestors();
         int64_t packageSigOpsCost = iter->GetSigOpCostWithAncestors();
         if (fUsingModified) {
             packageSize = modit->nSizeWithAncestors;
+            packageMWEBWeight = modit->nMWEBWeightWithAncestors;
             packageFees = modit->nModFeesWithAncestors;
             packageSigOpsCost = modit->nSigOpCostWithAncestors;
         }
 
-        if (packageFees < blockMinFeeRate.GetFee(packageSize)) {
+        if (packageFees < blockMinFeeRate.GetFee(packageSize, packageMWEBWeight)) {
             // Everything else we might consider has a lower fee rate
             return;
         }
 
-        if (!TestPackage(packageSize, packageSigOpsCost)) {
+        if (!TestPackage(packageSize, packageSigOpsCost, packageMWEBWeight)) {
             if (fUsingModified) {
                 // Since we always look at the best entry in mapModifiedTx,
                 // we must erase failed entries so that we can consider the
@@ -419,16 +470,28 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
         std::vector<CTxMemPool::txiter> sortedEntries;
         SortForBlock(ancestors, sortedEntries);
 
+        CTxMemPool::setEntries addedEntries;
         for (size_t i = 0; i < sortedEntries.size(); ++i) {
-            AddToBlock(sortedEntries[i]);
+            if (!AddToBlock(sortedEntries[i])) {
+                for (size_t j = i; j < sortedEntries.size(); ++j) {
+                    failedTx.insert(sortedEntries[j]);
+                    mapModifiedTx.erase(sortedEntries[j]);
+                }
+                break;
+            }
+            addedEntries.insert(sortedEntries[i]);
             // Erase from the modified set, if present
             mapModifiedTx.erase(sortedEntries[i]);
+        }
+
+        if (addedEntries.empty()) {
+            continue;
         }
 
         ++nPackagesSelected;
 
         // Update transactions that depend on each of these
-        nDescendantsUpdated += UpdatePackagesForAdded(mempool, ancestors, mapModifiedTx);
+        nDescendantsUpdated += UpdatePackagesForAdded(mempool, addedEntries, failedTx, mapModifiedTx);
     }
 }
 } // namespace node

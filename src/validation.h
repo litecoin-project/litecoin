@@ -154,6 +154,8 @@ struct MempoolAcceptResult {
     const std::optional<std::list<CTransactionRef>> m_replaced_transactions;
     /** Virtual size as used by the mempool, calculated using serialized size and sigops. */
     const std::optional<int64_t> m_vsize;
+    // MWEB: MWEB Weight
+    const std::optional<int64_t> m_mweb_weight;
     /** Raw base fees in satoshis. */
     const std::optional<CAmount> m_base_fees;
 
@@ -165,12 +167,12 @@ struct MempoolAcceptResult {
         return MempoolAcceptResult(state);
     }
 
-    static MempoolAcceptResult Success(std::list<CTransactionRef>&& replaced_txns, int64_t vsize, CAmount fees) {
-        return MempoolAcceptResult(std::move(replaced_txns), vsize, fees);
+    static MempoolAcceptResult Success(std::list<CTransactionRef>&& replaced_txns, int64_t vsize, int64_t mweb_weight, CAmount fees) {
+        return MempoolAcceptResult(std::move(replaced_txns), vsize, mweb_weight, fees);
     }
 
-    static MempoolAcceptResult MempoolTx(int64_t vsize, CAmount fees) {
-        return MempoolAcceptResult(vsize, fees);
+    static MempoolAcceptResult MempoolTx(int64_t vsize, int64_t mweb_weight, CAmount fees) {
+        return MempoolAcceptResult(vsize, mweb_weight, fees);
     }
 
     static MempoolAcceptResult MempoolTxDifferentWitness(const uint256& other_wtxid) {
@@ -186,13 +188,13 @@ private:
         }
 
     /** Constructor for success case */
-    explicit MempoolAcceptResult(std::list<CTransactionRef>&& replaced_txns, int64_t vsize, CAmount fees)
+    explicit MempoolAcceptResult(std::list<CTransactionRef>&& replaced_txns, int64_t vsize, int64_t mweb_weight, CAmount fees)
         : m_result_type(ResultType::VALID),
-        m_replaced_transactions(std::move(replaced_txns)), m_vsize{vsize}, m_base_fees(fees) {}
+        m_replaced_transactions(std::move(replaced_txns)), m_vsize{vsize}, m_mweb_weight{mweb_weight}, m_base_fees(fees) {}
 
     /** Constructor for already-in-mempool case. It wouldn't replace any transactions. */
-    explicit MempoolAcceptResult(int64_t vsize, CAmount fees)
-        : m_result_type(ResultType::MEMPOOL_ENTRY), m_vsize{vsize}, m_base_fees(fees) {}
+    explicit MempoolAcceptResult(int64_t vsize, int64_t mweb_weight, CAmount fees)
+        : m_result_type(ResultType::MEMPOOL_ENTRY), m_vsize{vsize}, m_mweb_weight{mweb_weight}, m_base_fees(fees) {}
 
     /** Constructor for witness-swapped case. */
     explicit MempoolAcceptResult(const uint256& other_wtxid)
@@ -258,6 +260,9 @@ MempoolAcceptResult AcceptToMemoryPool(Chainstate& active_chainstate, const CTra
 PackageMempoolAcceptResult ProcessNewPackage(Chainstate& active_chainstate, CTxMemPool& pool,
                                                    const Package& txns, bool test_accept)
                                                    EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
+/** Apply the effects of this transaction on the UTXO set represented by view */
+void UpdateCoins(const CTransaction& tx, CCoinsViewCache& inputs, int nHeight);
 
 /* Mempool validation helper functions */
 
@@ -514,7 +519,7 @@ public:
     bool CanFlushToDisk() const EXCLUSIVE_LOCKS_REQUIRED(::cs_main)
     {
         AssertLockHeld(::cs_main);
-        return m_coins_views && m_coins_views->m_cacheview;
+        return m_coins_views && m_coins_views->m_cacheview && m_coins_views->m_cacheview->GetMWEBCacheView();
     }
 
     //! The current chain of blockheaders we consult and build on.
@@ -659,6 +664,15 @@ public:
         EXCLUSIVE_LOCKS_REQUIRED(!m_chainstate_mutex)
         LOCKS_EXCLUDED(::cs_main);
 
+    /**
+     * Make the provided index the tip of the chain, regardless of the amount of work.
+     *
+     * Unlike ActivateBestChain, this only updates the provided coins view, not the active chain state.
+     * No calls to any validationinterface callbacks will be made.
+     * Callers should treat `view` as undefined on failure.
+     */
+    bool ActivateArbitraryChain(BlockValidationState& state, CBlockIndex* pindex, CCoinsViewCache& view) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+
     bool AcceptBlock(const std::shared_ptr<const CBlock>& pblock, BlockValidationState& state, CBlockIndex** ppindex, bool fRequested, const FlatFilePos* dbp, bool* fNewBlock, bool min_pow_checked) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     // Block (dis)connection on a given view:
@@ -733,6 +747,7 @@ private:
     bool ActivateBestChainStep(BlockValidationState& state, CBlockIndex* pindexMostWork, const std::shared_ptr<const CBlock>& pblock, bool& fInvalidFound, ConnectTrace& connectTrace) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_mempool->cs);
     bool ConnectTip(BlockValidationState& state, CBlockIndex* pindexNew, const std::shared_ptr<const CBlock>& pblock, ConnectTrace& connectTrace, DisconnectedBlockTransactions& disconnectpool) EXCLUSIVE_LOCKS_REQUIRED(cs_main, m_mempool->cs);
 
+    void EraseBlockData(CBlockIndex* index) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void InvalidBlockFound(CBlockIndex* pindex, const BlockValidationState& state) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     CBlockIndex* FindMostWorkChain() EXCLUSIVE_LOCKS_REQUIRED(cs_main);
     void ReceivedBlockTransactions(const CBlock& block, CBlockIndex* pindexNew, const FlatFilePos& pos) EXCLUSIVE_LOCKS_REQUIRED(cs_main);

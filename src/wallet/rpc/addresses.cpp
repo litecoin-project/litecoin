@@ -476,6 +476,13 @@ public:
     }
 
     UniValue operator()(const WitnessV1Taproot& id) const { return UniValue(UniValue::VOBJ); }
+    UniValue operator()(const StealthAddress& id) const
+    {
+        UniValue obj(UniValue::VOBJ);
+        obj.pushKV("scan_pubkey", id.GetScanPubKey().ToHex());
+        obj.pushKV("spend_pubkey", id.GetSpendPubKey().ToHex());
+        return obj;
+    }
     UniValue operator()(const WitnessUnknown& id) const { return UniValue(UniValue::VOBJ); }
 };
 
@@ -512,6 +519,7 @@ RPCHelpMan getaddressinfo()
                         {RPCResult::Type::BOOL, "isscript", "If the key is a script."},
                         {RPCResult::Type::BOOL, "ischange", "If the address was used for change output."},
                         {RPCResult::Type::BOOL, "iswitness", "If the address is a witness address."},
+                        {RPCResult::Type::BOOL, "ismweb", "If the address is an MWEB address."},
                         {RPCResult::Type::NUM, "witness_version", /*optional=*/true, "The version number of the witness program."},
                         {RPCResult::Type::STR_HEX, "witness_program", /*optional=*/true, "The hex value of the witness program."},
                         {RPCResult::Type::STR, "script", /*optional=*/true, "The output script type. Only if isscript is true and the redeemscript is known. Possible\n"
@@ -524,6 +532,8 @@ RPCHelpMan getaddressinfo()
                         }},
                         {RPCResult::Type::NUM, "sigsrequired", /*optional=*/true, "The number of signatures required to spend multisig output (only if script is multisig)."},
                         {RPCResult::Type::STR_HEX, "pubkey", /*optional=*/true, "The hex value of the raw public key for single-key addresses (possibly embedded in P2SH or P2WSH)."},
+                        {RPCResult::Type::STR_HEX, "scan_pubkey", /*optional=*/true, "The MWEB scan public key (only for MWEB addresses)."},
+                        {RPCResult::Type::STR_HEX, "spend_pubkey", /*optional=*/true, "The MWEB spend public key (only for MWEB addresses)."},
                         {RPCResult::Type::OBJ, "embedded", /*optional=*/true, "Information about the address embedded in P2SH or P2WSH, if relevant and known.",
                         {
                             {RPCResult::Type::ELISION, "", "Includes all getaddressinfo output fields for the embedded address, excluding metadata (timestamp, hdkeypath, hdseedid)\n"

@@ -112,7 +112,7 @@ static RPCHelpMan gettxoutproof()
                 throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Not all transactions found in specified or retrieved block");
             }
 
-            CDataStream ssMB(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS);
+            CDataStream ssMB(SER_NETWORK, PROTOCOL_VERSION | SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB);
             CMerkleBlock mb(block, setTxids);
             ssMB << mb;
             std::string strHex = HexStr(ssMB);

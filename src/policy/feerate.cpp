@@ -5,22 +5,41 @@
 
 #include <consensus/amount.h>
 #include <policy/feerate.h>
+#include <policy/policy.h>
 #include <tinyformat.h>
 
 #include <cmath>
+#include <limits>
 
-CFeeRate::CFeeRate(const CAmount& nFeePaid, uint32_t num_bytes)
+namespace {
+CAmount GetMWEBFeeForWeight(uint32_t mweb_weight)
+{
+    if (uint64_t{mweb_weight} > uint64_t{std::numeric_limits<CAmount>::max() / BASE_MWEB_FEE}) {
+        return std::numeric_limits<CAmount>::max();
+    }
+
+    return CAmount(mweb_weight) * BASE_MWEB_FEE;
+}
+} // namespace
+
+CFeeRate::CFeeRate(const CAmount& nFeePaid, uint32_t num_bytes, uint32_t mweb_weight)
 {
     const int64_t nSize{num_bytes};
 
-    if (nSize > 0) {
-        nSatoshisPerK = nFeePaid * 1000 / nSize;
-    } else {
+    const CAmount mweb_fee = GetMWEBFeeForWeight(mweb_weight);
+    if (mweb_fee > 0 && nFeePaid < mweb_fee) {
         nSatoshisPerK = 0;
+    } else {
+        CAmount ltc_fee = (nFeePaid - mweb_fee);
+        if (nSize > 0)
+            nSatoshisPerK = ltc_fee * 1000 / nSize;
+        else
+            nSatoshisPerK = 0;
     }
+
 }
 
-CAmount CFeeRate::GetFee(uint32_t num_bytes) const
+CAmount CFeeRate::GetFee(uint32_t num_bytes, uint32_t mweb_weight) const
 {
     const int64_t nSize{num_bytes};
 
@@ -33,7 +52,12 @@ CAmount CFeeRate::GetFee(uint32_t num_bytes) const
         if (nSatoshisPerK < 0) nFee = CAmount(-1);
     }
 
-    return nFee;
+    const CAmount mweb_fee = GetMWEBFeeForWeight(mweb_weight);
+    if (nFee > 0 && mweb_fee > std::numeric_limits<CAmount>::max() - nFee) {
+        return std::numeric_limits<CAmount>::max();
+    }
+
+    return nFee + mweb_fee;
 }
 
 std::string CFeeRate::ToString(const FeeEstimateMode& fee_estimate_mode) const
