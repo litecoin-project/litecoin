@@ -138,6 +138,8 @@ public:
     HeadersSyncState(NodeId id, const Consensus::Params& consensus_params,
             const CBlockIndex* chain_start, const arith_uint256& minimum_required_work);
 
+    void SetNodeId(NodeId id) { m_id = id; }
+
     /** Result data structure for ProcessNextHeaders. */
     struct ProcessingResult {
         std::vector<CBlockHeader> pow_validated_headers;
@@ -202,7 +204,7 @@ private:
 
 private:
     /** NodeId of the peer (used for log messages) **/
-    const NodeId m_id;
+    NodeId m_id;
 
     /** We use the consensus params in our anti-DoS calculations */
     const Consensus::Params& m_consensus_params;
