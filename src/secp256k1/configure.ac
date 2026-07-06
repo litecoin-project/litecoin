@@ -156,6 +156,22 @@ AC_ARG_ENABLE(module_schnorrsig,
     AS_HELP_STRING([--enable-module-schnorrsig],[enable schnorrsig module [default=no]]), [],
     [SECP_SET_DEFAULT([enable_module_schnorrsig], [no], [yes])])
 
+AC_ARG_ENABLE(module_generator,
+    AS_HELP_STRING([--enable-module-generator],[enable NUMS generator module [default=no]]), [],
+    [SECP_SET_DEFAULT([enable_module_generator], [no], [yes])])
+
+AC_ARG_ENABLE(module_commitment,
+    AS_HELP_STRING([--enable-module-commitment],[enable Pedersen commitments module [default=no]]), [],
+    [SECP_SET_DEFAULT([enable_module_commitment], [no], [yes])])
+
+AC_ARG_ENABLE(module_bulletproof,
+    AS_HELP_STRING([--enable-module-bulletproof],[enable Pedersen / zero-knowledge bulletproofs module [default=no]]), [],
+    [SECP_SET_DEFAULT([enable_module_bulletproof], [no], [yes])])
+
+AC_ARG_ENABLE(module_aggsig,
+    AS_HELP_STRING([--enable-module-aggsig],[enable Grin aggsig modules[default=no]]), [],
+    [SECP_SET_DEFAULT([enable_module_aggsig], [no], [yes])])
+
 AC_ARG_ENABLE(external_default_callbacks,
     AS_HELP_STRING([--enable-external-default-callbacks],[enable external default callback functions [default=no]]), [],
     [SECP_SET_DEFAULT([enable_external_default_callbacks], [no], [no])])
@@ -352,6 +368,22 @@ if test x"$enable_module_extrakeys" = x"yes"; then
   AC_DEFINE(ENABLE_MODULE_EXTRAKEYS, 1, [Define this symbol to enable the extrakeys module])
 fi
 
+if test x"$enable_module_generator" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_GENERATOR, 1, [Define this symbol to enable the NUMS generator module])
+fi
+
+if test x"$enable_module_commitment" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_COMMITMENT, 1, [Define this symbol to enable the Pedersen commitment module])
+fi
+
+if test x"$enable_module_bulletproof" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_BULLETPROOF, 1, [Define this symbol to enable the Pedersen / zero knowledge bulletproof module])
+fi
+
+if test x"$enable_module_aggsig" = x"yes"; then
+  AC_DEFINE(ENABLE_MODULE_AGGSIG, 1, [Define this symbol to enable the Grin Aggsig module])
+fi
+
 if test x"$enable_external_default_callbacks" = x"yes"; then
   AC_DEFINE(USE_EXTERNAL_DEFAULT_CALLBACKS, 1, [Define this symbol if an external implementation of the default callbacks is used])
 fi
@@ -391,6 +423,10 @@ AM_CONDITIONAL([ENABLE_MODULE_ECDH], [test x"$enable_module_ecdh" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_RECOVERY], [test x"$enable_module_recovery" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_EXTRAKEYS], [test x"$enable_module_extrakeys" = x"yes"])
 AM_CONDITIONAL([ENABLE_MODULE_SCHNORRSIG], [test x"$enable_module_schnorrsig" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_GENERATOR], [test x"$enable_module_generator" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_COMMITMENT], [test x"$enable_module_commitment" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_BULLETPROOF], [test x"$enable_module_bulletproof" = x"yes"])
+AM_CONDITIONAL([ENABLE_MODULE_AGGSIG], [test x"$enable_module_aggsig" = x"yes"])
 AM_CONDITIONAL([USE_EXTERNAL_ASM], [test x"$enable_external_asm" = x"yes"])
 AM_CONDITIONAL([USE_ASM_ARM], [test x"$set_asm" = x"arm"])
 AM_CONDITIONAL([BUILD_WINDOWS], [test "$build_windows" = "yes"])
@@ -411,6 +447,10 @@ echo "  module ecdh             = $enable_module_ecdh"
 echo "  module recovery         = $enable_module_recovery"
 echo "  module extrakeys        = $enable_module_extrakeys"
 echo "  module schnorrsig       = $enable_module_schnorrsig"
+echo "  module generator        = $enable_module_generator"
+echo "  module commitment       = $enable_module_commitment"
+echo "  module bulletproof      = $enable_module_bulletproof"
+echo "  module aggsig           = $enable_module_aggsig"
 echo
 echo "  asm                     = $set_asm"
 echo "  ecmult window size      = $set_ecmult_window"
