@@ -354,7 +354,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_serialize_v1)
 
     addr.SetInternal("a");
     s << addr;
-    BOOST_CHECK_EQUAL(HexStr(s), "fd6b88c08724ca978112ca1bbdcafac2");
+    BOOST_CHECK_EQUAL(HexStr(s), "fd6ce9fe4549ca978112ca1bbdcafac2");
     s.clear();
 }
 
@@ -390,7 +390,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_serialize_v2)
 
     BOOST_REQUIRE(addr.SetInternal("a"));
     s << addr;
-    BOOST_CHECK_EQUAL(HexStr(s), "0210fd6b88c08724ca978112ca1bbdcafac2");
+    BOOST_CHECK_EQUAL(HexStr(s), "0210fd6ce9fe4549ca978112ca1bbdcafac2");
     s.clear();
 }
 
@@ -454,7 +454,7 @@ BOOST_AUTO_TEST_CASE(cnetaddr_unserialize_v2)
     s << Span{ParseHex(
         "02"                                  // network type (IPv6)
         "10"                                  // address length
-        "fd6b88c08724ca978112ca1bbdcafac2")}; // address: 0xfd + sha256("bitcoin")[0:5] +
+        "fd6ce9fe4549ca978112ca1bbdcafac2")}; // address: 0xfd + sha256("litecoin")[0:5] +
                                               // sha256(name)[0:10]
     s >> addr;
     BOOST_CHECK(addr.IsInternal());
