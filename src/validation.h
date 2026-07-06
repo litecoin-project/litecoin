@@ -51,6 +51,7 @@ struct ChainTxData;
 struct DisconnectedBlockTransactions;
 struct PrecomputedTransactionData;
 struct LockPoints;
+class ArgsManager;
 struct AssumeutxoData;
 namespace node {
 class SnapshotMetadata;
@@ -114,6 +115,8 @@ extern arith_uint256 nMinimumChainWork;
 /** Documentation for argument 'checklevel'. */
 extern const std::vector<std::string> CHECKLEVEL_DOC;
 
+/** Calculate the number of dedicated script-checking worker threads. */
+int GetNumScriptCheckWorkerThreads(const ArgsManager& args);
 /** Run instances of script checking worker threads */
 void StartScriptCheckWorkerThreads(int threads_num);
 /** Stop all of the script checking worker threads */

@@ -57,12 +57,14 @@
 #include <warnings.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cassert>
 #include <chrono>
 #include <deque>
 #include <numeric>
 #include <optional>
 #include <string>
+#include <thread>
 
 using kernel::CCoinsStats;
 using kernel::CoinStatsHashType;
@@ -1887,6 +1889,21 @@ DisconnectResult Chainstate::DisconnectBlock(const CBlock& block, const CBlockIn
 
 static CCheckQueue<CScriptCheck> scriptcheckqueue(128);
 
+int GetNumScriptCheckWorkerThreads(const ArgsManager& args)
+{
+    int script_threads = args.GetIntArg("-par", DEFAULT_SCRIPTCHECK_THREADS);
+    if (script_threads <= 0) {
+        // -par=0 means autodetect; -par=-n means leave n cores free.
+        script_threads += GetNumCores();
+    }
+
+    // Subtract 1 because the main thread counts towards the par threads.
+    script_threads = std::max(script_threads - 1, 0);
+
+    // Number of script-checking threads <= MAX_SCRIPTCHECK_THREADS.
+    return std::min(script_threads, MAX_SCRIPTCHECK_THREADS);
+}
+
 void StartScriptCheckWorkerThreads(int threads_num)
 {
     scriptcheckqueue.StartWorkerThreads(threads_num);
@@ -3436,10 +3453,51 @@ std::vector<unsigned char> ChainstateManager::GenerateCoinbaseCommitment(CBlock&
     return commitment;
 }
 
+static size_t GetNumPoWCheckThreads(const size_t num_headers)
+{
+    if (num_headers <= 1) return num_headers;
+
+    static constexpr size_t MIN_POW_CHECK_HEADERS_PER_THREAD{64};
+    const size_t threads_by_arg = GetNumScriptCheckWorkerThreads(gArgs) + 1;
+    const size_t threads_by_work = num_headers / MIN_POW_CHECK_HEADERS_PER_THREAD;
+    return std::max<size_t>(1, std::min({num_headers, threads_by_arg, threads_by_work}));
+}
+
 bool HasValidProofOfWork(const std::vector<CBlockHeader>& headers, const Consensus::Params& consensusParams)
 {
-    return std::all_of(headers.cbegin(), headers.cend(),
-            [&](const auto& header) { return CheckProofOfWork(header.GetPoWHash(), header.nBits, consensusParams);});
+    if (headers.empty()) return true;
+
+    const size_t nthreads = GetNumPoWCheckThreads(headers.size());
+
+    if (nthreads == 1) {
+        return std::all_of(headers.cbegin(), headers.cend(),
+            [&](const auto& header) { return CheckProofOfWork(header.GetPoWHash(), header.nBits, consensusParams); });
+    }
+
+    std::atomic<bool> ok{true};
+    const size_t total = headers.size();
+    const size_t chunk = (total + nthreads - 1) / nthreads;
+
+    auto worker = [&](size_t start) {
+        const size_t end = std::min(start + chunk, total);
+        for (size_t i = start; i < end && ok.load(std::memory_order_relaxed); ++i) {
+            const auto& header = headers[i];
+            if (!CheckProofOfWork(header.GetPoWHash(), header.nBits, consensusParams)) {
+                ok.store(false, std::memory_order_relaxed);
+                break;
+            }
+        }
+    };
+
+    std::vector<std::thread> threads;
+    threads.reserve(nthreads - 1);
+    for (size_t t = 1; t < nthreads; ++t) {
+        threads.emplace_back(worker, t * chunk);
+    }
+    worker(0);
+    for (auto& thread : threads) thread.join();
+
+    return ok.load(std::memory_order_relaxed);
 }
 
 arith_uint256 CalculateHeadersWork(const std::vector<CBlockHeader>& headers)
