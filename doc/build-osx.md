@@ -58,7 +58,7 @@ Now that all the required dependencies are installed, let's clone the Litecoin C
 All build scripts and commands will run from this directory.
 
 ``` bash
-git clone https://github.com/litecoind-project/litecoin.git
+git clone https://github.com/litecoin-project/litecoin.git
 ```
 
 ### 5. Install Optional Dependencies

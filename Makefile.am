@@ -258,7 +258,7 @@ EXTRA_DIST += \
 
 EXTRA_DIST += \
     test/util/test_runner.py \
-    test/util/data/bitcoin-util-test.json \
+    test/util/data/litecoin-util-test.json \
     test/util/data/blanktxv1.hex \
     test/util/data/blanktxv1.json \
     test/util/data/blanktxv2.hex \
