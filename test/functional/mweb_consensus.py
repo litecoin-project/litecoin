@@ -4,9 +4,12 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test MWEB consensus rules"""
 
-import json
+from decimal import Decimal
+
+from test_framework.ltc_util import get_hog_addr_txout
 from test_framework.test_framework import LitecoinTestFramework
-from test_framework.util import assert_equal, CustomJSONEncoder
+from test_framework.util import assert_equal
+
 
 class MWEBConsensusTest(LitecoinTestFramework):
     def set_test_params(self):
@@ -25,53 +28,76 @@ class MWEBConsensusTest(LitecoinTestFramework):
         # TODO: Test duplicate pegins
         self.run_issue_1006_regression_test()
 
-    def send_tx_with_no_change(self, node, amount, recipient_addr: str):
-        outputs = [{recipient_addr: 25}]
+    def send_mweb_pegin(self, node, amount, recipient_addr: str):
+        outputs = [{recipient_addr: amount}]
         options = {
             'add_to_wallet': True,
             'change_address': node.getnewaddress(),
-            #'subtract_fee_from_outputs': [0],
             'include_unsafe': True
         }
         return node.send(outputs=outputs, options=options)
 
     def run_issue_1006_regression_test(self):
         self.log.info("Test issue 1006 regression")
-        
+
         node0 = self.nodes[0]
         node1 = self.nodes[1]
+        pegin_amount = Decimal("25")
+        initial_mweb_amount = get_hog_addr_txout(node0).get_amount()
 
         #
         # Pegin funds from node0(miner) to node1
         #
         n1_mweb_addr1 = node1.getnewaddress(address_type='mweb')
-        tx1_id = self.send_tx_with_no_change(node0, 50, n1_mweb_addr1)['txid'] #node0.sendtoaddress(n1_mweb_addr1, 50) # node0.sendall(recipients=[n1_mweb_addr1])['txid']
+        tx1_id = self.send_mweb_pegin(node0, pegin_amount, n1_mweb_addr1)['txid']
         tx1 = node0.gettransaction(tx1_id, False, True)
-        output_id = [o['mweb_out'] for o in tx1['details'] if o['amount'] == 0.0][0]
-        print(f'Output ID: {output_id}')
+        assert_equal(tx1['confirmations'], 0)
+        assert_equal(tx1['amount'], -pegin_amount)
         self.sync_mempools()
-        #print(f"Tx1: {json.dumps(tx1, cls=CustomJSONEncoder, indent=4)}")
+        assert_equal(set(node0.getrawmempool()), {tx1_id})
+        assert_equal(set(node1.getrawmempool()), {tx1_id})
 
         #
         # Pegout the entire coin back to node0(miner)
         #
         n0_ltc_addr1 = node0.getnewaddress()
         n1_ltc_addr1 = node1.getnewaddress()
-        outputs = [{n0_ltc_addr1: 25}]
+        outputs = [{n0_ltc_addr1: pegin_amount}]
         options = {
             'add_to_wallet': True,
-            #'change_address': n1_ltc_addr1,
             'subtract_fee_from_outputs': [0],
             'include_unsafe': True
         }
         tx2_id = node1.send(outputs=outputs, options=options)['txid']
-        print(f"Tx2 ID: {tx2_id}")
-        tx2 = node1.getrawtransaction(tx2_id, False)
-        print(f"Tx2: {json.dumps(tx2, cls=CustomJSONEncoder, indent=4)}")
-        print(f"Node1 Transactions: {json.dumps(node1.listwallettransactions(), cls=CustomJSONEncoder, indent=4)}")
+        tx2 = node1.gettransaction(tx2_id)
+        assert_equal(tx2['confirmations'], 0)
+        assert tx2['fee'] < 0
+        assert_equal(tx2['amount'], -(pegin_amount + tx2['fee']))
+        self.sync_mempools()
+        assert_equal(set(node0.getrawmempool()), {tx1_id, tx2_id})
+        assert_equal(set(node1.getrawmempool()), {tx1_id, tx2_id})
 
         block_id = self.generatetoaddress(node1, 1, n1_ltc_addr1)[0]
-        print(f"Block: {json.dumps(node1.getblock(block_id, True), cls=CustomJSONEncoder, indent=4)}")
+        self.sync_all()
+        assert_equal(set(node0.getrawmempool()), {tx2_id})
+        assert_equal(set(node1.getrawmempool()), {tx2_id})
+
+        block_txs = node1.getblock(block_id, 1)['tx']
+        assert tx1_id in block_txs
+        assert tx2_id not in block_txs
+
+        block_id = self.generatetoaddress(node1, 1, n1_ltc_addr1)[0]
+        self.sync_all()
+        assert_equal(node0.getrawmempool(), [])
+        assert_equal(node1.getrawmempool(), [])
+
+        assert_equal(node1.gettransaction(tx2_id)['confirmations'], 1)
+
+        received = node0.listreceivedbyaddress(minconf=0, address_filter=n0_ltc_addr1)
+        assert_equal(len(received), 1)
+        assert_equal(received[0]['amount'], pegin_amount + tx2['fee'])
+        assert_equal(received[0]['confirmations'], 1)
+        assert_equal(get_hog_addr_txout(node0).get_amount(), initial_mweb_amount)
 
 if __name__ == '__main__':
     MWEBConsensusTest().main()
