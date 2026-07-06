@@ -1909,6 +1909,8 @@ public:
 
     int64_t BeginTime(const Consensus::Params& params) const override { return 0; }
     int64_t EndTime(const Consensus::Params& params) const override { return std::numeric_limits<int64_t>::max(); }
+    int64_t BeginHeight(const Consensus::Params& params) const override { return 0; }
+    int64_t EndHeight(const Consensus::Params& params) const override { return std::numeric_limits<int64_t>::max(); }
     int Period(const Consensus::Params& params) const override { return params.nMinerConfirmationWindow; }
     int Threshold(const Consensus::Params& params) const override { return params.nRuleChangeActivationThreshold; }
 
@@ -1935,10 +1937,15 @@ static unsigned int GetBlockScriptFlags(const CBlockIndex& block_index, const Ch
     // mainnet.
     // For simplicity, always leave P2SH+WITNESS+TAPROOT on except for the two
     // violating blocks.
-    uint32_t flags{SCRIPT_VERIFY_P2SH | SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT};
+    uint32_t flags{SCRIPT_VERIFY_WITNESS | SCRIPT_VERIFY_TAPROOT};
     const auto it{consensusparams.script_flag_exceptions.find(*Assert(block_index.phashBlock))};
     if (it != consensusparams.script_flag_exceptions.end()) {
         flags = it->second;
+    }
+	
+    // Enforce P2SH (BIP16)
+    if (DeploymentActiveAt(block_index, chainman, Consensus::DEPLOYMENT_P2SH)) {
+        flags |= SCRIPT_VERIFY_P2SH;
     }
 
     // Enforce the DERSIG (BIP66) rule
@@ -2069,9 +2076,9 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // Now that the whole chain is irreversibly beyond that time it is applied to all blocks except the
     // two in the chain that violate it. This prevents exploiting the issue against nodes during their
     // initial block download.
-    bool fEnforceBIP30 = !((pindex->nHeight==91842 && pindex->GetBlockHash() == uint256S("0x00000000000a4d0a398161ffc163c503763b1f4360639393e0e4c8e300e0caec")) ||
-                           (pindex->nHeight==91880 && pindex->GetBlockHash() == uint256S("0x00000000000743f190a18c5577a3c2d2a1f610ae9601ac046a38084ccb7cd721")));
-
+    
+    bool fEnforceBIP30 = true;
+	
     // Once BIP34 activated it was not possible to create new duplicate coinbases and thus other than starting
     // with the 2 existing duplicate coinbase pairs, not possible to create overwriting txs.  But by the
     // time BIP34 activated, in each of the existing pairs the duplicate coinbase had overwritten the first
@@ -2098,7 +2105,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // future consensus change to do a new and improved version of BIP34 that
     // will actually prevent ever creating any duplicate coinbases in the
     // future.
-    static constexpr int BIP34_IMPLIES_BIP30_LIMIT = 1983702;
+    // static constexpr int BIP34_IMPLIES_BIP30_LIMIT = 1983702;
 
     // There is no potential to create a duplicate coinbase at block 209,921
     // because this is still before the BIP34 height and so explicit BIP30
@@ -2135,7 +2142,7 @@ bool Chainstate::ConnectBlock(const CBlock& block, BlockValidationState& state, 
     // TODO: Remove BIP30 checking from block height 1,983,702 on, once we have a
     // consensus change that ensures coinbases at those heights cannot
     // duplicate earlier coinbases.
-    if (fEnforceBIP30 || pindex->nHeight >= BIP34_IMPLIES_BIP30_LIMIT) {
+    if (fEnforceBIP30) {
         for (const auto& tx : block.vtx) {
             for (size_t o = 0; o < tx->vout.size(); o++) {
                 if (view.HaveCoin(COutPoint(tx->GetHash(), o))) {

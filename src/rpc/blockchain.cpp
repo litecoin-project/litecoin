@@ -1145,7 +1145,7 @@ static void SoftForkDescPushBack(const CBlockIndex* blockindex, UniValue& softfo
         return "invalid";
     };
 
-    UniValue bip9(UniValue::VOBJ);
+    UniValue version_bits(UniValue::VOBJ);
 
     const ThresholdState next_state = chainman.m_versionbitscache.State(blockindex, chainman.GetConsensus(), id);
     const ThresholdState current_state = chainman.m_versionbitscache.State(blockindex->pprev, chainman.GetConsensus(), id);
@@ -1154,16 +1154,21 @@ static void SoftForkDescPushBack(const CBlockIndex* blockindex, UniValue& softfo
 
     // BIP9 parameters
     if (has_signal) {
-        bip9.pushKV("bit", chainman.GetConsensus().vDeployments[id].bit);
+        version_bits.pushKV("bit", chainman.GetConsensus().vDeployments[id].bit);
     }
-    bip9.pushKV("start_time", chainman.GetConsensus().vDeployments[id].nStartTime);
-    bip9.pushKV("timeout", chainman.GetConsensus().vDeployments[id].nTimeout);
-    bip9.pushKV("min_activation_height", chainman.GetConsensus().vDeployments[id].min_activation_height);
+    bool fHeightBased = chainman.GetConsensus().vDeployments[id].nStartTime == 0 && chainman.GetConsensus().vDeployments[id].nTimeout == 0;
+    if (fHeightBased) {
+        version_bits.pushKV("start_height", chainman.GetConsensus().vDeployments[id].nStartHeight);
+        version_bits.pushKV("timeout_height", chainman.GetConsensus().vDeployments[id].nTimeoutHeight);
+    } else {
+        version_bits.pushKV("start_time", chainman.GetConsensus().vDeployments[id].nStartTime);
+        version_bits.pushKV("timeout", chainman.GetConsensus().vDeployments[id].nTimeout);
+    }
 
     // BIP9 status
-    bip9.pushKV("status", get_state_name(current_state));
-    bip9.pushKV("since", chainman.m_versionbitscache.StateSinceHeight(blockindex->pprev, chainman.GetConsensus(), id));
-    bip9.pushKV("status_next", get_state_name(next_state));
+    version_bits.pushKV("status", get_state_name(current_state));
+    version_bits.pushKV("since", chainman.m_versionbitscache.StateSinceHeight(blockindex->pprev, chainman.GetConsensus(), id));
+    version_bits.pushKV("status_next", get_state_name(next_state));
 
     // BIP9 signalling status, if applicable
     if (has_signal) {
@@ -1177,23 +1182,23 @@ static void SoftForkDescPushBack(const CBlockIndex* blockindex, UniValue& softfo
             statsUV.pushKV("threshold", statsStruct.threshold);
             statsUV.pushKV("possible", statsStruct.possible);
         }
-        bip9.pushKV("statistics", statsUV);
+        version_bits.pushKV("statistics", statsUV);
 
         std::string sig;
         sig.reserve(signals.size());
         for (const bool s : signals) {
             sig.push_back(s ? '#' : '-');
         }
-        bip9.pushKV("signalling", sig);
+        version_bits.pushKV("signalling", sig);
     }
 
     UniValue rv(UniValue::VOBJ);
-    rv.pushKV("type", "bip9");
+    rv.pushKV("type", fHeightBased ? "bip8" : "bip9");
     if (ThresholdState::ACTIVE == next_state) {
         rv.pushKV("height", chainman.m_versionbitscache.StateSinceHeight(blockindex, chainman.GetConsensus(), id));
     }
     rv.pushKV("active", ThresholdState::ACTIVE == next_state);
-    rv.pushKV("bip9", bip9);
+    rv.pushKV(fHeightBased ? "bip8" : "bip9", version_bits);
 
     softforks.pushKV(DeploymentName(id), rv);
 }
@@ -1277,7 +1282,8 @@ const std::vector<RPCResult> RPCHelpForDeployment{
         {RPCResult::Type::NUM, "bit", /*optional=*/true, "the bit (0-28) in the block version field used to signal this softfork (only for \"started\" and \"locked_in\" status)"},
         {RPCResult::Type::NUM_TIME, "start_time", "the minimum median time past of a block at which the bit gains its meaning"},
         {RPCResult::Type::NUM_TIME, "timeout", "the median time past of a block at which the deployment is considered failed if not yet locked in"},
-        {RPCResult::Type::NUM, "min_activation_height", "minimum height of blocks for which the rules may be enforced"},
+        {RPCResult::Type::NUM, "start_height", "minimum block height at which the bit gains its meaning"},
+        {RPCResult::Type::NUM, "timeout_height", "block height at which the deployment is considered failed if not yet locked in"},
         {RPCResult::Type::STR, "status", "status of deployment at specified block (one of \"defined\", \"started\", \"locked_in\", \"active\", \"failed\")"},
         {RPCResult::Type::NUM, "since", "height of the first block to which the status applies"},
         {RPCResult::Type::STR, "status_next", "status of deployment at the next block"},
@@ -1296,6 +1302,7 @@ const std::vector<RPCResult> RPCHelpForDeployment{
 UniValue DeploymentInfo(const CBlockIndex* blockindex, const ChainstateManager& chainman)
 {
     UniValue softforks(UniValue::VOBJ);
+    SoftForkDescPushBack(blockindex, softforks, chainman, Consensus::DEPLOYMENT_P2SH);
     SoftForkDescPushBack(blockindex, softforks, chainman, Consensus::DEPLOYMENT_HEIGHTINCB);
     SoftForkDescPushBack(blockindex, softforks, chainman, Consensus::DEPLOYMENT_DERSIG);
     SoftForkDescPushBack(blockindex, softforks, chainman, Consensus::DEPLOYMENT_CLTV);
