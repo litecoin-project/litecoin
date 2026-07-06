@@ -81,7 +81,7 @@ BOOST_AUTO_TEST_CASE(get_next_work_upper_limit_actual)
 BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_negative_target)
 {
     const auto consensus = CreateChainParams(*m_node.args, CBaseChainParams::MAIN)->GetConsensus();
-    uint256 hash;
+    PoWHash hash;
     unsigned int nBits;
     nBits = UintToArith256(consensus.powLimit).GetCompact(true);
     hash.SetHex("0x1");
@@ -91,7 +91,7 @@ BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_negative_target)
 BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_overflow_target)
 {
     const auto consensus = CreateChainParams(*m_node.args, CBaseChainParams::MAIN)->GetConsensus();
-    uint256 hash;
+    PoWHash hash;
     unsigned int nBits{~0x00800000U};
     hash.SetHex("0x1");
     BOOST_CHECK(!CheckProofOfWork(hash, nBits, consensus));
@@ -100,7 +100,7 @@ BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_overflow_target)
 BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_too_easy_target)
 {
     const auto consensus = CreateChainParams(*m_node.args, CBaseChainParams::MAIN)->GetConsensus();
-    uint256 hash;
+    PoWHash hash;
     unsigned int nBits;
     arith_uint256 nBits_arith = UintToArith256(consensus.powLimit);
     nBits_arith *= 2;
@@ -112,23 +112,23 @@ BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_too_easy_target)
 BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_biger_hash_than_target)
 {
     const auto consensus = CreateChainParams(*m_node.args, CBaseChainParams::MAIN)->GetConsensus();
-    uint256 hash;
+    PoWHash hash;
     unsigned int nBits;
     arith_uint256 hash_arith = UintToArith256(consensus.powLimit);
     nBits = hash_arith.GetCompact();
     hash_arith *= 2; // hash > nBits
-    hash = ArithToUint256(hash_arith);
+    hash = PoWHash(ArithToUint256(hash_arith));
     BOOST_CHECK(!CheckProofOfWork(hash, nBits, consensus));
 }
 
 BOOST_AUTO_TEST_CASE(CheckProofOfWork_test_zero_target)
 {
     const auto consensus = CreateChainParams(*m_node.args, CBaseChainParams::MAIN)->GetConsensus();
-    uint256 hash;
+    PoWHash hash;
     unsigned int nBits;
     arith_uint256 hash_arith{0};
     nBits = hash_arith.GetCompact();
-    hash = ArithToUint256(hash_arith);
+    hash = PoWHash(ArithToUint256(hash_arith));
     BOOST_CHECK(!CheckProofOfWork(hash, nBits, consensus));
 }
 
