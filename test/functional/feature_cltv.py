@@ -31,6 +31,7 @@ from test_framework.wallet import (
     MiniWalletMode,
 )
 
+VB_TOP_BITS = 0x20000000
 
 # Helper function to modify a transaction by
 # 1) prepending a given script to the scriptSig of vin 0 and
@@ -121,7 +122,7 @@ class BIP65Test(BitcoinTestFramework):
 
         tip = self.nodes[0].getbestblockhash()
         block_time = self.nodes[0].getblockheader(tip)['mediantime'] + 1
-        block = create_block(int(tip, 16), create_coinbase(CLTV_HEIGHT - 1), block_time, version=3, txlist=invalid_cltv_txs)
+        block = create_block(int(tip, 16), create_coinbase(CLTV_HEIGHT - 1), block_time, version=VB_TOP_BITS, txlist=invalid_cltv_txs)
         block.solve()
 
         self.test_cltv_info(is_active=False)  # Not active as of current tip and next block does not need to obey rules
@@ -129,7 +130,7 @@ class BIP65Test(BitcoinTestFramework):
         self.test_cltv_info(is_active=True)  # Not active as of current tip, but next block must obey rules
         assert_equal(self.nodes[0].getbestblockhash(), block.hash)
 
-        self.log.info("Test that blocks must now be at least version 4")
+        self.log.info("Test that blocks must now be at least version VB_TOP_BITS")
         tip = block.sha256
         block_time += 1
         block = create_block(tip, create_coinbase(CLTV_HEIGHT), block_time, version=3)
@@ -141,7 +142,7 @@ class BIP65Test(BitcoinTestFramework):
             peer.sync_with_ping()
 
         self.log.info("Test that invalid-according-to-CLTV transactions cannot appear in a block")
-        block.nVersion = 4
+        block.nVersion = 0x20000004
         block.vtx.append(CTransaction()) # dummy tx after coinbase that will be replaced later
 
         # create and test one invalid tx per CLTV failure reason (5 in total)
@@ -178,7 +179,7 @@ class BIP65Test(BitcoinTestFramework):
                 assert_equal(int(self.nodes[0].getbestblockhash(), 16), tip)
                 peer.sync_with_ping()
 
-        self.log.info("Test that a version 4 block with a valid-according-to-CLTV transaction is accepted")
+        self.log.info("Test that a version VB_TOP_BITS block with a valid-according-to-CLTV transaction is accepted")
         cltv_validate(spendtx, CLTV_HEIGHT - 1)
 
         block.vtx.pop(1)

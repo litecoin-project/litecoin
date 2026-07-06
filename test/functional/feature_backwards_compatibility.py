@@ -34,18 +34,14 @@ from test_framework.util import (
 class BackwardsCompatibilityTest(BitcoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
-        self.num_nodes = 10
+        self.num_nodes = 6
         # Add new version after each release:
         self.extra_args = [
             ["-addresstype=bech32", "-whitelist=noban@127.0.0.1"], # Pre-release: use to mine blocks. noban for immediate tx relay
             ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=noban@127.0.0.1"], # Pre-release: use to receive coins, swap wallets, etc
-            ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=noban@127.0.0.1"], # v23.0
-            ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=noban@127.0.0.1"], # v22.0
-            ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=noban@127.0.0.1"], # v0.21.0
-            ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=noban@127.0.0.1"], # v0.20.1
-            ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=noban@127.0.0.1"], # v0.19.1
+            ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=noban@127.0.0.1"], # v0.21.2.2
             ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=127.0.0.1"], # v0.18.1
-            ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=127.0.0.1"], # v0.17.2
+            ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=127.0.0.1"], # v0.17.1
             ["-nowallet", "-walletrbf=1", "-addresstype=bech32", "-whitelist=127.0.0.1", "-wallet=wallet.dat"], # v0.16.3
         ]
         self.wallet_names = [self.default_wallet_name]
@@ -58,13 +54,9 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
         self.add_nodes(self.num_nodes, extra_args=self.extra_args, versions=[
             None,
             None,
-            230000,
-            220000,
-            210000,
-            200100,
-            190100,
+            210202,
             180100,
-            170200,
+            170100,
             160300,
         ])
 
@@ -79,7 +71,6 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
     def run_test(self):
         node_miner = self.nodes[0]
         node_master = self.nodes[1]
-        node_v19 = self.nodes[self.num_nodes - 4]
         node_v18 = self.nodes[self.num_nodes - 3]
         node_v17 = self.nodes[self.num_nodes - 2]
         node_v16 = self.nodes[self.num_nodes - 1]
@@ -111,25 +102,21 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
         return_address = node_miner.getnewaddress()
         tx1_id = node_master.sendtoaddress(return_address, 1)
         tx2_id = node_master.bumpfee(tx1_id)["txid"]
-        # Confirm the transaction
+        # Litecoin disables mempool replacement by default, so the replacement
+        # is committed to the wallet but the original remains mineable.
         self.sync_mempools()
         self.generate(node_miner, 1)
-        # Create another conflicting transaction using RBF
-        tx3_id = node_master.sendtoaddress(return_address, 1)
-        tx4_id = node_master.bumpfee(tx3_id)["txid"]
-        # Abandon transaction, but don't confirm
-        node_master.abandontransaction(tx3_id)
 
         # w1_v19: regular wallet, created with v0.19
-        node_v19.rpc.createwallet(wallet_name="w1_v19")
-        wallet = node_v19.get_wallet_rpc("w1_v19")
-        info = wallet.getwalletinfo()
-        assert info['private_keys_enabled']
-        assert info['keypoolsize'] > 0
+        #node_v19.rpc.createwallet(wallet_name="w1_v19")
+        #wallet = node_v19.get_wallet_rpc("w1_v19")
+        #info = wallet.getwalletinfo()
+        #assert info['private_keys_enabled']
+        #assert info['keypoolsize'] > 0
         # Use addmultisigaddress (see #18075)
-        address_18075 = wallet.rpc.addmultisigaddress(1, ["0296b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52", "037211a824f55b505228e4c3d5194c1fcfaa15a456abdf37f9b9d97a4040afc073"], "", "legacy")["address"]
-        assert wallet.getaddressinfo(address_18075)["solvable"]
-        node_v19.unloadwallet("w1_v19")
+        #address_18075 = wallet.rpc.addmultisigaddress(1, ["0296b538e853519c726a2c91e61ec11600ae1390813a627c66fb8be7947be63c52", "037211a824f55b505228e4c3d5194c1fcfaa15a456abdf37f9b9d97a4040afc073"], "", "legacy")["address"]
+        #assert wallet.getaddressinfo(address_18075)["solvable"]
+        #node_v19.unloadwallet("w1_v19")
 
         # w1_v18: regular wallet, created with v0.18
         node_v18.rpc.createwallet(wallet_name="w1_v18")
@@ -157,7 +144,7 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
 
         # Unload wallets and copy to older nodes:
         node_master_wallets_dir = os.path.join(node_master.datadir, "regtest/wallets")
-        node_v19_wallets_dir = os.path.join(node_v19.datadir, "regtest/wallets")
+        #node_v19_wallets_dir = os.path.join(node_v19.datadir, "regtest/wallets")
         node_v17_wallets_dir = os.path.join(node_v17.datadir, "regtest/wallets")
         node_v16_wallets_dir = os.path.join(node_v16.datadir, "regtest")
         node_master.unloadwallet("w1")
@@ -190,17 +177,12 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
                         assert info['private_keys_enabled'] == True
                         assert info['keypoolsize'] > 0
                         txs = wallet.listtransactions()
-                        assert_equal(len(txs), 5)
+                        assert_equal(len(txs), 3)
                         assert_equal(txs[1]["txid"], tx1_id)
                         assert_equal(txs[2]["walletconflicts"], [tx1_id])
                         assert_equal(txs[1]["replaced_by_txid"], tx2_id)
                         assert not(txs[1]["abandoned"])
-                        assert_equal(txs[1]["confirmations"], -1)
-                        assert_equal(txs[2]["blockindex"], 1)
-                        assert txs[3]["abandoned"]
-                        assert_equal(txs[4]["walletconflicts"], [tx3_id])
-                        assert_equal(txs[3]["replaced_by_txid"], tx4_id)
-                        assert not(hasattr(txs[3], "blockindex"))
+                        assert_equal(txs[1]["confirmations"], 1)
                     elif wallet_name == "w2":
                         assert(info['private_keys_enabled'] == False)
                         assert info['keypoolsize'] == 0
@@ -227,7 +209,7 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
             node_v17.assert_start_raises_init_error(["-wallet=w2"], "Error: wallet.dat corrupt, salvage failed")
             node_v17.assert_start_raises_init_error(["-wallet=w3"], "Error: wallet.dat corrupt, salvage failed")
         else:
-            node_v17.assert_start_raises_init_error(["-wallet=w3"], "Error: Error loading w3: Wallet requires newer version of Bitcoin Core")
+            node_v17.assert_start_raises_init_error(["-wallet=w3"], "Error: Error loading w3: Wallet requires newer version of Litecoin Core")
         self.start_node(node_v17.index)
 
         if not self.options.descriptors:
@@ -306,24 +288,24 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
             assert_equal(info, v17_info)
 
             # Copy the 0.19 wallet to the last Bitcoin Core version and open it:
-            shutil.copytree(
-                os.path.join(node_v19_wallets_dir, "w1_v19"),
-                os.path.join(node_master_wallets_dir, "w1_v19")
-            )
-            node_master.loadwallet("w1_v19")
-            wallet = node_master.get_wallet_rpc("w1_v19")
-            assert wallet.getaddressinfo(address_18075)["solvable"]
+            #shutil.copytree(
+            #    os.path.join(node_v19_wallets_dir, "w1_v19"),
+            #    os.path.join(node_master_wallets_dir, "w1_v19")
+            #)
+            #node_master.loadwallet("w1_v19")
+            #wallet = node_master.get_wallet_rpc("w1_v19")
+            #assert wallet.getaddressinfo(address_18075)["solvable"]
 
             # Now copy that same wallet back to 0.19 to make sure no automatic upgrade breaks it
-            node_master.unloadwallet("w1_v19")
-            shutil.rmtree(os.path.join(node_v19_wallets_dir, "w1_v19"))
-            shutil.copytree(
-                os.path.join(node_master_wallets_dir, "w1_v19"),
-                os.path.join(node_v19_wallets_dir, "w1_v19")
-            )
-            node_v19.loadwallet("w1_v19")
-            wallet = node_v19.get_wallet_rpc("w1_v19")
-            assert wallet.getaddressinfo(address_18075)["solvable"]
+            #node_master.unloadwallet("w1_v19")
+            #shutil.rmtree(os.path.join(node_v19_wallets_dir, "w1_v19"))
+            #shutil.copytree(
+            #    os.path.join(node_master_wallets_dir, "w1_v19"),
+            #    os.path.join(node_v19_wallets_dir, "w1_v19")
+            #)
+            #node_v19.loadwallet("w1_v19")
+            #wallet = node_v19.get_wallet_rpc("w1_v19")
+            #assert wallet.getaddressinfo(address_18075)["solvable"]
 
 if __name__ == '__main__':
     BackwardsCompatibilityTest().main()

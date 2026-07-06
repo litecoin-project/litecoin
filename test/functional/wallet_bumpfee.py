@@ -54,6 +54,7 @@ class BumpFeeTest(BitcoinTestFramework):
             "-mintxfee=0.00002",
             "-addresstype=bech32",
             "-whitelist=noban@127.0.0.1",
+            "-mempoolreplacement=1"
         ] for i in range(self.num_nodes)]
 
     def skip_test_if_missing_module(self):
@@ -612,7 +613,7 @@ def submit_block_with_tx(node, tx):
     tip = node.getbestblockhash()
     height = node.getblockcount() + 1
     block_time = node.getblockheader(tip)["mediantime"] + 1
-    block = create_block(int(tip, 16), create_coinbase(height), block_time, txlist=[tx])
+    block = create_block(int(tip, 16), create_coinbase(height), block_time, txlist=[tx], version=0x20000000)
     add_witness_commitment(block)
     block.solve()
     node.submitblock(block.serialize().hex())

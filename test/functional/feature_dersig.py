@@ -23,6 +23,8 @@ from test_framework.wallet import (
     MiniWalletMode,
 )
 
+VB_TOP_BITS = 0x20000000
+
 
 # A canonical signature consists of:
 # <30> <total len> <02> <len R> <R> <02> <len S> <S> <hashtype>
@@ -85,7 +87,7 @@ class BIP66Test(BitcoinTestFramework):
 
         tip = self.nodes[0].getbestblockhash()
         block_time = self.nodes[0].getblockheader(tip)['mediantime'] + 1
-        block = create_block(int(tip, 16), create_coinbase(DERSIG_HEIGHT - 1), block_time, txlist=[spendtx])
+        block = create_block(int(tip, 16), create_coinbase(DERSIG_HEIGHT - 1), block_time, txlist=[spendtx], version=VB_TOP_BITS)
         block.solve()
 
         assert_equal(self.nodes[0].getblockcount(), DERSIG_HEIGHT - 2)
@@ -95,7 +97,7 @@ class BIP66Test(BitcoinTestFramework):
         self.test_dersig_info(is_active=True)  # Not active as of current tip, but next block must obey rules
         assert_equal(self.nodes[0].getbestblockhash(), block.hash)
 
-        self.log.info("Test that blocks must now be at least version 3")
+        self.log.info("Test that blocks must now be at least VB_TOP_BITS")
         tip = block.sha256
         block_time += 1
         block = create_block(tip, create_coinbase(DERSIG_HEIGHT), block_time, version=2)
@@ -107,7 +109,7 @@ class BIP66Test(BitcoinTestFramework):
             peer.sync_with_ping()
 
         self.log.info("Test that transactions with non-DER signatures cannot appear in a block")
-        block.nVersion = 4
+        block.nVersion = 0x20000004
 
         spendtx = self.create_tx(self.coinbase_txids[1])
         unDERify(spendtx)

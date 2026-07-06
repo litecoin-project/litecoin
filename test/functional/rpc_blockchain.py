@@ -199,7 +199,6 @@ class BlockchainTest(BitcoinTestFramework):
                     'bit': 28,
                     'start_time': 0,
                     'timeout': 0x7fffffffffffffff,  # testdummy does not have a timeout so is set to the max int64 value
-                    'min_activation_height': 0,
                     'status': 'started',
                     'status_next': status_next,
                     'since': 144,
@@ -219,7 +218,6 @@ class BlockchainTest(BitcoinTestFramework):
                 'bip9': {
                     'start_time': -1,
                     'timeout': 9223372036854775807,
-                    'min_activation_height': 0,
                     'status': 'active',
                     'status_next': 'active',
                     'since': 0,
@@ -458,7 +456,7 @@ class BlockchainTest(BitcoinTestFramework):
         fork_block = node.getblock(fork_hash)
 
         def solve_and_send_block(prevhash, height, time):
-            b = create_block(prevhash, create_coinbase(height), time)
+            b = create_block(prevhash, create_coinbase(height), time, version=0x20000000)
             b.solve()
             peer.send_and_ping(msg_block(b))
             return b

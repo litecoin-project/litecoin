@@ -1249,7 +1249,7 @@ class TaprootTest(BitcoinTestFramework):
         extra_output_script = CScript([OP_CHECKSIG]*((MAX_BLOCK_SIGOPS_WEIGHT - sigops_weight) // WITNESS_SCALE_FACTOR))
 
         coinbase_tx = create_coinbase(self.lastblockheight + 1, pubkey=cb_pubkey, extra_output_script=extra_output_script, fees=fees)
-        block = create_block(self.tip, coinbase_tx, self.lastblocktime + 1, txlist=txs)
+        block = create_block(self.tip, coinbase_tx, self.lastblocktime + 1, txlist=txs, version=0x20000000)
         witness and add_witness_commitment(block)
         block.solve()
         block_response = node.submitblock(block.serialize().hex())
@@ -1491,7 +1491,7 @@ class TaprootTest(BitcoinTestFramework):
         coinbase.rehash()
         assert coinbase.hash == "f60c73405d499a956d3162e3483c395526ef78286458a4cb17b125aa92e49b20"
         # Mine it
-        block = create_block(hashprev=int(self.nodes[0].getbestblockhash(), 16), coinbase=coinbase)
+        block = create_block(hashprev=int(self.nodes[0].getbestblockhash(), 16), coinbase=coinbase, version=0x20000000)
         block.rehash()
         block.solve()
         self.nodes[0].submitblock(block.serialize().hex())

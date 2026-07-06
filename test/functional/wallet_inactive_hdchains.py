@@ -30,7 +30,7 @@ class InactiveHDChainsTest(BitcoinTestFramework):
     def setup_nodes(self):
         self.add_nodes(self.num_nodes, extra_args=self.extra_args, versions=[
             None,
-            170200, # 0.17.2 Does not have the key metadata upgrade
+            170100, # 0.17.2 Does not have the key metadata upgrade
         ])
 
         self.start_nodes()
@@ -70,7 +70,7 @@ class InactiveHDChainsTest(BitcoinTestFramework):
 
         # Send to first address on the old seed
         txid = default.sendtoaddress(addr1, 10)
-        self.generate(self.nodes[0], 1)
+        self.generate(self.nodes[0], 1, sync_fun=lambda: None)
 
         # Wait for the test wallet to see the transaction
         while True:
@@ -92,7 +92,7 @@ class InactiveHDChainsTest(BitcoinTestFramework):
 
         # Send to second address on the old seed
         txid = default.sendtoaddress(addr2, 10)
-        self.generate(self.nodes[0], 1)
+        self.generate(self.nodes[0], 1, sync_fun=lambda: None)
         test_wallet.gettransaction(txid)
 
     def test_basic(self):
@@ -126,7 +126,8 @@ class InactiveHDChainsTest(BitcoinTestFramework):
         test_wallet.encryptwallet("pass")
 
         # Copy test wallet to node 0
-        test_wallet.unloadwallet()
+        # Litecoin v0.17.1 shuts down after encrypting a wallet.
+        self.nodes[1].wait_until_stopped()
         test_wallet_dir = os.path.join(self.nodes[1].datadir, "regtest/wallets/keymeta_test")
         new_test_wallet_dir = os.path.join(self.nodes[0].datadir, "regtest/wallets/keymeta_test")
         shutil.copytree(test_wallet_dir, new_test_wallet_dir)
