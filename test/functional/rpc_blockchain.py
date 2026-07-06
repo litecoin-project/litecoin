@@ -181,7 +181,7 @@ class BlockchainTest(BitcoinTestFramework):
         assert_equal(res['prune_target_size'], 576716800)
         assert_greater_than(res['size_on_disk'], 0)
 
-    def check_signalling_deploymentinfo_result(self, gdi_result, height, blockhash, status_next):
+    def check_signalling_deploymentinfo_result(self, gdi_result, height, blockhash, status_next, mweb_status_next):
         assert height >= 144 and height <= 287
 
         assert_equal(gdi_result, {
@@ -224,6 +224,17 @@ class BlockchainTest(BitcoinTestFramework):
                 },
                 'height': 0,
                 'active': True
+            },
+            'mweb': {
+                'type': 'bip9',
+                'active': False,
+                'bip9': {
+                    'start_time': 1601450001,
+                    'timeout': 9223372036854775807,
+                    'status': 'defined',
+                    'since': 0,
+                    'status_next': mweb_status_next
+                }
             }
           }
         })
@@ -243,15 +254,15 @@ class BlockchainTest(BitcoinTestFramework):
         ])
 
         gbci207 = self.nodes[0].getblockchaininfo()
-        self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(), gbci207["blocks"], gbci207["bestblockhash"], "started")
+        self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(), gbci207["blocks"], gbci207["bestblockhash"], "started", "defined")
 
         # block just prior to lock in
         self.generate(self.wallet, 287 - gbci207["blocks"])
         gbci287 = self.nodes[0].getblockchaininfo()
-        self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(), gbci287["blocks"], gbci287["bestblockhash"], "locked_in")
+        self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(), gbci287["blocks"], gbci287["bestblockhash"], "locked_in", "started")
 
         # calling with an explicit hash works
-        self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(gbci207["bestblockhash"]), gbci207["blocks"], gbci207["bestblockhash"], "started")
+        self.check_signalling_deploymentinfo_result(self.nodes[0].getdeploymentinfo(gbci207["bestblockhash"]), gbci207["blocks"], gbci207["bestblockhash"], "started", "defined")
 
     def _test_getchaintxstats(self):
         self.log.info("Test getchaintxstats")

@@ -48,6 +48,7 @@ FUZZ_TARGET(chain)
             BlockStatus::BLOCK_VALID_MASK,
             BlockStatus::BLOCK_HAVE_DATA,
             BlockStatus::BLOCK_HAVE_UNDO,
+            BlockStatus::BLOCK_HAVE_MWEB,
             BlockStatus::BLOCK_HAVE_MASK,
             BlockStatus::BLOCK_FAILED_VALID,
             BlockStatus::BLOCK_FAILED_CHILD,

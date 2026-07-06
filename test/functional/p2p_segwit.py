@@ -27,18 +27,21 @@ from test_framework.messages import (
     CTxWitness,
     MAX_BLOCK_WEIGHT,
     MSG_BLOCK,
+    MSG_MWEB_FLAG,
     MSG_TX,
     MSG_WITNESS_FLAG,
     MSG_WITNESS_TX,
     MSG_WTX,
     NODE_NETWORK,
     NODE_WITNESS,
+    msg_no_mweb_block,
     msg_no_witness_block,
     msg_getdata,
     msg_headers,
     msg_inv,
     msg_tx,
     msg_block,
+    msg_no_mweb_tx,
     msg_no_witness_tx,
     ser_uint256,
     ser_vector,
@@ -57,6 +60,7 @@ from test_framework.script import (
     OP_0,
     OP_1,
     OP_2,
+    OP_9,
     OP_16,
     OP_2DROP,
     OP_CHECKMULTISIG,
@@ -133,7 +137,7 @@ def test_transaction_acceptance(node, p2p, tx, with_witness, accepted, reason=No
     - use the getrawmempool rpc to check for acceptance."""
     reason = [reason] if reason else []
     with node.assert_debug_log(expected_msgs=reason):
-        p2p.send_and_ping(msg_tx(tx) if with_witness else msg_no_witness_tx(tx))
+        p2p.send_and_ping(msg_no_mweb_tx(tx) if with_witness else msg_no_witness_tx(tx))
         assert_equal(tx.hash in node.getrawmempool(), accepted)
 
 
@@ -144,7 +148,7 @@ def test_witness_block(node, p2p, block, accepted, with_witness=True, reason=Non
     - use the getbestblockhash rpc to check for acceptance."""
     reason = [reason] if reason else []
     with node.assert_debug_log(expected_msgs=reason):
-        p2p.send_and_ping(msg_block(block) if with_witness else msg_no_witness_block(block))
+        p2p.send_and_ping(msg_no_mweb_block(block) if with_witness else msg_no_witness_block(block))
         assert_equal(node.getbestblockhash() == block.hash, accepted)
 
 
@@ -217,8 +221,8 @@ class SegWitTest(BitcoinTestFramework):
         self.num_nodes = 2
         # This test tests SegWit both pre and post-activation, so use the normal BIP9 activation.
         self.extra_args = [
-            ["-acceptnonstdtxn=1", f"-testactivationheight=segwit@{SEGWIT_HEIGHT}", "-whitelist=noban@127.0.0.1", "-par=1", "-mempoolreplacement=1"],
-            ["-acceptnonstdtxn=0", f"-testactivationheight=segwit@{SEGWIT_HEIGHT}", "-mempoolreplacement=1"],
+            ["-acceptnonstdtxn=1", f"-testactivationheight=segwit@{SEGWIT_HEIGHT}", "-whitelist=noban@127.0.0.1", "-par=1", "-mempoolreplacement=1", "-vbparams=mweb:-2:0"],
+            ["-acceptnonstdtxn=0", f"-testactivationheight=segwit@{SEGWIT_HEIGHT}", "-mempoolreplacement=1", "-vbparams=mweb:-2:0"],
         ]
         self.supports_cli = False
 
@@ -362,7 +366,7 @@ class SegWitTest(BitcoinTestFramework):
         This is true regardless of segwit activation.
         Also test that we don't ask for blocks from unupgraded peers."""
 
-        blocktype = 2 | MSG_WITNESS_FLAG
+        blocktype = 2 | MSG_WITNESS_FLAG | MSG_MWEB_FLAG
 
         # test_node has set NODE_WITNESS, so all getdata requests should be for
         # witness blocks.
@@ -629,6 +633,7 @@ class SegWitTest(BitcoinTestFramework):
                     'wtxid': tx3.getwtxid(),
                     'allowed': True,
                     'vsize': tx3.get_vsize(),
+                    'mweb_weight': 0,
                     'fees': {
                         'base': Decimal('0.00001000'),
                     },
@@ -646,6 +651,7 @@ class SegWitTest(BitcoinTestFramework):
                     'wtxid': tx3.getwtxid(),
                     'allowed': True,
                     'vsize': tx3.get_vsize(),
+                    'mweb_weight': 0,
                     'fees': {
                         'base': Decimal('0.00011000'),
                     },
@@ -1340,8 +1346,8 @@ class SegWitTest(BitcoinTestFramework):
         assert_equal(len(self.nodes[1].getrawmempool()), 0)
         for version in list(range(OP_1, OP_16 + 1)) + [OP_0]:
             # First try to spend to a future version segwit script_pubkey.
-            if version == OP_1:
-                # Don't use 32-byte v1 witness (used by Taproot; see BIP 341)
+            if version == OP_1 or version == OP_9:
+                # Don't use 32-byte v1 witness (used by Taproot; see BIP 341) or v9 witness (used by MWEB)
                 script_pubkey = CScript([CScriptOp(version), witness_hash + b'\x00'])
             else:
                 script_pubkey = CScript([CScriptOp(version), witness_hash])
@@ -2014,8 +2020,8 @@ class SegWitTest(BitcoinTestFramework):
     @subtest
     def test_wtxid_relay(self):
         # Use brand new nodes to avoid contamination from earlier tests
-        self.wtx_node = self.nodes[0].add_p2p_connection(TestP2PConn(wtxidrelay=True), services=P2P_SERVICES)
-        self.tx_node = self.nodes[0].add_p2p_connection(TestP2PConn(wtxidrelay=False), services=P2P_SERVICES)
+        self.wtx_node = self.nodes[0].add_p2p_connection(TestP2PConn(wtxidrelay=True), services=NODE_NETWORK | NODE_WITNESS)
+        self.tx_node = self.nodes[0].add_p2p_connection(TestP2PConn(wtxidrelay=False), services=NODE_NETWORK | NODE_WITNESS)
 
         # Check wtxidrelay feature negotiation message through connecting a new peer
         def received_wtxidrelay():

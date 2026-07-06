@@ -283,6 +283,7 @@ class RPCPackagesTest(BitcoinTestFramework):
         replaceable_tx = tx_from_hex(signed_replaceable_tx["hex"])
         assert_equal(testres_replaceable, [
             {"txid": replaceable_tx.rehash(), "wtxid": replaceable_tx.getwtxid(),
+            "mweb_weight": 0,
             "allowed": True, "vsize": replaceable_tx.get_vsize(), "fees": { "base": fee }}
         ])
 
@@ -362,6 +363,7 @@ class RPCPackagesTest(BitcoinTestFramework):
             assert_equal(tx_result, {
                 "txid": tx.rehash(),
                 "vsize": tx.get_vsize(),
+                "mweb_weight": 0,
                 "fees": {
                     "base": DEFAULT_FEE,
                 }

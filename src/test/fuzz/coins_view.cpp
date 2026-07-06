@@ -129,7 +129,7 @@ FUZZ_TARGET_INIT(coins_view, initialize_coins_view)
                 }
                 bool expected_code_path = false;
                 try {
-                    coins_view_cache.BatchWrite(coins_map, fuzzed_data_provider.ConsumeBool() ? ConsumeUInt256(fuzzed_data_provider) : coins_view_cache.GetBestBlock());
+                    coins_view_cache.BatchWrite(coins_map, fuzzed_data_provider.ConsumeBool() ? ConsumeUInt256(fuzzed_data_provider) : coins_view_cache.GetBestBlock(), coins_view_cache.GetMWEBCacheView());
                     expected_code_path = true;
                 } catch (const std::logic_error& e) {
                     if (e.what() == std::string{"FRESH flag misapplied to coin that exists in parent cache"}) {
@@ -196,7 +196,7 @@ FUZZ_TARGET_INIT(coins_view, initialize_coins_view)
                 const CTransaction transaction{random_mutable_transaction};
                 bool is_spent = false;
                 for (const CTxOut& tx_out : transaction.vout) {
-                    if (Coin{tx_out, 0, transaction.IsCoinBase()}.IsSpent()) {
+                    if (Coin{tx_out, 0, transaction.IsCoinBase(), transaction.mweb_tx.HasPegOut()}.IsSpent()) {
                         is_spent = true;
                     }
                 }
