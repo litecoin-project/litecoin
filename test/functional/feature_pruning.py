@@ -66,7 +66,7 @@ def mine_large_blocks(node, n):
         block.solve()
 
         # Submit to the node
-        node.submitblock(block.serialize().hex())
+        assert_equal(node.submitblock(block.serialize().hex()), None)
 
         previousblockhash = block.sha256
         height += 1
@@ -80,19 +80,20 @@ class PruneTest(BitcoinTestFramework):
         self.setup_clean_chain = True
         self.num_nodes = 6
         self.supports_cli = False
+        self.disable_mweb = ["-vbparams=mweb:-2:0"]
 
         # Create nodes 0 and 1 to mine.
         # Create node 2 to test pruning.
-        self.full_node_default_args = ["-maxreceivebuffer=20000", "-checkblocks=5"]
+        self.full_node_default_args = ["-maxreceivebuffer=20000", "-checkblocks=5"] + self.disable_mweb
         # Create nodes 3 and 4 to test manual pruning (they will be re-started with manual pruning later)
         # Create nodes 5 to test wallet in prune mode, but do not connect
         self.extra_args = [
             self.full_node_default_args,
             self.full_node_default_args,
-            ["-maxreceivebuffer=20000", "-prune=550"],
-            ["-maxreceivebuffer=20000"],
-            ["-maxreceivebuffer=20000"],
-            ["-prune=550"],
+            ["-maxreceivebuffer=20000", "-prune=550"] + self.disable_mweb,
+            ["-maxreceivebuffer=20000"] + self.disable_mweb,
+            ["-maxreceivebuffer=20000"] + self.disable_mweb,
+            ["-prune=550"] + self.disable_mweb,
         ]
         self.rpc_timeout = 120
 
@@ -279,7 +280,7 @@ class PruneTest(BitcoinTestFramework):
         assert_raises_rpc_error(-1, "Cannot prune blocks because node is not in prune mode", node.pruneblockchain, 500)
 
         # now re-start in manual pruning mode
-        self.restart_node(node_number, extra_args=["-prune=1"])
+        self.restart_node(node_number, extra_args=["-prune=1"] + self.disable_mweb)
         node = self.nodes[node_number]
         assert_equal(node.getblockcount(), 995)
 
@@ -348,14 +349,14 @@ class PruneTest(BitcoinTestFramework):
         assert not has_block(3), "blk00003.dat is still there, should be pruned by now"
 
         # stop node, start back up with auto-prune at 550 MiB, make sure still runs
-        self.restart_node(node_number, extra_args=["-prune=550"])
+        self.restart_node(node_number, extra_args=["-prune=550"] + self.disable_mweb)
 
         self.log.info("Success")
 
     def wallet_test(self):
         # check that the pruning node's wallet is still in good shape
         self.log.info("Stop and start pruning node to trigger wallet rescan")
-        self.restart_node(2, extra_args=["-prune=550"])
+        self.restart_node(2, extra_args=["-prune=550"] + self.disable_mweb)
         self.log.info("Success")
 
         # check that wallet loads successfully when restarting a pruned node after IBD.
@@ -364,7 +365,7 @@ class PruneTest(BitcoinTestFramework):
         self.connect_nodes(0, 5)
         nds = [self.nodes[0], self.nodes[5]]
         self.sync_blocks(nds, wait=5, timeout=300)
-        self.restart_node(5, extra_args=["-prune=550"]) # restart to trigger rescan
+        self.restart_node(5, extra_args=["-prune=550"] + self.disable_mweb) # restart to trigger rescan
         self.log.info("Success")
 
     def run_test(self):

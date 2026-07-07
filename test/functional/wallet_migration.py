@@ -6,8 +6,10 @@
 
 import os
 import random
+from decimal import Decimal
+from test_framework.authproxy import JSONRPCException
 from test_framework.descriptors import descsum_create
-from test_framework.test_framework import BitcoinTestFramework
+from test_framework.test_framework import LitecoinTestFramework
 from test_framework.util import (
     assert_equal,
     assert_raises_rpc_error,
@@ -18,7 +20,7 @@ from test_framework.wallet_util import (
 )
 
 
-class WalletMigrationTest(BitcoinTestFramework):
+class WalletMigrationTest(LitecoinTestFramework):
     def set_test_params(self):
         self.setup_clean_chain = True
         self.num_nodes = 1
@@ -62,6 +64,15 @@ class WalletMigrationTest(BitcoinTestFramework):
                 del d["parent_descs"]
         assert_equal(received_list_txs, expected_list_txs)
 
+    def wallet_has_tx(self, wallet, txid):
+        try:
+            wallet.gettransaction(txid)
+            return True
+        except JSONRPCException as e:
+            if e.error["code"] == -5:
+                return False
+            raise
+
     def test_basic(self):
         default = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
 
@@ -92,7 +103,8 @@ class WalletMigrationTest(BitcoinTestFramework):
         # * BIP84 descriptors, P2WPKH, in the form of "84'/1'/0'/1/*" and "84'/1'/0'/1/*" (2 descriptors)
         # * BIP86 descriptors, P2TR, in the form of "86'/1'/0'/0/*" and "86'/1'/0'/1/*" (2 descriptors)
         # * A combo(PK) descriptor for the wallet master key.
-        # So, should have a total of 12 descriptors on it.
+        # So, should have a total of 11 descriptors on it.
+        descs = basic0.listdescriptors()["descriptors"]
         assert_equal(len(basic0.listdescriptors()["descriptors"]), 12)
 
         # Compare addresses info
@@ -393,6 +405,49 @@ class WalletMigrationTest(BitcoinTestFramework):
 
         assert_equal(bals, wallet.getbalances())
 
+    def test_mweb(self):
+        node = self.nodes[0]
+        default = node.get_wallet_rpc(self.default_wallet_name)
+
+        self.log.info("Setting up MWEB chain for migration tests")
+        self.setup_mweb_chain(node, pegin_amount=Decimal("5.0"))
+
+        self.log.info("Test migration of a legacy wallet with MWEB funds")
+        wallet = self.create_legacy_wallet("mweb0")
+        receive_addr = wallet.getnewaddress(address_type="mweb")
+        receive_txid = default.sendtoaddress(receive_addr, Decimal("1.0"))
+        self.generate(node, 1)
+        self.wait_until(lambda: self.wallet_has_tx(wallet, receive_txid), timeout=30)
+        assert_equal(wallet.gettransaction(receive_txid)["amount"], Decimal("1.0"))
+
+        wallet.migratewallet()
+        assert_equal(wallet.getwalletinfo()["descriptors"], True)
+        self.assert_is_sqlite("mweb0")
+        assert_equal(wallet.gettransaction(receive_txid)["amount"], Decimal("1.0"))
+
+        pegout_addr = default.getnewaddress(address_type="bech32")
+        spend_txid = wallet.sendtoaddress(pegout_addr, Decimal("0.25"))
+        self.generate(node, 1)
+        self.wait_until(lambda: self.wallet_has_tx(wallet, spend_txid), timeout=30)
+
+        post_migration_addr = wallet.getnewaddress(address_type="mweb")
+        post_migration_txid = default.sendtoaddress(post_migration_addr, Decimal("0.5"))
+        self.generate(node, 1)
+        self.wait_until(lambda: self.wallet_has_tx(wallet, post_migration_txid), timeout=30)
+
+        self.restart_node(0)
+        node = self.nodes[0]
+        default = node.get_wallet_rpc(self.default_wallet_name)
+        node.loadwallet("mweb0")
+        wallet = node.get_wallet_rpc("mweb0")
+        assert_equal(wallet.getwalletinfo()["descriptors"], True)
+        assert_equal(wallet.gettransaction(receive_txid)["amount"], Decimal("1.0"))
+        assert_equal(wallet.gettransaction(post_migration_txid)["amount"], Decimal("0.5"))
+
+        restart_spend_txid = wallet.sendtoaddress(default.getnewaddress(address_type="bech32"), Decimal("0.1"))
+        self.generate(node, 1)
+        self.wait_until(lambda: self.wallet_has_tx(wallet, restart_spend_txid), timeout=30)
+
     def test_encrypted(self):
         self.log.info("Test migration of an encrypted wallet")
         wallet = self.create_legacy_wallet("encrypted")
@@ -403,9 +458,8 @@ class WalletMigrationTest(BitcoinTestFramework):
         # TODO: Fix migratewallet so that we can actually migrate encrypted wallets
 
     def run_test(self):
-        self.generate(self.nodes[0], 101)
-
         # TODO: Test the actual records in the wallet for these tests too. The behavior may be correct, but the data written may not be what we actually want
+        self.test_mweb()
         self.test_basic()
         self.test_multisig()
         self.test_other_watchonly()

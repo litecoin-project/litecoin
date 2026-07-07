@@ -43,10 +43,12 @@ class BIP68Test(BitcoinTestFramework):
             [
                 '-testactivationheight=csv@432',
                 "-acceptnonstdtxn=1",
+                "-vbparams=mweb:-2:0"
             ],
             [
                 '-testactivationheight=csv@432',
                 "-acceptnonstdtxn=0",
+                "-vbparams=mweb:-2:0"
             ],
         ]
 
