@@ -4,6 +4,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <wallet/walletdb.h>
+#include <mweb/mweb_wallet.h>
 
 #include <fs.h>
 #include <key_io.h>

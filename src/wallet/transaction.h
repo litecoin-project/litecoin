@@ -6,8 +6,10 @@
 #define BITCOIN_WALLET_TRANSACTION_H
 
 #include <consensus/amount.h>
+#include <mweb/mweb_wtx_info.h>
 #include <primitives/transaction.h>
 #include <serialize.h>
+#include <wallet/componentid.h>
 #include <wallet/ismine.h>
 #include <threadsafety.h>
 #include <tinyformat.h>
@@ -22,11 +24,17 @@
 namespace wallet {
 //! State of transaction confirmed in a block.
 struct TxStateConfirmed {
+    //! Serialized nIndex value for confirmed MWEB-only wallet rows that do not
+    //! correspond to a base-chain transaction position.
+    static constexpr int NO_POSITION_IN_BLOCK{-2};
+
     uint256 confirmed_block_hash;
     int confirmed_block_height;
     int position_in_block;
 
     explicit TxStateConfirmed(const uint256& block_hash, int height, int index) : confirmed_block_hash(block_hash), confirmed_block_height(height), position_in_block(index) {}
+
+    bool HasPositionInBlock() const noexcept { return position_in_block >= 0; }
 };
 
 //! State of transaction added to mempool.
@@ -75,7 +83,7 @@ static inline TxState TxStateInterpretSerialized(TxStateUnrecognized data)
         if (data.index == 0) return TxStateInactive{};
     } else if (data.block_hash == uint256::ONE) {
         if (data.index == -1) return TxStateInactive{/*abandoned=*/true};
-    } else if (data.index >= 0) {
+    } else if (data.index >= 0 || data.index == TxStateConfirmed::NO_POSITION_IN_BLOCK) {
         return TxStateConfirmed{data.block_hash, /*height=*/-1, data.index};
     } else if (data.index == -1) {
         return TxStateConflicted{data.block_hash, /*height=*/-1};
@@ -109,6 +117,14 @@ static inline int TxStateSerializedIndex(const TxState& state)
 
 
 typedef std::map<std::string, std::string> mapValue_t;
+
+enum class OutputIdMode {
+    //! Return IDs for outputs physically present in CWalletTx::tx.
+    TX_OUTPUTS,
+    //! Return IDs visible to wallet accounting, including MWEB receive metadata
+    //! stored on partial wallet rows when not already present in tx.
+    WALLET_OUTPUTS,
+};
 
 /** Legacy class used for deserializing vtxPrev for backwards compatibility.
  * vtxPrev was removed in commit 93a18a3650292afbb441a47d1fa1b94aeb0164e3,
@@ -159,6 +175,8 @@ public:
      *     "fromaccount"     - serialized strFromAccount value
      *     "n"               - serialized nOrderPos value
      *     "timesmart"       - serialized nTimeSmart value
+     *     "pegout_indices"  - serialized pegout_indices value
+     *     "mweb_info"       - serialized mweb_wtx_info value
      *     "spent"           - serialized vfSpent value that existed prior to
      *                         2014 (removed in commit 93a18a3)
      */
@@ -184,9 +202,12 @@ public:
     bool fFromMe;
     int64_t nOrderPos; //!< position in ordered transaction list
     std::multimap<int64_t, CWalletTx*>::const_iterator m_it_wtxOrdered;
+    
+    std::optional<MWEB::WalletTxInfo> mweb_wtx_info; // MWEB: Received mw::WalletCoin or Hash of spent MWEB coin
+    std::vector<std::pair<mw::Hash, size_t>> pegout_indices; // MWEB: For HogEx transactions, output indices of pegouts belonging to this wallet
 
     // memory only
-    enum AmountType { DEBIT, CREDIT, IMMATURE_CREDIT, AVAILABLE_CREDIT, AMOUNTTYPE_ENUM_ELEMENTS };
+    enum AmountType { DEBIT, CREDIT, IMMATURE_CREDIT, AVAILABLE_CREDIT, FEE, AMOUNTTYPE_ENUM_ELEMENTS };
     mutable CachableAmount m_amounts[AMOUNTTYPE_ENUM_ELEMENTS];
     /**
      * This flag is true if all m_amounts caches are empty. This is particularly
@@ -198,7 +219,8 @@ public:
     mutable bool fChangeCached;
     mutable CAmount nChangeCached;
 
-    CWalletTx(CTransactionRef tx, const TxState& state) : tx(std::move(tx)), m_state(state)
+    CWalletTx(CTransactionRef tx, const TxState& state, std::optional<MWEB::WalletTxInfo> mweb_wtx_info_)
+        : mweb_wtx_info(std::move(mweb_wtx_info_)), tx(std::move(tx)), m_state(state)
     {
         Init();
     }
@@ -232,6 +254,11 @@ public:
             mapValueCopy["timesmart"] = strprintf("%u", nTimeSmart);
         }
 
+        CWalletTx::WritePegoutIndices(pegout_indices, mapValueCopy);
+        if (mweb_wtx_info.has_value()) {
+            mapValueCopy["mweb_info"] = mweb_wtx_info->ToHex();
+        }
+
         std::vector<uint8_t> dummy_vector1; //!< Used to be vMerkleBranch
         std::vector<uint8_t> dummy_vector2; //!< Used to be vtxPrev
         bool dummy_bool = false; //!< Used to be fSpent
@@ -259,10 +286,15 @@ public:
         const auto it_ts = mapValue.find("timesmart");
         nTimeSmart = (it_ts != mapValue.end()) ? static_cast<unsigned int>(LocaleIndependentAtoi<int64_t>(it_ts->second)) : 0;
 
+        CWalletTx::ReadPegoutIndices(pegout_indices, mapValue);
+        mweb_wtx_info = mapValue.count("mweb_info") ? std::make_optional(MWEB::WalletTxInfo::FromHex(mapValue["mweb_info"])) : std::nullopt;
+
         mapValue.erase("fromaccount");
         mapValue.erase("spent");
         mapValue.erase("n");
         mapValue.erase("timesmart");
+        mapValue.erase("mweb_info");
+        mapValue.erase("pegout_indices");
     }
 
     void SetTx(CTransactionRef arg)
@@ -277,6 +309,7 @@ public:
         m_amounts[CREDIT].Reset();
         m_amounts[IMMATURE_CREDIT].Reset();
         m_amounts[AVAILABLE_CREDIT].Reset();
+        m_amounts[FEE].Reset();
         fChangeCached = false;
         m_is_cache_empty = true;
     }
@@ -295,15 +328,89 @@ public:
     bool isConflicted() const { return state<TxStateConflicted>(); }
     bool isUnconfirmed() const { return !isAbandoned() && !isConflicted() && !isConfirmed(); }
     bool isConfirmed() const { return state<TxStateConfirmed>(); }
-    const uint256& GetHash() const { return tx->GetHash(); }
-    const uint256& GetWitnessHash() const { return tx->GetWitnessHash(); }
     bool IsCoinBase() const { return tx->IsCoinBase(); }
+    bool IsHogEx() const { return tx->IsHogEx(); }
+
+    const uint256& GetHash() const
+    {
+        if (IsPartialMWEB()) {
+            return mweb_wtx_info->GetHash();
+        }
+
+        return tx->GetHash();
+    }
+
+    const uint256& GetWitnessHash() const { return tx->GetWitnessHash(); }
+    
+    std::vector<AnyInput> GetInputs() const
+    {
+        std::vector<AnyInput> inputs = tx->GetInputs();
+        if (mweb_wtx_info && mweb_wtx_info->spent_input) {
+            inputs.push_back(*mweb_wtx_info->spent_input);
+        }
+
+        return inputs;
+    }
+
+    //! Return spendable output ids created by tx according to mode.
+    std::vector<AnyOutputID> GetOutputIDs(const OutputIdMode mode = OutputIdMode::WALLET_OUTPUTS) const
+    {
+        std::vector<AnyOutputID> output_ids;
+        for (const AnyOutput& output : tx->GetOutputs()) {
+            output_ids.push_back(output.GetID());
+        }
+
+        if (mode == OutputIdMode::WALLET_OUTPUTS) {
+            std::optional<mw::WalletCoin> mweb_coin = GetMWEBReceivedCoin();
+            if (mweb_coin) {
+                if (!tx->HasOutput(AnyOutputID{mweb_coin->output_id})) {
+                    output_ids.push_back(mweb_coin->output_id);
+                }
+            }
+        }
+
+        return output_ids;
+    }
+
+    //! Return concrete outputs physically present in tx.
+    std::vector<AnyOutput> GetTxOutputs() const
+    {
+        return tx->GetOutputs();
+    }
+
+    //! Return MWEB pegouts by kernel id and position.
+    std::vector<std::pair<PegoutIndex, PegOutCoin>> GetMWEBPegouts() const
+    {
+        std::vector<std::pair<PegoutIndex, PegOutCoin>> pegouts;
+        for (const mw::Kernel& kernel : tx->mweb_tx.GetKernels()) {
+            const std::vector<PegOutCoin>& kernel_pegouts = kernel.GetPegOuts();
+            for (size_t i = 0; i < kernel_pegouts.size(); ++i) {
+                pegouts.emplace_back(PegoutIndex{kernel.GetKernelID(), i}, kernel_pegouts[i]);
+            }
+        }
+
+        return pegouts;
+    }
+
+    bool IsPartialMWEB() const
+    {
+        return tx->IsNull() && mweb_wtx_info;
+    }
+
+    std::optional<mw::WalletCoin> GetMWEBReceivedCoin() const noexcept
+    {
+        return mweb_wtx_info ? mweb_wtx_info->received_wallet_coin : std::nullopt;
+    }
 
     // Disable copying of CWalletTx objects to prevent bugs where instances get
     // copied in and out of the mapWallet map, and fields are updated in the
     // wrong copy.
     CWalletTx(CWalletTx const &) = delete;
     void operator=(CWalletTx const &x) = delete;
+
+private:
+    static void ReadPegoutIndices(std::vector<std::pair<mw::Hash, size_t>>& pegout_indices, const mapValue_t& mapValue);
+    static void WritePegoutIndices(const std::vector<std::pair<mw::Hash, size_t>>& pegout_indices, mapValue_t& mapValue);
 };
 
 struct WalletTxOrderComparator {

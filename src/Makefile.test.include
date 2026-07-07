@@ -171,6 +171,9 @@ BITCOIN_TESTS =\
 if ENABLE_WALLET
 BITCOIN_TESTS += \
   wallet/test/feebumper_tests.cpp \
+  wallet/test/mweb_psbt_tests.cpp \
+  wallet/test/psbt_filler_tests.cpp \
+  wallet/test/psbt_vector_gen.cpp \
   wallet/test/psbt_wallet_tests.cpp \
   wallet/test/spend_tests.cpp \
   wallet/test/wallet_tests.cpp \
@@ -201,6 +204,7 @@ FUZZ_WALLET_SRC += \
 endif # USE_SQLITE
 
 BITCOIN_TEST_SUITE += \
+  wallet/test/psbt_test_utils.h \
   wallet/test/util.cpp \
   wallet/test/util.h \
   wallet/test/wallet_test_fixture.cpp \

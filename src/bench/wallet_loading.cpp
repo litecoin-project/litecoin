@@ -49,7 +49,7 @@ static void AddTx(CWallet& wallet)
     mtx.vout.push_back({COIN, GetScriptForDestination(*Assert(wallet.GetNewDestination(OutputType::BECH32, "")))});
     mtx.vin.push_back(CTxIn());
 
-    wallet.AddToWallet(MakeTransactionRef(mtx), TxStateInactive{});
+    wallet.AddToWallet(MakeTransactionRef(mtx), std::nullopt, TxStateInactive{});
 }
 
 static std::unique_ptr<WalletDatabase> DuplicateMockDatabase(WalletDatabase& database, DatabaseOptions& options)

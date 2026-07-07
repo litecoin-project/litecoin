@@ -80,7 +80,7 @@ public:
             hashBestBlock_ = hashBlock;
         return true;
     }
-
+    
     mw::ICoinsView::Ptr GetMWEBView() const override
     {
         return mweb_view_;

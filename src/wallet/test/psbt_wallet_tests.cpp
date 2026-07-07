@@ -3,13 +3,16 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <key_io.h>
+#include <mw/crypto/KeyDerivation.h>
 #include <mw/models/tx/Input.h>
 #include <util/bip32.h>
 #include <util/strencodings.h>
+#include <wallet/mweb_psbt.h>
 #include <wallet/wallet.h>
 
 #include <boost/test/unit_test.hpp>
 #include <test/util/setup_common.h>
+#include <wallet/test/psbt_test_utils.h>
 #include <wallet/test/wallet_test_fixture.h>
 
 namespace wallet {
@@ -101,6 +104,50 @@ BOOST_AUTO_TEST_CASE(psbt_mweb_signature_verification_test)
     psbt.inputs[0].mweb_sig = mweb_input.GetSignature();
     psbt.inputs[0].mweb_input_pubkey = std::nullopt;
     BOOST_CHECK(!PSBTInputSignedAndVerified(psbt, 0, nullptr));
+}
+
+//! FillPSBT with sign=false must act as an Updater for MWEB inputs (derive and
+//! attach the shared secret) without producing signatures. The external-signer
+//! flow depends on this split: it runs a sign=false pass before the signing pass.
+BOOST_AUTO_TEST_CASE(fill_psbt_sign_false_fills_mweb_metadata)
+{
+    const test::MWEBTestKeys keys = test::MWEBTestKeys::Create();
+    const SecretKey ephemeral = test::TestSecret('e');
+    const PublicKey key_exchange_pubkey = PublicKey::From(ephemeral);
+    const SecretKey expected_secret = mw::RecoverSharedSecret(key_exchange_pubkey, keys.scan_secret);
+
+    PartiallySignedTransaction psbt(CMutableTransaction{}, 2);
+    PSBTInput input(2);
+    input.mweb_output_id = mw::Hash::ValueOf(1);
+    input.mweb_address_descriptor = keys.Descriptor(0);
+    input.mweb_key_exchange_pubkey = key_exchange_pubkey;
+    input.mweb_output_pubkey = keys.OutputPubKey(0, expected_secret);
+    psbt.inputs.push_back(input);
+
+    LOCK(m_wallet.cs_wallet);
+    bool complete = true;
+    BOOST_REQUIRE_EQUAL(TransactionError::OK, m_wallet.FillPSBT(psbt, complete, SIGHASH_ALL, /*sign=*/false, /*bip32derivs=*/true));
+
+    // Updater metadata was attached...
+    BOOST_REQUIRE(psbt.inputs[0].mweb_shared_secret.has_value());
+    BOOST_CHECK(*psbt.inputs[0].mweb_shared_secret == expected_secret);
+
+    // ...but no signature was produced.
+    BOOST_CHECK(!psbt.inputs[0].mweb_sig.has_value());
+    BOOST_CHECK(!complete);
+}
+
+BOOST_AUTO_TEST_CASE(fill_psbt_invalid_mweb_descriptor_is_invalid_psbt)
+{
+    PartiallySignedTransaction psbt(CMutableTransaction{}, 2);
+    PSBTInput input(2);
+    input.mweb_output_id = mw::Hash::ValueOf(1);
+    input.mweb_address_descriptor = "definitely-not-a-descriptor";
+    psbt.inputs.push_back(input);
+
+    LOCK(m_wallet.cs_wallet);
+    bool complete = true;
+    BOOST_CHECK(m_wallet.FillPSBT(psbt, complete, SIGHASH_ALL, /*sign=*/false, /*bip32derivs=*/true) == TransactionError::INVALID_PSBT);
 }
 
 BOOST_AUTO_TEST_CASE(parse_hd_keypath)

@@ -31,9 +31,9 @@ public:
         CCoinControl dummy;
         {
             constexpr int RANDOM_CHANGE_POSITION = -1;
-            auto res = CreateTransaction(*wallet, {recipient}, RANDOM_CHANGE_POSITION, dummy);
+            auto res = CreateTransaction(*wallet, {recipient}, RANDOM_CHANGE_POSITION, dummy, std::nullopt, std::nullopt, false);
             BOOST_CHECK(res);
-            tx = res->tx;
+            tx = MakeTransactionRef(res->tx);
         }
         wallet->CommitTransaction(tx, {}, {});
         CMutableTransaction blocktx;
