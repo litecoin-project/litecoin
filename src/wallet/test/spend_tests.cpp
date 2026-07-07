@@ -33,11 +33,11 @@ BOOST_FIXTURE_TEST_CASE(SubtractFee, TestChain100Setup)
         coin_control.fOverrideFeeRate = true;
         // We need to use a change type with high cost of change so that the leftover amount will be dropped to fee instead of added as a change output
         coin_control.m_change_type = OutputType::LEGACY;
-        auto res = CreateTransaction(*wallet, {recipient}, RANDOM_CHANGE_POSITION, coin_control);
+        auto res = CreateTransaction(*wallet, {recipient}, RANDOM_CHANGE_POSITION, coin_control, std::nullopt, std::nullopt, false);
         BOOST_CHECK(res);
         const auto& txr = *res;
-        BOOST_CHECK_EQUAL(txr.tx->vout.size(), 1);
-        BOOST_CHECK_EQUAL(txr.tx->vout[0].nValue, recipient.nAmount + leftover_input_amount - txr.fee);
+        BOOST_CHECK_EQUAL(txr.tx.vout.size(), 1);
+        BOOST_CHECK_EQUAL(txr.tx.vout[0].nValue, recipient.nAmount + leftover_input_amount - txr.fee);
         BOOST_CHECK_GT(txr.fee, 0);
         return txr.fee;
     };
@@ -122,9 +122,9 @@ BOOST_FIXTURE_TEST_CASE(wallet_duplicated_preset_inputs_test, TestChain100Setup)
 
     LOCK(wallet->cs_wallet);
     auto available_coins = AvailableCoins(*wallet);
-    std::vector<COutput> coins = available_coins.All();
+    std::vector<AnyWalletUTXO> coins = available_coins.All();
     // Preselect the first 3 UTXO (150 BTC total)
-    std::set<COutPoint> preset_inputs = {coins[0].outpoint, coins[1].outpoint, coins[2].outpoint};
+    std::set<COutPoint> preset_inputs = {coins[0].GetLTC().outpoint, coins[1].GetLTC().outpoint, coins[2].GetLTC().outpoint};
 
     // Try to create a tx that spends more than what preset inputs + wallet selected inputs are covering for.
     // The wallet can cover up to 200 BTC, and the tx target is 299 BTC.
@@ -148,12 +148,12 @@ BOOST_FIXTURE_TEST_CASE(wallet_duplicated_preset_inputs_test, TestChain100Setup)
     // so that the recipient's amount is no longer equal to the user's selected target of 299 BTC.
 
     // First case, use 'subtract_fee_from_outputs=true'
-    util::Result<CreatedTransactionResult> res_tx = CreateTransaction(*wallet, recipients, /*change_pos*/-1, coin_control);
+    util::Result<CreatedTransactionResult> res_tx = CreateTransaction(*wallet, recipients, /*change_pos*/-1, coin_control, std::nullopt, std::nullopt, false);
     BOOST_CHECK(!res_tx.has_value());
 
     // Second case, don't use 'subtract_fee_from_outputs'.
     recipients[0].fSubtractFeeFromAmount = false;
-    res_tx = CreateTransaction(*wallet, recipients, /*change_pos*/-1, coin_control);
+    res_tx = CreateTransaction(*wallet, recipients, /*change_pos*/-1, coin_control, std::nullopt, std::nullopt, false);
     BOOST_CHECK(!res_tx.has_value());
 }
 
