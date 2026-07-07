@@ -207,7 +207,7 @@ class ImportMultiTest(BitcoinTestFramework):
                                "keys": [key.privkey]},
                               success=False,
                               error_code=-4,
-                              error_message='The wallet already contains the private key for this address or script ("' + key.p2pkh_script + '")')
+                              error_message='The wallet already contains the private key for this address or script ("' + key.p2pkh_addr + '")')
 
         # Address + Private key + watchonly
         self.log.info("Should import an address with private key and with watchonly")

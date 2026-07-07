@@ -6,11 +6,13 @@
 #ifndef BITCOIN_WALLET_WALLETDB_H
 #define BITCOIN_WALLET_WALLETDB_H
 
+#include <mw/models/wallet/WalletCoin.h>
 #include <script/sign.h>
 #include <wallet/db.h>
 #include <wallet/walletutil.h>
 #include <key.h>
 
+#include <optional>
 #include <stdint.h>
 #include <string>
 #include <vector>
@@ -61,6 +63,7 @@ extern const std::string ACTIVEEXTERNALSPK;
 extern const std::string ACTIVEINTERNALSPK;
 extern const std::string BESTBLOCK;
 extern const std::string BESTBLOCK_NOMERKLE;
+extern const std::string COIN;
 extern const std::string CRYPTED_KEY;
 extern const std::string CSCRIPT;
 extern const std::string DEFAULTKEY;
@@ -72,6 +75,7 @@ extern const std::string KEYMETA;
 extern const std::string LOCKED_UTXO;
 extern const std::string MASTER_KEY;
 extern const std::string MINVERSION;
+extern const std::string MWEB_SENDER_KEY_INDEX;
 extern const std::string NAME;
 extern const std::string OLD_KEY;
 extern const std::string ORDERPOSNEXT;
@@ -94,15 +98,21 @@ extern const std::unordered_set<std::string> LEGACY_TYPES;
 class CHDChain
 {
 public:
-    uint32_t nExternalChainCounter;
-    uint32_t nInternalChainCounter;
+    uint32_t nExternalChainCounter; //!< The index of the next external key to generate.
+    uint32_t nInternalChainCounter; //!< The index of the next internal key to generate.
+    uint32_t nMWEBIndexCounter; //!< The index of the next MWEB key to generate.
     CKeyID seed_id; //!< seed hash160
-    int64_t m_next_external_index{0}; // Next index in the keypool to be used. Memory only.
-    int64_t m_next_internal_index{0}; // Next index in the keypool to be used. Memory only.
+    std::optional<SecretKey> mweb_scan_key{std::nullopt}; // Can be used to identify MWEB outputs belonging to the wallet
+    std::optional<PublicKey> mweb_spend_pubkey{std::nullopt}; // Can be used to generate new MWEB stealth addresses
+    int64_t m_next_external_index{0}; // Next index in the keypool to be used. Memory only. Inactive HD chains only.
+    int64_t m_next_internal_index{0}; // Next index in the keypool to be used. Memory only. Inactive HD chains only.
 
-    static const int VERSION_HD_BASE        = 1;
-    static const int VERSION_HD_CHAIN_SPLIT = 2;
-    static const int CURRENT_VERSION        = VERSION_HD_CHAIN_SPLIT;
+    static const int VERSION_HD_BASE            = 1;
+    static const int VERSION_HD_CHAIN_SPLIT     = 2; // Includes internal chain counter
+    static const int VERSION_HD_MWEB            = 3; // Includes MWEB counter
+    static const int VERSION_HD_MWEB_WATCH      = 4; // Includes MWEB counter & scan key
+    static const int VERSION_HD_MWEB_RECEIVE    = 5; // Includes MWEB counter, scan key, & spend pubkey
+    static const int CURRENT_VERSION = VERSION_HD_MWEB_RECEIVE;
     int nVersion;
 
     CHDChain() { SetNull(); }
@@ -113,6 +123,18 @@ public:
         if (obj.nVersion >= VERSION_HD_CHAIN_SPLIT) {
             READWRITE(obj.nInternalChainCounter);
         }
+
+        if (obj.nVersion >= VERSION_HD_MWEB) {
+            READWRITE(obj.nMWEBIndexCounter);
+        }
+
+        if (obj.nVersion >= VERSION_HD_MWEB_WATCH) {
+            READWRITE(obj.mweb_scan_key);
+        }
+
+        if (obj.nVersion >= VERSION_HD_MWEB_RECEIVE) {
+            READWRITE(obj.mweb_spend_pubkey);
+        }
     }
 
     void SetNull()
@@ -120,7 +142,10 @@ public:
         nVersion = CHDChain::CURRENT_VERSION;
         nExternalChainCounter = 0;
         nInternalChainCounter = 0;
+        nMWEBIndexCounter = 0;
         seed_id.SetNull();
+        mweb_scan_key = std::nullopt;
+        mweb_spend_pubkey = std::nullopt;
     }
 
     bool operator==(const CHDChain& chain) const
@@ -132,10 +157,14 @@ public:
 class CKeyMetadata
 {
 public:
-    static const int VERSION_BASIC=1;
-    static const int VERSION_WITH_HDDATA=10;
-    static const int VERSION_WITH_KEY_ORIGIN = 12;
-    static const int CURRENT_VERSION=VERSION_WITH_KEY_ORIGIN;
+    static constexpr int VERSION_BASIC = 1;
+    static constexpr int VERSION_WITH_HDDATA = 10;
+    static constexpr int VERSION_WITH_KEY_ORIGIN = 12;
+    // Version 14 serializes the optional MWEB subaddress index after the key-origin
+    // fields. This preserves compatibility with v0.21 metadata while exposing the
+    // index through KeyOriginInfo::hdkeypath.mweb_index.
+    static constexpr int VERSION_WITH_MWEB_INDEX = 14;
+    static constexpr int CURRENT_VERSION = VERSION_WITH_MWEB_INDEX;
     int nVersion;
     int64_t nCreateTime; // 0 means unknown
     std::string hdKeypath; //optional HD/bip32 keypath. Still used to determine whether a key is a seed. Also kept for backwards compatibility
@@ -159,10 +188,20 @@ public:
         if (obj.nVersion >= VERSION_WITH_HDDATA) {
             READWRITE(obj.hdKeypath, obj.hd_seed_id);
         }
-        if (obj.nVersion >= VERSION_WITH_KEY_ORIGIN)
-        {
-            READWRITE(obj.key_origin);
-            READWRITE(obj.has_key_origin);
+        
+        KeyOriginInfo origin_info;
+        if (obj.nVersion >= VERSION_WITH_KEY_ORIGIN) {
+            SER_WRITE(obj, std::copy(obj.key_origin.fingerprint, obj.key_origin.fingerprint + sizeof(origin_info.fingerprint), origin_info.fingerprint));
+            SER_WRITE(obj, origin_info.hdkeypath.path = obj.key_origin.hdkeypath.path);
+            READWRITE(origin_info.fingerprint, origin_info.hdkeypath.path, obj.has_key_origin);
+            SER_READ(obj, std::copy(origin_info.fingerprint, origin_info.fingerprint + sizeof(origin_info.fingerprint), obj.key_origin.fingerprint));
+            SER_READ(obj, obj.key_origin.hdkeypath.path = origin_info.hdkeypath.path);
+        }
+        
+        if (obj.nVersion >= VERSION_WITH_MWEB_INDEX) {
+            SER_WRITE(obj, origin_info.hdkeypath.mweb_index = obj.key_origin.hdkeypath.mweb_index);
+            READWRITE(origin_info.hdkeypath.mweb_index);
+            SER_READ(obj, obj.key_origin.hdkeypath.mweb_index = origin_info.hdkeypath.mweb_index);
         }
     }
 
@@ -237,6 +276,7 @@ public:
     bool WriteMasterKey(unsigned int nID, const CMasterKey& kMasterKey);
 
     bool WriteCScript(const uint160& hash, const CScript& redeemScript);
+    bool WriteMWEBWalletCoin(const mw::WalletCoin& coin);
 
     bool WriteWatchOnly(const CScript &script, const CKeyMetadata &keymeta);
     bool EraseWatchOnly(const CScript &script);
@@ -258,10 +298,12 @@ public:
     bool WriteDescriptorDerivedCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index, uint32_t der_index);
     bool WriteDescriptorParentCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index);
     bool WriteDescriptorLastHardenedCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index);
+    bool WriteDescriptorMWEBAddressCache(const uint256& desc_id, const uint32_t idx, const StealthAddress& address);
     bool WriteDescriptorCacheItems(const uint256& desc_id, const DescriptorCache& cache);
+    bool WriteMWEBNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t next_index);
 
-    bool WriteLockedUTXO(const COutPoint& output);
-    bool EraseLockedUTXO(const COutPoint& output);
+    bool WriteLockedUTXO(const AnyOutputID& output);
+    bool EraseLockedUTXO(const AnyOutputID& output);
 
     /// Write destination data key,value tuple to database
     bool WriteDestData(const std::string &address, const std::string &key, const std::string &value);
