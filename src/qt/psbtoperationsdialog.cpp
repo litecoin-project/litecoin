@@ -106,15 +106,15 @@ void PSBTOperationsDialog::signTransaction()
 
 void PSBTOperationsDialog::broadcastTransaction()
 {
-    auto finalized = FinalizePSBT(m_transaction_data);
-    if (!finalized) {
+    util::Result<CMutableTransaction> result = FinalizePSBT(m_transaction_data);
+    if (!result) {
         // This is never expected to fail unless we were given a malformed PSBT
         // (e.g. with an invalid signature.)
         showStatus(tr("Unknown error processing transaction."), StatusLevel::ERR);
         return;
     }
 
-    CTransactionRef tx = MakeTransactionRef(*finalized);
+    CTransactionRef tx = MakeTransactionRef(result.value());
     std::string err_string;
     TransactionError error =
         m_client_model->node().broadcastTransaction(tx, DEFAULT_MAX_RAW_TX_FEE_RATE.GetFeePerK(), err_string);
@@ -176,12 +176,12 @@ std::string PSBTOperationsDialog::renderTransaction(const PartiallySignedTransac
 {
     QString tx_description = "";
     CAmount totalAmount = 0;
-    for (const CTxOut& out : psbtx.tx->vout) {
+    for (const PSBTOutput& out : psbtx.outputs) {
         CTxDestination address;
-        ExtractDestination(out.scriptPubKey, address);
-        totalAmount += out.nValue;
+        ExtractDestination(*out.script, address);
+        totalAmount += *out.amount;
         tx_description.append(tr(" * Sends %1 to %2")
-            .arg(BitcoinUnits::formatWithUnit(BitcoinUnit::BTC, out.nValue))
+            .arg(BitcoinUnits::formatWithUnit(BitcoinUnit::BTC, *out.amount))
             .arg(QString::fromStdString(EncodeDestination(address))));
         tx_description.append("<br>");
     }

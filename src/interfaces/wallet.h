@@ -21,7 +21,6 @@
 #include <functional>
 #include <map>
 #include <memory>
-#include <set>
 #include <string>
 #include <tuple>
 #include <type_traits>
@@ -148,7 +147,6 @@ public:
 
     //! List locked coins.
     virtual void listLockedCoins(std::vector<AnyOutputID>& outputs) = 0;
-    virtual void listLockedCoins(std::vector<COutPoint>& outputs) = 0;
 
     //! Create transaction.
     virtual util::Result<CTransactionRef> createTransaction(const std::vector<wallet::CRecipient>& recipients,
@@ -156,17 +154,12 @@ public:
         bool sign,
         wallet::ChangePosition& change_pos,
         CAmount& fee) = 0;
-    virtual util::Result<CTransactionRef> createTransaction(const std::vector<wallet::CRecipient>& recipients,
-        const wallet::CCoinControl& coin_control,
-        bool sign,
-        int& change_pos,
-        CAmount& fee) = 0;
 
     //! Commit transaction.
     virtual void commitTransaction(CTransactionRef tx,
         WalletValueMap value_map,
         WalletOrderForm order_form,
-        const std::vector<wallet::ReserveDestination*>& reserved_keys = {}) = 0;
+        const std::vector<wallet::ReserveDestination*>& reserved_keys) = 0;
 
     //! Return whether transaction can be abandoned.
     virtual bool transactionCanBeAbandoned(const uint256& txid) = 0;
@@ -204,16 +197,10 @@ public:
     virtual CTransactionRef getTx(const uint256& txid) = 0;
 
     //! Get transaction information.
-    virtual WalletTx getWalletTx(const uint256& txid) = 0;
-
-    //! Get transaction records.
     virtual std::vector<wallet::WalletTxRecord> getWalletTxRecords(const uint256& txid) = 0;
 
     //! Get list of all wallet transactions.
-    virtual std::set<WalletTx> getWalletTxs() = 0;
-
-    //! Get list of all wallet transaction records.
-    virtual std::vector<wallet::WalletTxRecord> getWalletTxRecords() = 0;
+    virtual std::vector<wallet::WalletTxRecord> getWalletTxs() = 0;
 
     //! Try to get updated status for a particular transaction, if possible without blocking.
     virtual bool tryGetTxStatus(const uint256& txid,
@@ -253,16 +240,12 @@ public:
 
     //! Return whether transaction output belongs to wallet.
     virtual wallet::isminetype txoutIsMine(const AnyOutput& output) = 0;
-    virtual wallet::isminetype txoutIsMine(const CTxOut& txout) = 0;
 
     //! Return the value of the output.
     virtual CAmount getValue(const AnyOutput& output) = 0;
 
     //! Return debit amount if transaction input belongs to wallet.
     virtual CAmount getDebit(const AnyInput& input, wallet::isminefilter filter) = 0;
-
-    //! Return credit amount if transaction output belongs to wallet.
-    virtual CAmount getCredit(const CTxOut& txout, wallet::isminefilter filter) = 0;
 
     //! Return AvailableCoins + LockedCoins grouped by wallet address.
     //! (put change in one group with wallet address)
@@ -273,15 +256,11 @@ public:
     virtual std::vector<WalletTxOut> getCoins(const std::vector<AnyOutputID>& outputs) = 0;
 
     //! Get required fee.
-    virtual CAmount getRequiredFee(unsigned int tx_bytes, uint64_t mweb_weight = 0) = 0;
+    virtual CAmount getRequiredFee(unsigned int tx_bytes, uint64_t mweb_weight) = 0;
 
     //! Get minimum fee.
     virtual CAmount getMinimumFee(unsigned int tx_bytes,
         uint64_t mweb_weight,
-        const wallet::CCoinControl& coin_control,
-        int* returned_target,
-        FeeReason* reason) = 0;
-    virtual CAmount getMinimumFee(unsigned int tx_bytes,
         const wallet::CCoinControl& coin_control,
         int* returned_target,
         FeeReason* reason) = 0;
@@ -453,10 +432,6 @@ struct WalletTxPegOut
 struct WalletTx
 {
     CTransactionRef tx;
-    std::vector<wallet::isminetype> txin_is_mine;
-    std::vector<wallet::isminetype> txout_is_mine;
-    std::vector<CTxDestination> txout_address;
-    std::vector<wallet::isminetype> txout_address_is_mine;
     CAmount credit;
     CAmount debit;
     CAmount change;

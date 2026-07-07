@@ -184,6 +184,10 @@ bool OptionsModel::Init(bilingual_str& error)
         settings.setValue("fCoinControlFeatures", false);
     fCoinControlFeatures = settings.value("fCoinControlFeatures", false).toBool();
 
+    if (!settings.contains("fMWEBFeatures"))
+        settings.setValue("fMWEBFeatures", false);
+    fMWEBFeatures = settings.value("fMWEBFeatures", false).toBool() && gArgs.IsArgSet("-debug");
+
     if (!settings.contains("enable_psbt_controls")) {
         settings.setValue("enable_psbt_controls", false);
     }
@@ -573,6 +577,11 @@ bool OptionsModel::setOption(OptionID option, const QVariant& value)
         fCoinControlFeatures = value.toBool();
         settings.setValue("fCoinControlFeatures", fCoinControlFeatures);
         Q_EMIT coinControlFeaturesChanged(fCoinControlFeatures);
+        break;
+    case MWEBFeatures:
+        fMWEBFeatures = value.toBool();
+        settings.setValue("fMWEBFeatures", fMWEBFeatures);
+        Q_EMIT mwebFeaturesChanged(fMWEBFeatures);
         break;
     case EnablePSBTControls:
         m_enable_psbt_controls = value.toBool();

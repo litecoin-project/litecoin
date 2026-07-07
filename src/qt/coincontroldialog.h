@@ -6,6 +6,7 @@
 #define BITCOIN_QT_COINCONTROLDIALOG_H
 
 #include <consensus/amount.h>
+#include <primitives/transaction.h>
 
 #include <QAbstractButton>
 #include <QAction>
@@ -50,7 +51,18 @@ public:
     // static because also called from sendcoinsdialog
     static void updateLabels(wallet::CCoinControl& m_coin_control, WalletModel*, QDialog*);
 
-    static QList<CAmount> payAmounts;
+    enum class PayAmountType {
+        LTC,
+        MWEB,
+        MWEBPegOut,
+    };
+
+    struct PayAmount {
+        CAmount amount;
+        PayAmountType type;
+    };
+
+    static QList<PayAmount> payAmounts;
     static bool fSubtractFeeFromAmount;
 
 protected:
@@ -71,6 +83,11 @@ private:
 
     const PlatformStyle *platformStyle;
 
+    AnyOutputID BuildOutputID(QTreeWidgetItem* item);
+
+    bool IsMWEB(QTreeWidgetItem* item);
+    bool IsCanonical(QTreeWidgetItem* item);
+
     void sortView(int, Qt::SortOrder);
     void updateView();
 
@@ -87,7 +104,8 @@ private:
     enum
     {
         TxHashRole = Qt::UserRole,
-        VOutRole
+        VOutRole,
+        MWEBOutRole
     };
 
     friend class CCoinControlWidgetItem;
