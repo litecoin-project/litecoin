@@ -4,14 +4,411 @@
 
 #include <psbt.h>
 
+#include <logging.h>
+#include <mw/crypto/Hasher.h>
+#include <mw/crypto/Schnorr.h>
+#include <mw/crypto/SecretKeys.h>
+#include <mw/wallet/sign.h>
+#include <mw/wallet/Keychain.h>
+#include <policy/policy.h>
+#include <script/standard.h>
 #include <util/check.h>
 #include <util/strencodings.h>
 
-
-PartiallySignedTransaction::PartiallySignedTransaction(const CMutableTransaction& tx) : tx(tx)
+namespace {
+template <typename T>
+bool MergeOptionalStrict(std::optional<T>& dst, const std::optional<T>& src)
 {
-    inputs.resize(tx.vin.size());
-    outputs.resize(tx.vout.size());
+    if (!src.has_value()) {
+        return true;
+    }
+    if (!dst.has_value()) {
+        dst = src;
+        return true;
+    }
+    return *dst == *src;
+}
+
+bool EqualOutputStandardFields(const mw::OutputStandardFields& a, const mw::OutputStandardFields& b)
+{
+    return a.key_exchange_pubkey == b.key_exchange_pubkey &&
+           a.view_tag == b.view_tag &&
+           a.masked_value == b.masked_value &&
+           a.masked_nonce == b.masked_nonce;
+}
+
+bool MergeOutputStandardFields(std::optional<mw::OutputStandardFields>& dst, const std::optional<mw::OutputStandardFields>& src)
+{
+    if (!src.has_value()) {
+        return true;
+    }
+    if (!dst.has_value()) {
+        dst = src;
+        return true;
+    }
+    return EqualOutputStandardFields(*dst, *src);
+}
+
+bool MergeRangeProof(std::optional<RangeProof::CPtr>& dst, const std::optional<RangeProof::CPtr>& src)
+{
+    if (!src.has_value()) {
+        return true;
+    }
+    if (!dst.has_value()) {
+        dst = src;
+        return true;
+    }
+    if (!*dst || !*src) {
+        return *dst == *src;
+    }
+    return **dst == **src;
+}
+
+template <typename T>
+bool MergeVectorStrict(std::vector<T>& dst, const std::vector<T>& src)
+{
+    if (src.empty()) {
+        return true;
+    }
+    if (dst.empty()) {
+        dst = src;
+        return true;
+    }
+    return dst == src;
+}
+
+bool HasMWEBSignatureOrProof(const PartiallySignedTransaction& psbt)
+{
+    for (const PSBTInput& input : psbt.inputs) {
+        if (input.mweb_sig.has_value()) {
+            return true;
+        }
+    }
+    for (const PSBTOutput& output : psbt.outputs) {
+        if (output.mweb_rangeproof.has_value() || output.mweb_sig.has_value()) {
+            return true;
+        }
+    }
+    for (const PSBTKernel& kernel : psbt.kernels) {
+        if (kernel.sig.has_value()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+void ClearTxModifiable(PartiallySignedTransaction& psbt)
+{
+    if (psbt.m_tx_modifiable.has_value()) {
+        psbt.m_tx_modifiable->reset();
+    }
+}
+
+bool MergeUnknownStrict(std::map<std::vector<unsigned char>, std::vector<unsigned char>>& dst, const std::map<std::vector<unsigned char>, std::vector<unsigned char>>& src)
+{
+    for (const auto& [key, value] : src) {
+        auto [it, inserted] = dst.emplace(key, value);
+        if (!inserted && it->second != value) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool MergeProprietaryStrict(std::set<PSBTProprietary>& dst, const std::set<PSBTProprietary>& src)
+{
+    for (const PSBTProprietary& prop : src) {
+        auto [it, inserted] = dst.insert(prop);
+        if (!inserted &&
+            (it->identifier != prop.identifier ||
+             it->subtype != prop.subtype ||
+             it->value != prop.value)) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool IsMWEBPeginScript(const CScript& script, mw::Hash* kernel_id = nullptr)
+{
+    mw::Hash id;
+    if (!script.IsMWEBPegin(&id)) {
+        return false;
+    }
+    if (kernel_id != nullptr) {
+        *kernel_id = std::move(id);
+    }
+    return true;
+}
+
+bool IsMWEBPeginPlaceholderScript(const CScript& script)
+{
+    mw::Hash kernel_id;
+    return IsMWEBPeginScript(script, &kernel_id) && kernel_id.IsZero();
+}
+
+bool IsFinalMWEBPeginScript(const CScript& script)
+{
+    mw::Hash kernel_id;
+    return IsMWEBPeginScript(script, &kernel_id) && !kernel_id.IsZero();
+}
+
+bool HasBaseSignatureData(const PartiallySignedTransaction& psbt)
+{
+    for (const PSBTInput& input : psbt.inputs) {
+        if (input.IsMWEB()) {
+            continue;
+        }
+        if (!input.partial_sigs.empty() ||
+            !input.final_script_sig.empty() ||
+            !input.final_script_witness.IsNull() ||
+            !input.m_tap_key_sig.empty() ||
+            !input.m_tap_script_sigs.empty()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool MergeScriptStrict(
+    std::optional<CScript>& dst,
+    const std::optional<CScript>& src,
+    const bool dst_has_base_sigs,
+    const bool src_has_base_sigs)
+{
+    if (!src.has_value()) {
+        return true;
+    }
+    if (!dst.has_value()) {
+        dst = src;
+        return true;
+    }
+    if (*dst == *src) {
+        return true;
+    }
+
+    if (IsMWEBPeginPlaceholderScript(*dst) && IsFinalMWEBPeginScript(*src)) {
+        if (dst_has_base_sigs) {
+            return false;
+        }
+        dst = src;
+        return true;
+    }
+
+    if (IsFinalMWEBPeginScript(*dst) && IsMWEBPeginPlaceholderScript(*src)) {
+        return !src_has_base_sigs;
+    }
+
+    return false;
+}
+
+std::optional<mw::Hash> GetKernelID(const PSBTKernel& kernel)
+{
+    if (!kernel.features.has_value() || !kernel.commit.has_value() || !kernel.sig.has_value()) {
+        return std::nullopt;
+    }
+
+    return mw::Kernel(
+        *kernel.features,
+        kernel.fee,
+        kernel.pegin_amount,
+        kernel.pegouts,
+        kernel.lock_height,
+        kernel.stealth_commit,
+        kernel.extra_data,
+        *kernel.commit,
+        *kernel.sig).GetKernelID();
+}
+
+uint8_t CalculateKernelFeatures(const PSBTKernel& kernel)
+{
+    uint8_t features{0};
+    features |= kernel.fee.has_value() ? mw::Kernel::FEE_FEATURE_BIT : 0;
+    features |= kernel.pegin_amount.has_value() ? mw::Kernel::PEGIN_FEATURE_BIT : 0;
+    features |= !kernel.pegouts.empty() ? mw::Kernel::PEGOUT_FEATURE_BIT : 0;
+    features |= kernel.lock_height.has_value() ? mw::Kernel::HEIGHT_LOCK_FEATURE_BIT : 0;
+    features |= kernel.stealth_commit.has_value() ? mw::Kernel::STEALTH_EXCESS_FEATURE_BIT : 0;
+    features |= !kernel.extra_data.empty() ? mw::Kernel::EXTRA_DATA_FEATURE_BIT : 0;
+    return features;
+}
+
+bool KernelFeaturesConsistent(const PSBTKernel& kernel)
+{
+    return !kernel.features.has_value() || *kernel.features == CalculateKernelFeatures(kernel);
+}
+
+bool VerifyFinalPeginScripts(const PartiallySignedTransaction& psbt)
+{
+    std::vector<const PSBTKernel*> pegin_kernels;
+    for (const PSBTKernel& kernel : psbt.kernels) {
+        if (kernel.pegin_amount.has_value()) {
+            pegin_kernels.push_back(&kernel);
+        }
+    }
+
+    std::vector<mw::Hash> pegin_script_kernel_ids;
+    bool has_final_pegin_script{false};
+    for (const PSBTOutput& output : psbt.outputs) {
+        if (!output.script.has_value()) {
+            continue;
+        }
+
+        mw::Hash kernel_id;
+        if (!IsMWEBPeginScript(*output.script, &kernel_id)) {
+            continue;
+        }
+
+        if (!kernel_id.IsZero()) {
+            has_final_pegin_script = true;
+        }
+        pegin_script_kernel_ids.push_back(std::move(kernel_id));
+    }
+
+    if (!has_final_pegin_script) {
+        return true;
+    }
+
+    if (pegin_script_kernel_ids.size() != pegin_kernels.size()) {
+        return false;
+    }
+
+    for (size_t i = 0; i < pegin_script_kernel_ids.size(); ++i) {
+        if (pegin_script_kernel_ids[i].IsZero()) {
+            continue;
+        }
+
+        const std::optional<mw::Hash> kernel_id = GetKernelID(*pegin_kernels[i]);
+        if (!kernel_id.has_value() || pegin_script_kernel_ids[i] != *kernel_id) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool MergePSBTInput(PSBTInput& dst, const PSBTInput& src)
+{
+    if (dst.IsMWEB() != src.IsMWEB()) {
+        return false;
+    }
+
+    if (!dst.IsMWEB()) {
+        if (dst.prev_txid != src.prev_txid || dst.prev_out != src.prev_out) {
+            return false;
+        }
+        dst.Merge(src);
+        return true;
+    }
+
+    if (dst.mweb_output_id != src.mweb_output_id) {
+        return false;
+    }
+
+    if (!MergeOptionalStrict(dst.mweb_output_commit, src.mweb_output_commit) ||
+        !MergeOptionalStrict(dst.mweb_output_pubkey, src.mweb_output_pubkey) ||
+        !MergeOptionalStrict(dst.mweb_input_pubkey, src.mweb_input_pubkey) ||
+        !MergeOptionalStrict(dst.mweb_features, src.mweb_features) ||
+        !MergeOptionalStrict(dst.mweb_sig, src.mweb_sig) ||
+        !MergeOptionalStrict(dst.mweb_amount, src.mweb_amount) ||
+        !MergeOptionalStrict(dst.mweb_shared_secret, src.mweb_shared_secret) ||
+        !MergeOptionalStrict(dst.mweb_key_exchange_pubkey, src.mweb_key_exchange_pubkey) ||
+        !MergeOptionalStrict(dst.mweb_address_descriptor, src.mweb_address_descriptor) ||
+        !MergeVectorStrict(dst.mweb_extra_data, src.mweb_extra_data) ||
+        !MergeUnknownStrict(dst.unknown, src.unknown)) {
+        return false;
+    }
+
+    return MergeProprietaryStrict(dst.m_proprietary, src.m_proprietary);
+}
+
+bool MergePSBTOutput(PSBTOutput& dst, const PSBTOutput& src, const bool dst_has_base_sigs, const bool src_has_base_sigs)
+{
+    if (dst.IsMWEB() != src.IsMWEB()) {
+        return false;
+    }
+
+    if (!MergeOptionalStrict(dst.amount, src.amount) ||
+        !MergeScriptStrict(dst.script, src.script, dst_has_base_sigs, src_has_base_sigs)) {
+        return false;
+    }
+
+    dst.hd_keypaths.insert(src.hd_keypaths.begin(), src.hd_keypaths.end());
+    dst.m_tap_bip32_paths.insert(src.m_tap_bip32_paths.begin(), src.m_tap_bip32_paths.end());
+
+    if (dst.redeem_script.empty() && !src.redeem_script.empty()) dst.redeem_script = src.redeem_script;
+    if (dst.witness_script.empty() && !src.witness_script.empty()) dst.witness_script = src.witness_script;
+    if (dst.m_tap_internal_key.IsNull() && !src.m_tap_internal_key.IsNull()) dst.m_tap_internal_key = src.m_tap_internal_key;
+    if (dst.m_tap_tree.empty() && !src.m_tap_tree.empty()) dst.m_tap_tree = src.m_tap_tree;
+
+    if (!dst.IsMWEB()) {
+        dst.unknown.insert(src.unknown.begin(), src.unknown.end());
+        dst.m_proprietary.insert(src.m_proprietary.begin(), src.m_proprietary.end());
+        return true;
+    }
+
+    return MergeUnknownStrict(dst.unknown, src.unknown) &&
+           MergeProprietaryStrict(dst.m_proprietary, src.m_proprietary) &&
+           MergeOptionalStrict(dst.mweb_stealth_address, src.mweb_stealth_address) &&
+           MergeOptionalStrict(dst.mweb_commit, src.mweb_commit) &&
+           MergeOptionalStrict(dst.mweb_features, src.mweb_features) &&
+           MergeOptionalStrict(dst.mweb_sender_pubkey, src.mweb_sender_pubkey) &&
+           MergeOptionalStrict(dst.mweb_output_pubkey, src.mweb_output_pubkey) &&
+           MergeOutputStandardFields(dst.mweb_standard_fields, src.mweb_standard_fields) &&
+           MergeRangeProof(dst.mweb_rangeproof, src.mweb_rangeproof) &&
+           MergeOptionalStrict(dst.mweb_sig, src.mweb_sig) &&
+           MergeVectorStrict(dst.mweb_extra_data, src.mweb_extra_data);
+}
+
+bool MergePSBTKernel(PSBTKernel& dst, const PSBTKernel& src)
+{
+    if (!KernelFeaturesConsistent(dst) || !KernelFeaturesConsistent(src)) {
+        return false;
+    }
+
+    if (!MergeOptionalStrict(dst.commit, src.commit) ||
+        !MergeOptionalStrict(dst.stealth_commit, src.stealth_commit) ||
+        !MergeOptionalStrict(dst.fee, src.fee) ||
+        !MergeOptionalStrict(dst.pegin_amount, src.pegin_amount) ||
+        !MergeVectorStrict(dst.pegouts, src.pegouts) ||
+        !MergeOptionalStrict(dst.lock_height, src.lock_height) ||
+        !MergeVectorStrict(dst.extra_data, src.extra_data) ||
+        !MergeOptionalStrict(dst.sig, src.sig) ||
+        !MergeUnknownStrict(dst.unknown, src.unknown)) {
+        return false;
+    }
+
+    if (dst.features.has_value() || src.features.has_value()) {
+        dst.features = CalculateKernelFeatures(dst);
+    }
+
+    return true;
+}
+
+bool MWEBMergeCompatible(const PartiallySignedTransaction& dst, const PartiallySignedTransaction& src)
+{
+    if (dst.inputs.size() != src.inputs.size() ||
+        dst.outputs.size() != src.outputs.size() ||
+        dst.kernels.size() != src.kernels.size()) {
+        return false;
+    }
+
+    uint32_t dst_locktime;
+    uint32_t src_locktime;
+    if (!dst.ComputeTimeLock(dst_locktime) || !src.ComputeTimeLock(src_locktime) || dst_locktime != src_locktime) {
+        return false;
+    }
+
+    return true;
+}
+} // namespace
+
+PartiallySignedTransaction::PartiallySignedTransaction(const CMutableTransaction& tx, uint32_t version) : m_psbt_version(version)
+{
+    if (version == 0) {
+        this->tx = tx;
+    }
+
+    SetupFromTx(tx);
 }
 
 bool PartiallySignedTransaction::IsNull() const
@@ -19,74 +416,452 @@ bool PartiallySignedTransaction::IsNull() const
     return !tx && inputs.empty() && outputs.empty() && unknown.empty();
 }
 
+bool PartiallySignedTransaction::ContainsMWEBComponents() const noexcept
+{
+    if (tx.has_value() && !tx->mweb_tx.IsNull()) {
+        return true;
+    }
+
+    if (mweb_tx_offset.has_value() || mweb_stealth_offset.has_value()) {
+        return true;
+    }
+
+    if (!kernels.empty()) {
+        return true;
+    }
+
+    for (const PSBTInput& input : inputs) {
+        if (input.IsMWEB()) {
+            return true;
+        }
+    }
+
+    for (const PSBTOutput& output : outputs) {
+        if (output.IsMWEB()) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool PartiallySignedTransaction::Merge(const PartiallySignedTransaction& psbt)
 {
-    // Prohibited to merge two PSBTs over different transactions
-    if (tx->GetHash() != psbt.tx->GetHash()) {
+    const bool contains_mweb = ContainsMWEBComponents() || psbt.ContainsMWEBComponents();
+
+    // Prohibited to merge two PSBTs over different transactions.
+    // For MWEB PSBTs, compare structure explicitly because the base txid does
+    // not cover MWEB data and MWEB signing can finalize peg-in scriptPubKeys.
+    if (!contains_mweb && GetUniqueID() != psbt.GetUniqueID()) {
         return false;
     }
 
-    for (unsigned int i = 0; i < inputs.size(); ++i) {
-        inputs[i].Merge(psbt.inputs[i]);
+    if (tx_version != psbt.tx_version) {
+        return false;
     }
-    for (unsigned int i = 0; i < outputs.size(); ++i) {
-        outputs[i].Merge(psbt.outputs[i]);
+
+    if (inputs.size() != psbt.inputs.size() ||
+        outputs.size() != psbt.outputs.size() ||
+        kernels.size() != psbt.kernels.size()) {
+        return false;
+    }
+
+    if (contains_mweb && !MWEBMergeCompatible(*this, psbt)) {
+        return false;
+    }
+
+    PartiallySignedTransaction merged_psbt{*this};
+    const bool dst_has_base_sigs = HasBaseSignatureData(merged_psbt);
+    const bool src_has_base_sigs = HasBaseSignatureData(psbt);
+
+    for (unsigned int i = 0; i < merged_psbt.inputs.size(); ++i) {
+        if (!MergePSBTInput(merged_psbt.inputs[i], psbt.inputs[i])) {
+            return false;
+        }
+    }
+    for (unsigned int i = 0; i < merged_psbt.outputs.size(); ++i) {
+        if (!MergePSBTOutput(merged_psbt.outputs[i], psbt.outputs[i], dst_has_base_sigs, src_has_base_sigs)) {
+            return false;
+        }
+    }
+    for (unsigned int i = 0; i < merged_psbt.kernels.size(); ++i) {
+        if (!MergePSBTKernel(merged_psbt.kernels[i], psbt.kernels[i])) {
+            return false;
+        }
+    }
+    if (!MergeOptionalStrict(merged_psbt.mweb_tx_offset, psbt.mweb_tx_offset) ||
+        !MergeOptionalStrict(merged_psbt.mweb_stealth_offset, psbt.mweb_stealth_offset) ||
+        !VerifyFinalPeginScripts(merged_psbt)) {
+        return false;
     }
     for (auto& xpub_pair : psbt.m_xpubs) {
-        if (m_xpubs.count(xpub_pair.first) == 0) {
-            m_xpubs[xpub_pair.first] = xpub_pair.second;
+        if (merged_psbt.m_xpubs.count(xpub_pair.first) == 0) {
+            merged_psbt.m_xpubs[xpub_pair.first] = xpub_pair.second;
         } else {
-            m_xpubs[xpub_pair.first].insert(xpub_pair.second.begin(), xpub_pair.second.end());
+            merged_psbt.m_xpubs[xpub_pair.first].insert(xpub_pair.second.begin(), xpub_pair.second.end());
         }
     }
-    unknown.insert(psbt.unknown.begin(), psbt.unknown.end());
+    if (merged_psbt.fallback_locktime == std::nullopt && psbt.fallback_locktime != std::nullopt) merged_psbt.fallback_locktime = psbt.fallback_locktime;
+    if (merged_psbt.m_tx_modifiable != std::nullopt && psbt.m_tx_modifiable != std::nullopt) *merged_psbt.m_tx_modifiable |= *psbt.m_tx_modifiable;
+    if (merged_psbt.m_tx_modifiable == std::nullopt && psbt.m_tx_modifiable != std::nullopt) merged_psbt.m_tx_modifiable = psbt.m_tx_modifiable;
+    if (contains_mweb && HasMWEBSignatureOrProof(merged_psbt)) ClearTxModifiable(merged_psbt);
+    if (contains_mweb) {
+        if (!MergeUnknownStrict(merged_psbt.unknown, psbt.unknown) ||
+            !MergeProprietaryStrict(merged_psbt.m_proprietary, psbt.m_proprietary)) {
+            return false;
+        }
+    } else {
+        merged_psbt.unknown.insert(psbt.unknown.begin(), psbt.unknown.end());
+        merged_psbt.m_proprietary.insert(psbt.m_proprietary.begin(), psbt.m_proprietary.end());
+    }
+
+    *this = std::move(merged_psbt);
 
     return true;
 }
 
-bool PartiallySignedTransaction::AddInput(const CTxIn& txin, PSBTInput& psbtin)
+bool PartiallySignedTransaction::ComputeTimeLock(uint32_t& locktime) const
 {
-    if (std::find(tx->vin.begin(), tx->vin.end(), txin) != tx->vin.end()) {
+    std::optional<uint32_t> time_lock{0};
+    std::optional<uint32_t> height_lock{0};
+    for (const PSBTInput& input : inputs) {
+        if (input.time_locktime != std::nullopt && input.height_locktime == std::nullopt) {
+            height_lock.reset(); // Transaction can no longer have a height locktime
+            if (time_lock == std::nullopt) {
+                return false;
+            }
+        } else if (input.time_locktime == std::nullopt && input.height_locktime != std::nullopt) {
+            time_lock.reset(); // Transaction can no longer have a time locktime
+            if (height_lock == std::nullopt) {
+                return false;
+            }
+        }
+        if (input.time_locktime && time_lock != std::nullopt) {
+            time_lock = std::max(time_lock, input.time_locktime);
+        }
+        if (input.height_locktime && height_lock != std::nullopt) {
+            height_lock = std::max(height_lock, input.height_locktime);
+        }
+    }
+    if (height_lock != std::nullopt && *height_lock > 0) {
+        locktime = *height_lock;
+        return true;
+    }
+    if (time_lock != std::nullopt && *time_lock > 0) {
+        locktime = *time_lock;
+        return true;
+    }
+    locktime = fallback_locktime.value_or(0);
+    return true;
+}
+
+CMutableTransaction PartiallySignedTransaction::GetUnsignedTx() const
+{
+    if (tx != std::nullopt) {
+        return *tx;
+    }
+
+    CMutableTransaction mtx;
+    mtx.nVersion = tx_version;
+    bool locktime_success = ComputeTimeLock(mtx.nLockTime);
+    assert(locktime_success);
+    uint32_t max_sequence = CTxIn::SEQUENCE_FINAL;
+    for (const PSBTInput& input : inputs) {
+        if (input.IsMWEB()) {
+            mw::MutableInput mweb_input(*input.mweb_output_id);
+            mweb_input.commitment = input.mweb_output_commit;
+            mweb_input.output_pubkey = input.mweb_output_pubkey;
+            mweb_input.amount = input.mweb_amount;
+            if (input.mweb_shared_secret.has_value()) {
+                mweb_input.raw_blind = Hashed(EHashTag::BLIND, *input.mweb_shared_secret);
+            }
+            mweb_input.features = input.mweb_features;
+            mweb_input.extradata = input.mweb_extra_data;
+            mweb_input.input_pubkey = input.mweb_input_pubkey;
+            mweb_input.signature = input.mweb_sig;
+            mweb_input.key_exchange_pubkey = input.mweb_key_exchange_pubkey;
+            mweb_input.shared_secret = input.mweb_shared_secret;
+            mtx.mweb_tx.inputs.push_back(std::move(mweb_input));
+        } else {
+            CTxIn txin;
+            txin.prevout.hash = input.prev_txid;
+            txin.prevout.n = *input.prev_out;
+            txin.nSequence = input.sequence.value_or(max_sequence);
+            mtx.vin.push_back(txin);
+        }
+    }
+
+    for (const PSBTOutput& psbt_output : outputs) {
+        if (psbt_output.IsMWEB()) {
+            mw::MutableOutput mweb_output;
+            mweb_output.commitment = psbt_output.mweb_commit;
+            mweb_output.sender_pubkey = psbt_output.mweb_sender_pubkey;
+            mweb_output.receiver_pubkey = psbt_output.mweb_output_pubkey;
+
+            uint8_t features = 0;
+            if (psbt_output.mweb_features.has_value()) {
+                features = *psbt_output.mweb_features;
+            } else {
+                features |= psbt_output.mweb_standard_fields.has_value() ? mw::OutputMessage::STANDARD_FIELDS_FEATURE_BIT : 0;
+                features |= psbt_output.mweb_extra_data.size() > 0 ? mw::OutputMessage::EXTRA_DATA_FEATURE_BIT : 0;
+            }
+            mweb_output.message = mw::OutputMessage(features, psbt_output.mweb_standard_fields, psbt_output.mweb_extra_data);
+
+            mweb_output.proof = psbt_output.mweb_rangeproof;
+            mweb_output.signature = psbt_output.mweb_sig;
+            mweb_output.amount = psbt_output.amount;
+            mweb_output.address = psbt_output.mweb_stealth_address;
+            mtx.mweb_tx.outputs.push_back(std::move(mweb_output));
+        } else {
+            CTxOut txout;
+            txout.nValue = *psbt_output.amount;
+            txout.scriptPubKey = *psbt_output.script;
+            mtx.vout.push_back(std::move(txout));
+        }
+    }
+
+    for (const PSBTKernel& kernel : kernels) {
+        mw::MutableKernel mut_kernel;
+        mut_kernel.fee = kernel.fee;
+        mut_kernel.pegin = kernel.pegin_amount;
+        mut_kernel.SetPegOuts(kernel.pegouts);
+        mut_kernel.lock_height = kernel.lock_height;
+        mut_kernel.excess = kernel.commit;
+        mut_kernel.stealth_excess = kernel.stealth_commit;
+        mut_kernel.extradata = kernel.extra_data;
+        mut_kernel.signature = kernel.sig;
+        mtx.mweb_tx.kernels.push_back(std::move(mut_kernel));
+    }
+
+    mtx.mweb_tx.kernel_offset = mweb_tx_offset.value_or(BlindingFactor{});
+    mtx.mweb_tx.stealth_offset = mweb_stealth_offset.value_or(BlindingFactor{});
+
+    return mtx;
+}
+
+uint256 PartiallySignedTransaction::GetUniqueID() const
+{
+    if (GetPSBTVersion() == 0) {
+        assert(tx != std::nullopt);
+        return tx->GetHash();
+    }
+
+    // Get the unsigned transaction
+    CMutableTransaction mtx = GetUnsignedTx();
+    // Set the sequence numbers to 0
+    for (CTxIn& txin : mtx.vin) {
+        txin.nSequence = 0;
+    }
+    return mtx.GetHash();
+}
+
+bool PartiallySignedTransaction::AddInput(PSBTInput& psbtin)
+{
+    if (GetPSBTVersion() == 0) {
+        // This is a v0 psbt, so do the v0 AddInput
+        CTxIn txin(COutPoint(psbtin.prev_txid, *psbtin.prev_out));
+        if (std::find(tx->vin.begin(), tx->vin.end(), txin) != tx->vin.end()) {
+            // Prevent duplicate inputs
+            return false;
+        }
+        tx->vin.push_back(txin);
+        psbtin.partial_sigs.clear();
+        psbtin.final_script_sig.clear();
+        psbtin.final_script_witness.SetNull();
+        inputs.push_back(psbtin);
+        return true;
+    } else if (GetPSBTVersion() >= 2) {
+        if (psbtin.prev_txid.IsNull() || psbtin.prev_out == std::nullopt) {
+            return false;
+        }
+        // Prevent duplicate inputs
+        if (std::find_if(inputs.begin(), inputs.end(),
+            [psbtin](const PSBTInput& psbt) {
+                return psbt.prev_txid == psbtin.prev_txid && psbt.prev_out == psbtin.prev_out;
+            }
+        ) != inputs.end()) {
+            return false;
+        }
+
+        // No global tx, must be PSBTv2.
+        // Check inputs modifiable flag
+        if (m_tx_modifiable == std::nullopt || !m_tx_modifiable->test(0)) {
+            return false;
+        }
+
+        // Determine if we need to iterate the inputs.
+        // For now, we only do this if the new input has a required time lock.
+        // The BIP states that we should also do this if m_tx_modifiable's bit 2 is set
+        // (Has SIGHASH_SINGLE flag) but since we are only adding inputs at the end of the vector,
+        // we don't care about that.
+        bool iterate_inputs = psbtin.time_locktime != std::nullopt || psbtin.height_locktime != std::nullopt;
+        if (iterate_inputs) {
+            uint32_t old_timelock;
+            if (!ComputeTimeLock(old_timelock)) {
+                return false;
+            }
+
+            std::optional<uint32_t> time_lock = psbtin.time_locktime;
+            std::optional<uint32_t> height_lock = psbtin.height_locktime;
+            bool has_sigs = false;
+            for (const PSBTInput& input : inputs) {
+                if (input.time_locktime != std::nullopt && input.height_locktime == std::nullopt) {
+                    height_lock.reset(); // Transaction can no longer have a height locktime
+                    if (time_lock == std::nullopt) {
+                        return false;
+                    }
+                } else if (input.time_locktime == std::nullopt && input.height_locktime != std::nullopt) {
+                    time_lock.reset(); // Transaction can no longer have a time locktime
+                    if (height_lock == std::nullopt) {
+                        return false;
+                    }
+                }
+                if (input.time_locktime && time_lock != std::nullopt) {
+                    time_lock = std::max(time_lock, input.time_locktime);
+                }
+                if (input.height_locktime && height_lock != std::nullopt) {
+                    height_lock = std::max(height_lock, input.height_locktime);
+                }
+                if (!input.partial_sigs.empty()) {
+                    has_sigs = true;
+                }
+            }
+            uint32_t new_timelock = fallback_locktime.value_or(0);
+            if (height_lock != std::nullopt && *height_lock > 0) {
+                new_timelock = *height_lock;
+            } else if (time_lock != std::nullopt && *time_lock > 0) {
+                new_timelock = *time_lock;
+            }
+            if (has_sigs && old_timelock != new_timelock) {
+                return false;
+            }
+        }
+
+        // Add the input to the end
+        inputs.push_back(psbtin);
+        return true;
+    }
+
+    return false;
+}
+
+bool PartiallySignedTransaction::AddOutput(const PSBTOutput& psbtout)
+{
+    if (psbtout.amount == std::nullopt || !psbtout.script.has_value()) {
         return false;
     }
-    tx->vin.push_back(txin);
-    psbtin.partial_sigs.clear();
-    psbtin.final_script_sig.clear();
-    psbtin.final_script_witness.SetNull();
-    inputs.push_back(psbtin);
-    return true;
-}
 
-bool PartiallySignedTransaction::AddOutput(const CTxOut& txout, const PSBTOutput& psbtout)
-{
-    tx->vout.push_back(txout);
+    if (tx != std::nullopt) {
+        // This is a v0 psbt, do the v0 AddOutput
+        CTxOut txout(*psbtout.amount, *psbtout.script);
+        tx->vout.push_back(txout);
+        outputs.push_back(psbtout);
+        return true;
+    }
+
+    // No global tx, must be PSBTv2
+    // Check outputs are modifiable
+    if (m_tx_modifiable == std::nullopt || !m_tx_modifiable->test(1)) {
+        return false;
+    }
     outputs.push_back(psbtout);
+
     return true;
 }
 
-bool PartiallySignedTransaction::GetInputUTXO(CTxOut& utxo, int input_index) const
+bool PSBTInput::GetUTXO(CTxOut& utxo) const
 {
-    const PSBTInput& input = inputs[input_index];
-    uint32_t prevout_index = tx->vin[input_index].prevout.n;
-    if (input.non_witness_utxo) {
-        if (prevout_index >= input.non_witness_utxo->vout.size()) {
+    if (non_witness_utxo) {
+        if (prev_out >= non_witness_utxo->vout.size()) {
             return false;
         }
-        if (input.non_witness_utxo->GetHash() != tx->vin[input_index].prevout.hash) {
+        if (non_witness_utxo->GetHash() != prev_txid) {
             return false;
         }
-        utxo = input.non_witness_utxo->vout[prevout_index];
-    } else if (!input.witness_utxo.IsNull()) {
-        utxo = input.witness_utxo;
+        utxo = non_witness_utxo->vout[*prev_out];
+    } else if (!witness_utxo.IsNull()) {
+        utxo = witness_utxo;
     } else {
         return false;
     }
     return true;
 }
 
+COutPoint PSBTInput::GetOutPoint() const
+{
+    return COutPoint(prev_txid, *prev_out);
+}
+
+bool PartiallySignedTransaction::IsComplete() const noexcept
+{
+    bool is_mweb = false;
+    for (const PSBTInput& input : inputs) {
+        if (!PSBTInputSigned(input)) {
+            return false;
+        }
+
+        if (input.IsMWEB()) {
+            is_mweb = true;
+            if (!input.mweb_features || !input.mweb_output_commit || !input.mweb_output_pubkey) {
+                return false;
+            }
+            const uint8_t features = *input.mweb_features;
+            if (features & mw::Input::STEALTH_KEY_FEATURE_BIT && !input.mweb_input_pubkey) {
+                return false;
+            } else if (features & mw::Input::EXTRA_DATA_FEATURE_BIT && input.mweb_extra_data.empty()) {
+                return false;
+            }
+        }
+    }
+
+    for (const PSBTKernel& kernel : kernels) {
+        is_mweb = true;
+        if (!kernel.commit || !kernel.features || !kernel.sig) {
+            return false;
+        }
+
+        const uint8_t features = *kernel.features;
+        if (features & mw::Kernel::FEE_FEATURE_BIT && !kernel.fee) {
+            return false;
+        } else if (features & mw::Kernel::PEGIN_FEATURE_BIT && !kernel.pegin_amount) {
+            return false;
+        } else if (features & mw::Kernel::PEGOUT_FEATURE_BIT && kernel.pegouts.empty()) {
+            return false;
+        } else if (features & mw::Kernel::HEIGHT_LOCK_FEATURE_BIT && !kernel.lock_height) {
+            return false;
+        } else if (features & mw::Kernel::STEALTH_EXCESS_FEATURE_BIT && !kernel.stealth_commit) {
+            return false;
+        } else if (features & mw::Kernel::EXTRA_DATA_FEATURE_BIT && kernel.extra_data.empty()) {
+            return false;
+        }
+    }
+
+    for (const PSBTOutput& output : outputs) {
+        if (output.IsMWEB()) {
+            is_mweb = true;
+            if (!output.mweb_commit || !output.mweb_features || !output.mweb_sender_pubkey || !output.mweb_output_pubkey || !output.mweb_rangeproof || !output.mweb_sig) {
+                return false;
+            }
+            
+            const uint8_t features = *output.mweb_features;
+            if (features & mw::OutputMessage::STANDARD_FIELDS_FEATURE_BIT && !output.mweb_standard_fields) {
+                return false;
+            } else if (features & mw::OutputMessage::EXTRA_DATA_FEATURE_BIT && output.mweb_extra_data.empty()) {
+                return false;
+            }
+        }
+    }
+
+    if (is_mweb && (!mweb_tx_offset.has_value() || !mweb_stealth_offset.has_value())) {
+        return false;
+    }
+
+    return true;
+}
+
 bool PSBTInput::IsNull() const
 {
-    return !non_witness_utxo && witness_utxo.IsNull() && partial_sigs.empty() && unknown.empty() && hd_keypaths.empty() && redeem_script.empty() && witness_script.empty();
+    return !non_witness_utxo && witness_utxo.IsNull() && partial_sigs.empty() && unknown.empty() && hd_keypaths.empty() && redeem_script.empty() && witness_script.empty() && !mweb_output_id.has_value();
 }
 
 void PSBTInput::FillSignatureData(SignatureData& sigdata) const
@@ -182,6 +957,9 @@ void PSBTInput::FromSignatureData(const SignatureData& sigdata)
 
 void PSBTInput::Merge(const PSBTInput& input)
 {
+    assert(prev_txid == input.prev_txid);
+    assert(*prev_out == *input.prev_out);
+
     if (!non_witness_utxo && input.non_witness_utxo) non_witness_utxo = input.non_witness_utxo;
     if (witness_utxo.IsNull() && !input.witness_utxo.IsNull()) {
         witness_utxo = input.witness_utxo;
@@ -205,6 +983,9 @@ void PSBTInput::Merge(const PSBTInput& input)
     if (m_tap_key_sig.empty() && !input.m_tap_key_sig.empty()) m_tap_key_sig = input.m_tap_key_sig;
     if (m_tap_internal_key.IsNull() && !input.m_tap_internal_key.IsNull()) m_tap_internal_key = input.m_tap_internal_key;
     if (m_tap_merkle_root.IsNull() && !input.m_tap_merkle_root.IsNull()) m_tap_merkle_root = input.m_tap_merkle_root;
+    if (sequence == std::nullopt && input.sequence != std::nullopt) sequence = input.sequence;
+    if (time_locktime == std::nullopt && input.time_locktime != std::nullopt) time_locktime = input.time_locktime;
+    if (height_locktime == std::nullopt && input.height_locktime != std::nullopt) height_locktime = input.height_locktime;
 }
 
 void PSBTOutput::FillSignatureData(SignatureData& sigdata) const
@@ -259,11 +1040,14 @@ void PSBTOutput::FromSignatureData(const SignatureData& sigdata)
 
 bool PSBTOutput::IsNull() const
 {
-    return redeem_script.empty() && witness_script.empty() && hd_keypaths.empty() && unknown.empty();
+    return redeem_script.empty() && witness_script.empty() && hd_keypaths.empty() && unknown.empty() && !mweb_stealth_address.has_value() && !mweb_commit.has_value();
 }
 
 void PSBTOutput::Merge(const PSBTOutput& output)
 {
+    assert(*amount == *output.amount);
+    assert(*script == *output.script);
+
     hd_keypaths.insert(output.hd_keypaths.begin(), output.hd_keypaths.end());
     unknown.insert(output.unknown.begin(), output.unknown.end());
     m_tap_bip32_paths.insert(output.m_tap_bip32_paths.begin(), output.m_tap_bip32_paths.end());
@@ -273,9 +1057,96 @@ void PSBTOutput::Merge(const PSBTOutput& output)
     if (m_tap_internal_key.IsNull() && !output.m_tap_internal_key.IsNull()) m_tap_internal_key = output.m_tap_internal_key;
     if (m_tap_tree.empty() && !output.m_tap_tree.empty()) m_tap_tree = output.m_tap_tree;
 }
+
 bool PSBTInputSigned(const PSBTInput& input)
 {
-    return !input.final_script_sig.empty() || !input.final_script_witness.IsNull();
+    return !input.final_script_sig.empty() || !input.final_script_witness.IsNull() || input.mweb_sig.has_value();
+}
+
+static bool VerifyMWEBPSBTInputSignature(const PSBTInput& input)
+{
+    if (!input.mweb_sig.has_value() || !input.mweb_output_id.has_value() || !input.mweb_output_pubkey.has_value() || !input.mweb_features.has_value()) {
+        return false;
+    }
+
+    const uint8_t features = *input.mweb_features;
+    if ((features & mw::Input::STEALTH_KEY_FEATURE_BIT) != 0 && !input.mweb_input_pubkey.has_value()) {
+        return false;
+    }
+    if ((features & mw::Input::EXTRA_DATA_FEATURE_BIT) != 0 && input.mweb_extra_data.empty()) {
+        return false;
+    }
+
+    Hasher msg_hasher;
+    msg_hasher << features << *input.mweb_output_id;
+    if ((features & mw::Input::EXTRA_DATA_FEATURE_BIT) != 0) {
+        msg_hasher << input.mweb_extra_data;
+    }
+    const mw::Hash msg_hash = msg_hasher.hash();
+
+    PublicKey public_key = *input.mweb_output_pubkey;
+    if ((features & mw::Input::STEALTH_KEY_FEATURE_BIT) != 0) {
+        Hasher key_hasher;
+        key_hasher << *input.mweb_input_pubkey << *input.mweb_output_pubkey;
+        const SecretKey key_hash = key_hasher.hash();
+
+        public_key = public_key.Mul(key_hash).Add(*input.mweb_input_pubkey);
+    }
+
+    return Schnorr::Verify(*input.mweb_sig, public_key, msg_hash);
+}
+
+bool PSBTInputSignedAndVerified(const PartiallySignedTransaction& psbt, unsigned int input_index, const PrecomputedTransactionData* txdata)
+{
+    assert(psbt.inputs.size() >= input_index);
+    const PSBTInput& input = psbt.inputs[input_index];
+
+    if (input.mweb_sig.has_value()) {
+        return VerifyMWEBPSBTInputSignature(input);
+    }
+
+    CTxOut utxo;
+    if (!input.GetUTXO(utxo)) {
+        return false;
+    }
+
+    const CMutableTransaction tx = psbt.GetUnsignedTx();
+    if (txdata) {
+        return VerifyScript(input.final_script_sig, utxo.scriptPubKey, &input.final_script_witness, STANDARD_SCRIPT_VERIFY_FLAGS, MutableTransactionSignatureChecker{&tx, input_index, utxo.nValue, *txdata, MissingDataBehavior::FAIL});
+    } else {
+        return VerifyScript(input.final_script_sig, utxo.scriptPubKey, &input.final_script_witness, STANDARD_SCRIPT_VERIFY_FLAGS, MutableTransactionSignatureChecker{&tx, input_index, utxo.nValue, MissingDataBehavior::FAIL});
+    }
+}
+
+static bool VerifyPSBTInputSignatures(const PartiallySignedTransaction& psbt, const PrecomputedTransactionData* txdata)
+{
+    for (unsigned int i = 0; i < psbt.inputs.size(); ++i) {
+        if (!PSBTInputSignedAndVerified(psbt, i, txdata)) {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+static bool VerifyFinalMWEBTransaction(const CMutableTransaction& mtx)
+{
+    if (mtx.mweb_tx.IsNull()) {
+        return true;
+    }
+
+    try {
+        const CTransaction tx{mtx};
+        if (tx.mweb_tx.IsNull()) {
+            return false;
+        }
+
+        tx.mweb_tx.m_transaction->Validate();
+    } catch (const std::exception&) {
+        return false;
+    }
+
+    return true;
 }
 
 size_t CountPSBTUnsignedInputs(const PartiallySignedTransaction& psbt) {
@@ -291,9 +1162,13 @@ size_t CountPSBTUnsignedInputs(const PartiallySignedTransaction& psbt) {
 
 void UpdatePSBTOutput(const SigningProvider& provider, PartiallySignedTransaction& psbt, int index)
 {
-    CMutableTransaction& tx = *Assert(psbt.tx);
-    const CTxOut& out = tx.vout.at(index);
+    CMutableTransaction tx = psbt.GetUnsignedTx();
     PSBTOutput& psbt_out = psbt.outputs.at(index);
+    if (psbt_out.IsMWEB()) {
+        return;
+    }
+
+    const CTxOut& out = tx.vout.at(index);
 
     // Fill a SignatureData with output info
     SignatureData sigdata;
@@ -309,14 +1184,124 @@ void UpdatePSBTOutput(const SigningProvider& provider, PartiallySignedTransactio
     psbt_out.FromSignatureData(sigdata);
 }
 
+util::Result<std::map<mw::Hash, mw::WalletCoin>> PSBTSignMWEBTx(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& mweb_spend_keys, const SecretKey& rewind_key, const mw::SenderKeyGenerator& generate_sender_key)
+{
+    std::map<mw::Hash, mw::WalletCoin> wallet_coins_by_output_id;
+
+    // Finalize MWEB outputs and kernels
+    CMutableTransaction mtx = psbtx.GetUnsignedTx();
+
+
+    // Attempt to fill in missing spend keys for inputs
+    for (mw::MutableInput& input : mtx.mweb_tx.inputs) {
+        if (input.spend_key.has_value()) {
+            continue;
+        }
+
+        auto spend_iter = mweb_spend_keys.find(input.output_id);
+        if (spend_iter != mweb_spend_keys.end()) {
+            input.spend_key = spend_iter->second;
+        }
+    }
+
+    // mw::SignTx may rewrite peg-in scriptPubKeys in mtx.vout.
+    // Any precomputed sighash data from before this point must be discarded.
+    util::Result<mw::SignTxResult> mweb_result = mw::SignTx(mtx, rewind_key, generate_sender_key);
+    if (!mweb_result) {
+        return util::Error{util::ErrorString(mweb_result)};
+    }
+
+    ClearTxModifiable(psbtx);
+
+    wallet_coins_by_output_id = mweb_result->wallet_coins_by_output_id;
+
+    size_t idx = 0;
+    for (PSBTInput& psbt_input : psbtx.inputs) {
+        if (!psbt_input.IsMWEB()) {
+            continue;
+        }
+
+        const mw::MutableInput& input = mtx.mweb_tx.inputs[idx++];
+        if (!psbt_input.mweb_output_id.has_value()) {
+            psbt_input.mweb_output_id = input.output_id;
+        }
+        if (!psbt_input.mweb_output_commit.has_value()) {
+            psbt_input.mweb_output_commit = input.commitment;
+        }
+        if (!psbt_input.mweb_output_pubkey.has_value()) {
+            psbt_input.mweb_output_pubkey = input.output_pubkey;
+        }
+        psbt_input.mweb_input_pubkey = input.input_pubkey;
+        psbt_input.mweb_features = input.features;
+        psbt_input.mweb_sig = input.signature;
+        psbt_input.mweb_amount = input.amount;
+        psbt_input.mweb_extra_data = input.extradata;
+    }
+
+    idx = 0;
+    for (PSBTOutput& psbt_output : psbtx.outputs) {
+        if (!psbt_output.IsMWEB()) {
+            continue;
+        }
+
+        const mw::MutableOutput& output = mtx.mweb_tx.outputs[idx++];
+        psbt_output.amount = output.amount;
+        psbt_output.mweb_stealth_address = output.address;
+        psbt_output.mweb_commit = output.commitment;
+        psbt_output.mweb_sender_pubkey = output.sender_pubkey;
+        psbt_output.mweb_output_pubkey = output.receiver_pubkey;
+        assert(output.message.has_value());
+        psbt_output.mweb_features = output.message->features;
+        psbt_output.mweb_standard_fields = output.message->standard_fields;
+        psbt_output.mweb_extra_data = output.message->extra_data;
+        psbt_output.mweb_rangeproof = output.proof;
+        psbt_output.mweb_sig = output.signature;
+    }
+
+    if (psbtx.kernels.size() < mtx.mweb_tx.kernels.size()) {
+        psbtx.kernels.resize(mtx.mweb_tx.kernels.size());
+    }
+
+    idx = 0;
+    for (const mw::MutableKernel& kernel : mtx.mweb_tx.kernels) {
+        PSBTKernel& psbt_kernel = psbtx.kernels[idx++];
+        psbt_kernel.features = kernel.CalcFeatureByte();
+        psbt_kernel.commit = kernel.excess;
+        psbt_kernel.stealth_commit = kernel.stealth_excess;
+        psbt_kernel.fee = kernel.fee;
+        psbt_kernel.pegin_amount = kernel.pegin;
+        psbt_kernel.pegouts = kernel.GetPegOuts();
+        psbt_kernel.lock_height = kernel.lock_height;
+        psbt_kernel.extra_data = kernel.extradata;
+        psbt_kernel.sig = kernel.signature;
+    }
+
+    for (size_t i = 0; i < mtx.vout.size(); i++) {
+        CTxOut& out = mtx.vout[i];
+        if (out.scriptPubKey.IsMWEBPegin()) {
+            PSBTOutput& psbt_output = psbtx.outputs[i];
+            psbt_output.amount = out.nValue;
+            psbt_output.script = out.scriptPubKey;
+        }
+    }
+
+    psbtx.mweb_tx_offset = mtx.mweb_tx.kernel_offset.IsNull() ? std::nullopt : std::make_optional(mtx.mweb_tx.kernel_offset);
+    psbtx.mweb_stealth_offset = mtx.mweb_tx.stealth_offset.IsNull() ? std::nullopt : std::make_optional(mtx.mweb_tx.stealth_offset);
+
+    return wallet_coins_by_output_id;
+}
+
 PrecomputedTransactionData PrecomputePSBTData(const PartiallySignedTransaction& psbt)
 {
-    const CMutableTransaction& tx = *psbt.tx;
+
+    const CMutableTransaction& tx = psbt.GetUnsignedTx();
     bool have_all_spent_outputs = true;
-    std::vector<CTxOut> utxos(tx.vin.size());
-    for (size_t idx = 0; idx < tx.vin.size(); ++idx) {
-        if (!psbt.GetInputUTXO(utxos[idx], idx)) have_all_spent_outputs = false;
+    std::vector<CTxOut> utxos;
+    for (const PSBTInput& input : psbt.inputs) {
+        if (input.IsMWEB()) continue;
+        if (!input.GetUTXO(utxos.emplace_back())) have_all_spent_outputs = false;
     }
+
     PrecomputedTransactionData txdata;
     if (have_all_spent_outputs) {
         txdata.Init(tx, std::move(utxos), true);
@@ -329,9 +1314,9 @@ PrecomputedTransactionData PrecomputePSBTData(const PartiallySignedTransaction& 
 bool SignPSBTInput(const SigningProvider& provider, PartiallySignedTransaction& psbt, int index, const PrecomputedTransactionData* txdata, int sighash,  SignatureData* out_sigdata, bool finalize)
 {
     PSBTInput& input = psbt.inputs.at(index);
-    const CMutableTransaction& tx = *psbt.tx;
+    const CMutableTransaction& tx = psbt.GetUnsignedTx();
 
-    if (PSBTInputSigned(input)) {
+    if (PSBTInputSignedAndVerified(psbt, index, txdata)) {
         return true;
     }
 
@@ -345,7 +1330,7 @@ bool SignPSBTInput(const SigningProvider& provider, PartiallySignedTransaction& 
 
     if (input.non_witness_utxo) {
         // If we're taking our information from a non-witness UTXO, verify that it matches the prevout.
-        COutPoint prevout = tx.vin[index].prevout;
+        COutPoint prevout = input.GetOutPoint();
         if (prevout.n >= input.non_witness_utxo->vout.size()) {
             return false;
         }
@@ -399,7 +1384,40 @@ bool SignPSBTInput(const SigningProvider& provider, PartiallySignedTransaction& 
     return sig_complete;
 }
 
-bool FinalizePSBT(PartiallySignedTransaction& psbtx)
+void RemoveUnnecessaryTransactions(PartiallySignedTransaction& psbtx, const int& sighash_type)
+{
+    // Only drop non_witness_utxos if sighash_type != SIGHASH_ANYONECANPAY
+    if ((sighash_type & 0x80) != SIGHASH_ANYONECANPAY) {
+
+        // Figure out if any non_witness_utxos should be dropped
+        std::vector<unsigned int> to_drop;
+        for (unsigned int i = 0; i < psbtx.inputs.size(); ++i) {
+            const auto& input = psbtx.inputs.at(i);
+            int wit_ver;
+            std::vector<unsigned char> wit_prog;
+            if (input.witness_utxo.IsNull() || !input.witness_utxo.scriptPubKey.IsWitnessProgram(wit_ver, wit_prog)) {
+                // There's a non-segwit input or Segwit v0, so we cannot drop any witness_utxos
+                to_drop.clear();
+                break;
+            }
+            if (wit_ver == 0) {
+                // Segwit v0, so we cannot drop any non_witness_utxos
+                to_drop.clear();
+                break;
+            }
+            if (input.non_witness_utxo) {
+                to_drop.push_back(i);
+            }
+        }
+
+        // Drop the non_witness_utxos that we can drop
+        for (unsigned int i : to_drop) {
+            psbtx.inputs.at(i).non_witness_utxo = nullptr;
+        }
+    }
+}
+
+util::Result<CMutableTransaction> FinalizePSBT(PartiallySignedTransaction& psbtx)
 {
     // Finalize input signatures -- in case we have partial signatures that add up to a complete
     //   signature, but have not combined them yet (e.g. because the combiner that created this
@@ -407,27 +1425,25 @@ bool FinalizePSBT(PartiallySignedTransaction& psbtx)
     //   script.
     bool complete = true;
     const PrecomputedTransactionData txdata = PrecomputePSBTData(psbtx);
-    for (unsigned int i = 0; i < psbtx.tx->vin.size(); ++i) {
+    for (unsigned int i = 0; i < psbtx.inputs.size(); ++i) {
         complete &= SignPSBTInput(DUMMY_SIGNING_PROVIDER, psbtx, i, &txdata, SIGHASH_ALL, nullptr, true);
     }
 
-    return complete;
-}
-
-bool FinalizeAndExtractPSBT(PartiallySignedTransaction& psbtx, CMutableTransaction& result)
-{
-    // It's not safe to extract a PSBT that isn't finalized, and there's no easy way to check
-    //   whether a PSBT is finalized without finalizing it, so we just do this.
-    if (!FinalizePSBT(psbtx)) {
-        return false;
+    if (!complete || !psbtx.IsComplete() || !VerifyPSBTInputSignatures(psbtx, &txdata) || !VerifyFinalPeginScripts(psbtx)) {
+        return util::Error{};
     }
 
-    result = *psbtx.tx;
-    for (unsigned int i = 0; i < result.vin.size(); ++i) {
-        result.vin[i].scriptSig = psbtx.inputs[i].final_script_sig;
-        result.vin[i].scriptWitness = psbtx.inputs[i].final_script_witness;
+    CMutableTransaction mtx = psbtx.GetUnsignedTx();
+    for (unsigned int i = 0; i < mtx.vin.size(); ++i) {
+        mtx.vin[i].scriptSig = psbtx.inputs[i].final_script_sig;
+        mtx.vin[i].scriptWitness = psbtx.inputs[i].final_script_witness;
     }
-    return true;
+
+    if (!VerifyFinalMWEBTransaction(mtx)) {
+        return util::Error{};
+    }
+
+    return mtx;
 }
 
 TransactionError CombinePSBTs(PartiallySignedTransaction& out, const std::vector<PartiallySignedTransaction>& psbtxs)
@@ -481,10 +1497,87 @@ bool DecodeRawPSBT(PartiallySignedTransaction& psbt, Span<const std::byte> tx_da
     return true;
 }
 
-uint32_t PartiallySignedTransaction::GetVersion() const
+uint32_t PartiallySignedTransaction::GetPSBTVersion() const
 {
-    if (m_version != std::nullopt) {
-        return *m_version;
+    return m_psbt_version;
+}
+
+void PartiallySignedTransaction::SetupFromTx(const CMutableTransaction& tx)
+{
+    tx_version = tx.nVersion;
+    fallback_locktime = tx.nLockTime;
+
+    size_t num_inputs = tx.vin.size() + tx.mweb_tx.inputs.size();
+    size_t num_outputs = tx.vout.size() + tx.mweb_tx.outputs.size();
+    size_t num_kernels = tx.mweb_tx.kernels.size();
+
+    inputs.resize(num_inputs, PSBTInput(GetPSBTVersion()));
+    outputs.resize(num_outputs, PSBTOutput(GetPSBTVersion()));
+    kernels.resize(num_kernels, PSBTKernel());
+
+    for (uint32_t i = 0; i < tx.vin.size(); ++i) {
+        PSBTInput& psbt_input = inputs[i];
+        const CTxIn& txin = tx.vin.at(i);
+
+        psbt_input.prev_txid = txin.prevout.hash;
+        psbt_input.prev_out = txin.prevout.n;
+        psbt_input.sequence = txin.nSequence;
     }
-    return 0;
+
+    for (uint32_t i = 0; i < tx.mweb_tx.inputs.size(); i++) {
+        PSBTInput& psbt_input = inputs[i + tx.vin.size()];
+        const mw::MutableInput& mweb_input = tx.mweb_tx.inputs[i];
+
+        psbt_input.mweb_output_id = mweb_input.output_id;
+        psbt_input.mweb_output_commit = mweb_input.commitment;
+        psbt_input.mweb_output_pubkey = mweb_input.output_pubkey;
+        psbt_input.mweb_input_pubkey = mweb_input.input_pubkey;
+        psbt_input.mweb_features = mweb_input.features;
+        psbt_input.mweb_sig = mweb_input.signature;
+        psbt_input.mweb_amount = mweb_input.amount;
+        psbt_input.mweb_extra_data = mweb_input.extradata;
+    }
+
+    for (uint32_t i = 0; i < tx.vout.size(); ++i) {
+        PSBTOutput& psbt_output = outputs[i];
+        const CTxOut& txout = tx.vout.at(i);
+
+        psbt_output.amount = txout.nValue;
+        psbt_output.script = txout.scriptPubKey;
+    }
+
+    for (uint32_t i = 0; i < tx.mweb_tx.outputs.size(); i++) {
+        PSBTOutput& psbt_output = outputs[i + tx.vout.size()];
+        const mw::MutableOutput& mweb_output = tx.mweb_tx.outputs[i];
+
+        psbt_output.mweb_stealth_address = mweb_output.address;
+        psbt_output.amount = mweb_output.amount;
+
+        psbt_output.mweb_commit = mweb_output.commitment;
+        if (mweb_output.message.has_value()) {
+            psbt_output.mweb_features = mweb_output.message->features;
+        }
+        psbt_output.mweb_sender_pubkey = mweb_output.sender_pubkey;
+        psbt_output.mweb_output_pubkey = mweb_output.receiver_pubkey;
+        if (mweb_output.message.has_value()) {
+            psbt_output.mweb_standard_fields = mweb_output.message->standard_fields;
+            psbt_output.mweb_extra_data = mweb_output.message->extra_data;
+        }
+        psbt_output.mweb_rangeproof = mweb_output.proof;
+        psbt_output.mweb_sig = mweb_output.signature;
+    }
+
+    for (uint32_t i = 0; i < tx.mweb_tx.kernels.size(); i++) {
+        PSBTKernel& psbt_kernel = kernels[i];
+        const mw::MutableKernel& mweb_kernel = tx.mweb_tx.kernels[i];
+        psbt_kernel.features = mweb_kernel.CalcFeatureByte();
+        psbt_kernel.commit = mweb_kernel.excess;
+        psbt_kernel.stealth_commit = mweb_kernel.stealth_excess;
+        psbt_kernel.fee = mweb_kernel.fee;
+        psbt_kernel.pegin_amount = mweb_kernel.pegin;
+        psbt_kernel.pegouts = mweb_kernel.GetPegOuts();
+        psbt_kernel.lock_height = mweb_kernel.lock_height;
+        psbt_kernel.extra_data = mweb_kernel.extradata;
+        psbt_kernel.sig = mweb_kernel.signature;
+    }
 }

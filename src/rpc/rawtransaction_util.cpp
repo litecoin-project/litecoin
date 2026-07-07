@@ -289,32 +289,6 @@ void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keyst
     }
 }
 
-void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keystore, std::map<COutPoint, Coin>& coins)
-{
-    std::map<AnyOutputID, AnyCoin> any_coins;
-    for (const auto& [outpoint, coin] : coins) {
-        any_coins.emplace(outpoint, AnyCoin(outpoint, coin));
-    }
-
-    ParsePrevouts(prevTxsUnival, keystore, any_coins);
-
-    coins.clear();
-    for (const auto& [output_id, coin] : any_coins) {
-        if (output_id.IsOutPoint()) {
-            coins.emplace(output_id.ToOutPoint(), coin.ToLTC());
-        }
-    }
-}
-
-void SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<COutPoint, Coin>& coins, const UniValue& hashType, UniValue& result)
-{
-    const int nHashType = ParseSighashString(hashType);
-
-    std::map<int, bilingual_str> input_errors;
-    const bool complete = SignTransaction(mtx, keystore, coins, nHashType, input_errors);
-    SignTransactionResultToJSON(mtx, complete, coins, input_errors, result);
-}
-
 void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<AnyOutputID, AnyCoin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result)
 {
     // Make errors UniValue
@@ -335,13 +309,4 @@ void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const 
         }
         result.pushKV("errors", vErrors);
     }
-}
-
-void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<COutPoint, Coin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result)
-{
-    std::map<AnyOutputID, AnyCoin> any_coins;
-    for (const auto& [outpoint, coin] : coins) {
-        any_coins.emplace(outpoint, AnyCoin(outpoint, coin));
-    }
-    SignTransactionResultToJSON(mtx, complete, any_coins, input_errors, result);
 }
