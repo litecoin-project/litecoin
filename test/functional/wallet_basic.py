@@ -26,7 +26,7 @@ class WalletTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 4
         self.extra_args = [[
-            "-dustrelayfee=0", "-walletrejectlongchains=0", "-whitelist=noban@127.0.0.1"
+            "-dustrelayfee=0", "-walletrejectlongchains=0", "-whitelist=noban@127.0.0.1", "-mintxfee=0.00000100"
         ]] * self.num_nodes
         self.setup_clean_chain = True
         self.supports_cli = False
@@ -143,7 +143,7 @@ class WalletTest(BitcoinTestFramework):
         self.nodes[2].lockunspent(False, [unspent_0], True)
 
         # Restarting the node with the lock written to the wallet should keep the lock
-        self.restart_node(2, ["-walletrejectlongchains=0"])
+        self.restart_node(2, ["-walletrejectlongchains=0", "-mintxfee=0.00000100"])
         assert_raises_rpc_error(-8, "Invalid parameter, output already locked", self.nodes[2].lockunspent, False, [unspent_0])
 
         # Unloading and reloading the wallet with a persistent lock should keep the lock
@@ -612,7 +612,7 @@ class WalletTest(BitcoinTestFramework):
         # Try with walletrejectlongchains
         # Double chain limit but require combining inputs, so we pass AttemptSelection
         self.stop_node(0)
-        extra_args = ["-walletrejectlongchains", "-limitancestorcount=" + str(2 * chainlimit)]
+        extra_args = ["-walletrejectlongchains", "-limitancestorcount=" + str(2 * chainlimit), "-mintxfee=0.00000100"]
         self.start_node(0, extra_args=extra_args)
 
         # wait until the wallet has submitted all transactions to the mempool
