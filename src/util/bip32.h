@@ -5,6 +5,8 @@
 #ifndef BITCOIN_UTIL_BIP32_H
 #define BITCOIN_UTIL_BIP32_H
 
+#include <serialize.h>
+
 #include <cstdint>
 #include <optional>
 #include <string>
@@ -14,6 +16,11 @@ struct HDKeyPath
 {
     std::vector<uint32_t> path;
     std::optional<uint32_t> mweb_index{std::nullopt};
+
+    SERIALIZE_METHODS(HDKeyPath, obj)
+    {
+        READWRITE(obj.path, obj.mweb_index);
+    }
 
     friend bool operator==(const HDKeyPath& a, const HDKeyPath& b)
     {

@@ -135,7 +135,7 @@ FUZZ_TARGET_INIT(script_sign, initialize_script_sign)
                 if (!coin) {
                     break;
                 }
-                coins[*outpoint] = *coin;
+                coins[*outpoint] = AnyCoin{*outpoint, *coin};
             }
             std::map<int, bilingual_str> input_errors;
             (void)SignTransaction(sign_transaction_tx_to, &provider, coins, fuzzed_data_provider.ConsumeIntegral<int>(), input_errors);

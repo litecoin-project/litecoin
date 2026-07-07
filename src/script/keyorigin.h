@@ -15,6 +15,11 @@ struct KeyOriginInfo
     unsigned char fingerprint[4]; //!< First 32 bits of the Hash160 of the public key at the root of the path
     HDKeyPath hdkeypath;
 
+    SERIALIZE_METHODS(KeyOriginInfo, obj)
+    {
+        READWRITE(obj.fingerprint, obj.hdkeypath);
+    }
+
     friend bool operator==(const KeyOriginInfo& a, const KeyOriginInfo& b)
     {
         return std::equal(std::begin(a.fingerprint), std::end(a.fingerprint), std::begin(b.fingerprint)) && a.hdkeypath == b.hdkeypath;

@@ -471,7 +471,11 @@ bool SendCoinsDialog::signWithExternalSigner(PartiallySignedTransaction& psbtx, 
         return false;
     }
     // fillPSBT does not always properly finalize
-    complete = FinalizeAndExtractPSBT(psbtx, mtx);
+    auto finalized = FinalizePSBT(psbtx);
+    complete = finalized.has_value();
+    if (finalized) {
+        mtx = *finalized;
+    }
     return true;
 }
 
