@@ -58,8 +58,8 @@ FUZZ_TARGET(coinselection)
     coin_params.m_subtract_fee_outputs = subtract_fee_outputs;
     coin_params.m_long_term_feerate = long_term_fee_rate;
     coin_params.m_effective_feerate = effective_fee_rate;
-    coin_params.m_change_params.change_output_size = fuzzed_data_provider.ConsumeIntegralInRange<int>(10, 1000);
-    coin_params.m_change_params.m_change_fee = effective_fee_rate.GetFee(coin_params.m_change_params.change_output_size, 0);
+    const int change_output_size = fuzzed_data_provider.ConsumeIntegralInRange<int>(10, 1000);
+    coin_params.m_change_params.m_change_fee = effective_fee_rate.GetFee(change_output_size, 0);
 
     // Create some coins
     CAmount total_balance{0};

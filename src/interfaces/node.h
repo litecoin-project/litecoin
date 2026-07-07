@@ -206,6 +206,7 @@ public:
 
     //! Get unspent outputs associated with a transaction.
     virtual bool getUnspentOutput(const AnyOutputID& index, AnyOutput& output) = 0;
+    virtual bool getUnspentOutput(const COutPoint& output, Coin& coin) = 0;
 
     //! Broadcast transaction.
     virtual TransactionError broadcastTransaction(CTransactionRef tx, CAmount max_tx_fee, std::string& err_string) = 0;
