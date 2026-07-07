@@ -14,7 +14,7 @@
 
 namespace wallet {
 
-static void AddCoin(const CAmount& value, int n_input, int n_input_bytes, int locktime, std::vector<COutput>& coins, CFeeRate fee_rate)
+static void AddCoin(const CAmount& value, int n_input, int n_input_bytes, int locktime, std::vector<CWalletUTXO>& coins, CFeeRate fee_rate)
 {
     CMutableTransaction tx;
     tx.vout.resize(n_input + 1);
@@ -24,7 +24,7 @@ static void AddCoin(const CAmount& value, int n_input, int n_input_bytes, int lo
 }
 
 // Randomly distribute coins to instances of OutputGroup
-static void GroupCoins(FuzzedDataProvider& fuzzed_data_provider, const std::vector<COutput>& coins, const CoinSelectionParams& coin_params, bool positive_only, std::vector<OutputGroup>& output_groups)
+static void GroupCoins(FuzzedDataProvider& fuzzed_data_provider, const std::vector<CWalletUTXO>& coins, const CoinSelectionParams& coin_params, bool positive_only, std::vector<OutputGroup>& output_groups)
 {
     auto output_group = OutputGroup(coin_params);
     bool valid_outputgroup{false};
@@ -45,7 +45,7 @@ static void GroupCoins(FuzzedDataProvider& fuzzed_data_provider, const std::vect
 FUZZ_TARGET(coinselection)
 {
     FuzzedDataProvider fuzzed_data_provider{buffer.data(), buffer.size()};
-    std::vector<COutput> utxo_pool;
+    std::vector<CWalletUTXO> utxo_pool;
 
     const CFeeRate long_term_fee_rate{ConsumeMoney(fuzzed_data_provider, /*max=*/COIN)};
     const CFeeRate effective_fee_rate{ConsumeMoney(fuzzed_data_provider, /*max=*/COIN)};
@@ -58,8 +58,8 @@ FUZZ_TARGET(coinselection)
     coin_params.m_subtract_fee_outputs = subtract_fee_outputs;
     coin_params.m_long_term_feerate = long_term_fee_rate;
     coin_params.m_effective_feerate = effective_fee_rate;
-    coin_params.change_output_size = fuzzed_data_provider.ConsumeIntegralInRange<int>(10, 1000);
-    coin_params.m_change_fee = effective_fee_rate.GetFee(coin_params.change_output_size);
+    coin_params.m_change_params.change_output_size = fuzzed_data_provider.ConsumeIntegralInRange<int>(10, 1000);
+    coin_params.m_change_params.m_change_fee = effective_fee_rate.GetFee(coin_params.m_change_params.change_output_size, 0);
 
     // Create some coins
     CAmount total_balance{0};
@@ -87,7 +87,7 @@ FUZZ_TARGET(coinselection)
     auto result_srd = SelectCoinsSRD(group_pos, target, fast_random_context);
     if (result_srd) result_srd->ComputeAndSetWaste(cost_of_change, cost_of_change, 0);
 
-    CAmount change_target{GenerateChangeTarget(target, coin_params.m_change_fee, fast_random_context)};
+    CAmount change_target{GenerateChangeTarget(target, coin_params.m_change_params.m_change_fee, fast_random_context)};
     auto result_knapsack = KnapsackSolver(group_all, target, change_target, fast_random_context);
     if (result_knapsack) result_knapsack->ComputeAndSetWaste(cost_of_change, cost_of_change, 0);
 

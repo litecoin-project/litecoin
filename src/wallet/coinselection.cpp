@@ -123,7 +123,7 @@ std::optional<SelectionResult> SelectCoinsBnB(std::vector<OutputGroup>& utxo_poo
             assert(utxo_pool_index == curr_selection.back());
             OutputGroup& utxo = utxo_pool.at(utxo_pool_index);
             curr_value -= utxo.GetSelectionAmount();
-            curr_waste -= utxo.fee - utxo.long_term_fee;
+            curr_waste -= utxo.GetWaste();
             curr_selection.pop_back();
         } else { // Moving forwards, continuing down this branch
             OutputGroup& utxo = utxo_pool.at(utxo_pool_index);
@@ -142,7 +142,7 @@ std::optional<SelectionResult> SelectCoinsBnB(std::vector<OutputGroup>& utxo_poo
                 // Inclusion branch first (Largest First Exploration)
                 curr_selection.push_back(utxo_pool_index);
                 curr_value += utxo.GetSelectionAmount();
-                curr_waste += utxo.fee - utxo.long_term_fee;
+                curr_waste += utxo.GetWaste();
             }
         }
     }
@@ -330,23 +330,26 @@ std::optional<SelectionResult> KnapsackSolver(std::vector<OutputGroup>& groups, 
 
  ******************************************************************************/
 
-void OutputGroup::Insert(const COutput& output, size_t ancestors, size_t descendants, bool positive_only) {
+void OutputGroup::Insert(const AnyWalletUTXO& output, size_t ancestors, size_t descendants, bool positive_only) {
     // Filter for positive only here before adding the coin
     if (positive_only && output.GetEffectiveValue() <= 0) return;
 
     m_outputs.push_back(output);
-    COutput& coin = m_outputs.back();
+    AnyWalletUTXO& coin = m_outputs.back();
 
     fee += coin.GetFee();
 
-    coin.long_term_fee = coin.input_bytes < 0 ? 0 : m_long_term_feerate.GetFee(coin.input_bytes);
-    long_term_fee += coin.long_term_fee;
+    if (!coin.IsMWEB()) {
+        CWalletUTXO& out = coin.GetLTC();
+        out.long_term_fee = out.input_bytes < 0 ? 0 : m_long_term_feerate.GetFee(out.input_bytes, 0);
+        long_term_fee += out.long_term_fee;
+    }
 
     effective_value += coin.GetEffectiveValue();
 
-    m_from_me &= coin.from_me;
-    m_value += coin.txout.nValue;
-    m_depth = std::min(m_depth, coin.depth);
+    m_from_me &= coin.IsFromMe();
+    m_value += coin.GetValue();
+    m_depth = std::min(m_depth, coin.GetDepth());
     // ancestors here express the number of ancestors the new coin will end up having, which is
     // the sum, rather than the max; this will overestimate in the cases where multiple inputs
     // have common ancestors
@@ -356,8 +359,13 @@ void OutputGroup::Insert(const COutput& output, size_t ancestors, size_t descend
     m_descendants = std::max(m_descendants, descendants);
 }
 
-bool OutputGroup::EligibleForSpending(const CoinEligibilityFilter& eligibility_filter) const
+bool OutputGroup::EligibleForSpending(const CoinEligibilityFilter& eligibility_filter, const TxType& tx_type) const
 {
+    if (IsMWEB() && tx_type == TxType::LTC_TO_LTC) {
+        return false;
+    } else if (!IsMWEB() && (tx_type == TxType::MWEB_TO_MWEB || tx_type == TxType::PEGOUT)) {
+        return false;
+    }
     return m_depth >= (m_from_me ? eligibility_filter.conf_mine : eligibility_filter.conf_theirs)
         && m_ancestors <= eligibility_filter.max_ancestors
         && m_descendants <= eligibility_filter.max_descendants;
@@ -368,7 +376,7 @@ CAmount OutputGroup::GetSelectionAmount() const
     return m_subtract_fee_outputs ? m_value : effective_value;
 }
 
-CAmount GetSelectionWaste(const std::set<COutput>& inputs, CAmount change_cost, CAmount target, bool use_effective_value)
+CAmount GetSelectionWaste(const std::set<AnyWalletUTXO>& inputs, CAmount change_cost, CAmount target, bool use_effective_value)
 {
     // This function should not be called with empty inputs as that would mean the selection failed
     assert(!inputs.empty());
@@ -376,9 +384,10 @@ CAmount GetSelectionWaste(const std::set<COutput>& inputs, CAmount change_cost, 
     // Always consider the cost of spending an input now vs in the future.
     CAmount waste = 0;
     CAmount selected_effective_value = 0;
-    for (const COutput& coin : inputs) {
-        waste += coin.GetFee() - coin.long_term_fee;
-        selected_effective_value += use_effective_value ? coin.GetEffectiveValue() : coin.txout.nValue;
+    for (const AnyWalletUTXO& coin : inputs) {
+        if (coin.IsMWEB()) waste += MWEB_INPUT_WASTE; // Prefer to spend fewer MWEB inputs
+        waste += coin.GetFee() - coin.GetLongTermFee();
+        selected_effective_value += use_effective_value ? coin.GetEffectiveValue() : coin.GetValue();
     }
 
     if (change_cost) {
@@ -424,7 +433,7 @@ CAmount SelectionResult::GetWaste() const
 
 CAmount SelectionResult::GetSelectedValue() const
 {
-    return std::accumulate(m_selected_inputs.cbegin(), m_selected_inputs.cend(), CAmount{0}, [](CAmount sum, const auto& coin) { return sum + coin.txout.nValue; });
+    return std::accumulate(m_selected_inputs.cbegin(), m_selected_inputs.cend(), CAmount{0}, [](CAmount sum, const auto& coin) { return sum + coin.GetValue(); });
 }
 
 CAmount SelectionResult::GetSelectedEffectiveValue() const
@@ -454,14 +463,14 @@ void SelectionResult::Merge(const SelectionResult& other)
     util::insert(m_selected_inputs, other.m_selected_inputs);
 }
 
-const std::set<COutput>& SelectionResult::GetInputSet() const
+const std::set<AnyWalletUTXO>& SelectionResult::GetInputSet() const
 {
     return m_selected_inputs;
 }
 
-std::vector<COutput> SelectionResult::GetShuffledInputVector() const
+std::vector<AnyWalletUTXO> SelectionResult::GetShuffledInputVector() const
 {
-    std::vector<COutput> coins(m_selected_inputs.begin(), m_selected_inputs.end());
+    std::vector<AnyWalletUTXO> coins(m_selected_inputs.begin(), m_selected_inputs.end());
     Shuffle(coins.begin(), coins.end(), FastRandomContext());
     return coins;
 }
@@ -474,9 +483,9 @@ bool SelectionResult::operator<(SelectionResult other) const
     return *m_waste < *other.m_waste || (*m_waste == *other.m_waste && m_selected_inputs.size() > other.m_selected_inputs.size());
 }
 
-std::string COutput::ToString() const
+std::string CWalletUTXO::ToString() const
 {
-    return strprintf("COutput(%s, %d, %d) [%s]", outpoint.hash.ToString(), outpoint.n, depth, FormatMoney(txout.nValue));
+    return strprintf("CWalletUTXO(%s, %d, %d) [%s]", outpoint.hash.ToString(), outpoint.n, depth, FormatMoney(txout.nValue));
 }
 
 std::string GetAlgorithmName(const SelectionAlgorithm algo)
