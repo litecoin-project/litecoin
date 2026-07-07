@@ -318,11 +318,6 @@ public:
     std::vector<std::string> listRpcCommands() override { return ::tableRPC.listCommands(); }
     void rpcSetTimerInterfaceIfUnset(RPCTimerInterface* iface) override { RPCSetTimerInterfaceIfUnset(iface); }
     void rpcUnsetTimerInterface(RPCTimerInterface* iface) override { RPCUnsetTimerInterface(iface); }
-    bool getUnspentOutput(const COutPoint& output, Coin& coin) override
-    {
-        LOCK(::cs_main);
-        return chainman().ActiveChainstate().CoinsTip().GetCoin(output, coin);
-    }
     bool getUnspentOutput(const AnyOutputID& output_id, AnyOutput& output) override
     {
         LOCK(::cs_main);
@@ -598,7 +593,6 @@ public:
                int{FillBlock(block1, block1_out, lock, active)} &
                int{FillBlock(block2, block2_out, lock, active)};
     }
-    void findCoins(std::map<COutPoint, Coin>& coins) override { return FindCoins(m_node, coins); }
     void findCoins(std::map<AnyOutputID, AnyCoin>& coins) override { return FindCoins(m_node, coins); }
     double guessVerificationProgress(const uint256& block_hash) override
     {

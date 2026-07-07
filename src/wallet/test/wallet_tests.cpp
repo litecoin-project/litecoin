@@ -4,6 +4,7 @@
 
 #include <wallet/wallet.h>
 
+#include <algorithm>
 #include <future>
 #include <memory>
 #include <stdint.h>
@@ -16,6 +17,7 @@
 #include <rpc/server.h>
 #include <test/util/logging.h>
 #include <test/util/setup_common.h>
+#include <test_framework/TxBuilder.h>
 #include <util/translation.h>
 #include <validation.h>
 #include <wallet/coincontrol.h>
@@ -70,8 +72,10 @@ static CMutableTransaction TestSimpleSpend(const CTransaction& from, uint32_t in
     mtx.vin.push_back({CTxIn{from.GetHash(), index}});
     FillableSigningProvider keystore;
     keystore.AddKey(key);
-    std::map<COutPoint, Coin> coins;
-    coins[mtx.vin[0].prevout].out = from.vout[index];
+    std::map<AnyOutputID, AnyCoin> coins;
+    Coin coin;
+    coin.out = from.vout[index];
+    coins[mtx.vin[0].prevout] = AnyCoin{mtx.vin[0].prevout, coin};
     std::map<int, bilingual_str> input_errors;
     BOOST_CHECK(SignTransaction(mtx, &keystore, coins, SIGHASH_ALL, input_errors));
     return mtx;
@@ -359,7 +363,11 @@ BOOST_FIXTURE_TEST_CASE(coin_mark_dirty_immature_credit, TestChain100Setup)
 
     LOCK(wallet.cs_wallet);
     LOCK(Assert(m_node.chainman)->GetMutex());
-    CWalletTx wtx{m_coinbase_txns.back(), TxStateConfirmed{m_node.chainman->ActiveChain().Tip()->GetBlockHash(), m_node.chainman->ActiveChain().Height(), /*index=*/0}};
+
+    auto& tx = m_coinbase_txns.back();
+    auto [it, _] = wallet.mapWallet.try_emplace(tx->GetHash(), tx, TxStateConfirmed{m_node.chainman->ActiveChain().Tip()->GetBlockHash(), m_node.chainman->ActiveChain().Height(), /*index=*/0}, std::nullopt);
+    auto& wtx = it->second;
+
     wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
     wallet.SetupDescriptorScriptPubKeyMans();
 
@@ -393,7 +401,7 @@ static int64_t AddTx(ChainstateManager& chainman, CWallet& wallet, uint32_t lock
         block->phashBlock = &hash;
         state = TxStateConfirmed{hash, block->nHeight, /*index=*/0};
     }
-    return wallet.AddToWallet(MakeTransactionRef(tx), state, [&](CWalletTx& wtx, bool /* new_tx */) {
+    return wallet.AddToWallet(MakeTransactionRef(tx), std::nullopt, state, [&](CWalletTx& wtx, bool /* new_tx */) {
         // Assign wtx.m_state to simplify test and avoid the need to simulate
         // reorg events. Without this, AddToWallet asserts false when the same
         // transaction is confirmed in different blocks.
@@ -541,9 +549,9 @@ public:
         CCoinControl dummy;
         {
             constexpr int RANDOM_CHANGE_POSITION = -1;
-            auto res = CreateTransaction(*wallet, {recipient}, RANDOM_CHANGE_POSITION, dummy);
+            auto res = CreateTransaction(*wallet, {recipient}, RANDOM_CHANGE_POSITION, dummy, std::nullopt, std::nullopt, false);
             BOOST_CHECK(res);
-            tx = res->tx;
+            tx = MakeTransactionRef(res->tx);
         }
         wallet->CommitTransaction(tx, {}, {});
         CMutableTransaction blocktx;
@@ -571,7 +579,7 @@ BOOST_FIXTURE_TEST_CASE(ListCoinsTest, ListCoinsTestingSetup)
 
     // Confirm ListCoins initially returns 1 coin grouped under coinbaseKey
     // address.
-    std::map<CTxDestination, std::vector<COutput>> list;
+    std::map<CTxDestination, std::vector<AnyWalletUTXO>> list;
     {
         LOCK(wallet->cs_wallet);
         list = ListCoins(*wallet);
@@ -604,7 +612,7 @@ BOOST_FIXTURE_TEST_CASE(ListCoinsTest, ListCoinsTestingSetup)
     for (const auto& group : list) {
         for (const auto& coin : group.second) {
             LOCK(wallet->cs_wallet);
-            wallet->LockCoin(coin.outpoint);
+            wallet->LockCoin(coin.GetID());
         }
     }
     {
@@ -620,6 +628,126 @@ BOOST_FIXTURE_TEST_CASE(ListCoinsTest, ListCoinsTestingSetup)
     BOOST_CHECK_EQUAL(list.size(), 1U);
     BOOST_CHECK_EQUAL(std::get<PKHash>(list.begin()->first).ToString(), coinbaseAddress);
     BOOST_CHECK_EQUAL(list.begin()->second.size(), 2U);
+}
+
+BOOST_AUTO_TEST_CASE(legacy_mweb_keychain_load_caches_scan_secret)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateDummyWalletDatabase());
+    wallet.SetupLegacyScriptPubKeyMan();
+    WITH_LOCK(wallet.cs_wallet, wallet.LoadMinVersion(FEATURE_MWEB));
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+    LOCK(spk_man->cs_KeyStore);
+
+    const CPubKey seed = spk_man->GenerateNewSeed();
+    spk_man->SetHDSeed(seed);
+
+    CHDChain uncached_chain = spk_man->GetHDChain();
+    BOOST_REQUIRE(uncached_chain.mweb_scan_key.has_value());
+    uncached_chain.nVersion = CHDChain::VERSION_HD_MWEB;
+    uncached_chain.mweb_scan_key.reset();
+    uncached_chain.mweb_spend_pubkey.reset();
+    spk_man->LoadHDChain(uncached_chain);
+
+    BOOST_CHECK(!spk_man->GetHDChain().mweb_scan_key.has_value());
+    spk_man->LoadMWEBKeychain();
+
+    const CHDChain& cached_chain = spk_man->GetHDChain();
+    BOOST_CHECK_EQUAL(cached_chain.nVersion, CHDChain::VERSION_HD_MWEB_RECEIVE);
+    BOOST_REQUIRE(cached_chain.mweb_scan_key.has_value());
+    BOOST_REQUIRE(cached_chain.mweb_spend_pubkey.has_value());
+    const std::optional<SecretKey> scan_secret = spk_man->GetScanSecret();
+    BOOST_REQUIRE(scan_secret);
+    BOOST_CHECK(*scan_secret == *cached_chain.mweb_scan_key);
+}
+
+BOOST_AUTO_TEST_CASE(legacy_mweb_ignores_transparent_only_inactive_chain)
+{
+    struct KeypoolArgGuard {
+        KeypoolArgGuard() { gArgs.ForceSetArg("-keypool", "1"); }
+        ~KeypoolArgGuard()
+        {
+            gArgs.LockSettings([](util::Settings& settings) {
+                settings.forced_settings.erase("keypool");
+            });
+        }
+    } keypool_arg_guard;
+
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateDummyWalletDatabase());
+    wallet.SetupLegacyScriptPubKeyMan();
+    WITH_LOCK(wallet.cs_wallet, wallet.LoadMinVersion(FEATURE_MWEB));
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+
+    CPubKey inactive_seed;
+    {
+        LOCK(spk_man->cs_KeyStore);
+        inactive_seed = spk_man->GenerateNewSeed();
+
+        CHDChain inactive_chain;
+        inactive_chain.nVersion = CHDChain::VERSION_HD_CHAIN_SPLIT;
+        inactive_chain.seed_id = inactive_seed.GetID();
+
+        WalletBatch batch(wallet.GetDatabase());
+        spk_man->GenerateNewKey(batch, inactive_chain, KeyPurpose::EXTERNAL);
+        spk_man->GenerateNewKey(batch, inactive_chain, KeyPurpose::INTERNAL);
+        spk_man->AddInactiveHDChain(inactive_chain);
+
+        const CPubKey active_seed = spk_man->GenerateNewSeed();
+        spk_man->SetHDSeed(active_seed);
+    }
+
+    BOOST_REQUIRE(spk_man->TopUp(1));
+    spk_man->LoadMWEBKeychain();
+
+    BOOST_CHECK(!spk_man->GetScanSecret(inactive_seed.GetID()));
+    BOOST_CHECK_EQUAL(spk_man->GetAllScanSecrets().size(), 1U);
+
+    std::optional<MigrationData> migration_data = spk_man->MigrateToDescriptor();
+    BOOST_REQUIRE(migration_data.has_value());
+
+    size_t mweb_desc_count{0};
+    for (const auto& desc_spkm : migration_data->desc_spkms) {
+        const WalletDescriptor desc = desc_spkm->GetWalletDescriptor();
+        const std::optional<OutputType> output_type = desc.descriptor->GetOutputType();
+        if (output_type && *output_type == OutputType::MWEB) {
+            ++mweb_desc_count;
+        }
+    }
+
+    BOOST_CHECK_EQUAL(mweb_desc_count, 1U);
+    BOOST_CHECK(!migration_data->active_mweb_spkm_id.IsNull());
+}
+
+BOOST_AUTO_TEST_CASE(legacy_mweb_generated_key_metadata_uses_mweb_index)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateDummyWalletDatabase());
+    wallet.SetupLegacyScriptPubKeyMan();
+    WITH_LOCK(wallet.cs_wallet, wallet.LoadMinVersion(FEATURE_MWEB));
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+
+    {
+        LOCK(spk_man->cs_KeyStore);
+        const CPubKey seed = spk_man->GenerateNewSeed();
+        spk_man->SetHDSeed(seed);
+    }
+
+    util::Result<CTxDestination> dest = spk_man->GetNewDestination(OutputType::MWEB);
+    BOOST_REQUIRE(dest);
+    BOOST_REQUIRE(std::holds_alternative<StealthAddress>(*dest));
+
+    const StealthAddress& address = std::get<StealthAddress>(*dest);
+    LOCK(spk_man->cs_KeyStore);
+    const auto metadata_it = spk_man->mapKeyMetadata.find(address.GetSpendPubKey().GetID());
+    BOOST_REQUIRE(metadata_it != spk_man->mapKeyMetadata.end());
+    BOOST_CHECK(metadata_it->second.key_origin.hdkeypath.path.empty());
+    BOOST_REQUIRE(metadata_it->second.key_origin.hdkeypath.mweb_index.has_value());
+    const uint32_t mweb_index = *metadata_it->second.key_origin.hdkeypath.mweb_index;
+    BOOST_CHECK_EQUAL(metadata_it->second.hdKeypath, "x/" + std::to_string(mweb_index));
 }
 
 BOOST_FIXTURE_TEST_CASE(wallet_disableprivkeys, TestChain100Setup)
@@ -854,17 +982,253 @@ BOOST_FIXTURE_TEST_CASE(ZapSelectTx, TestChain100Setup)
         auto prev_tx = m_coinbase_txns[0];
 
         LOCK(wallet->cs_wallet);
-        BOOST_CHECK(wallet->HasWalletSpend(prev_tx));
+        BOOST_CHECK(wallet->HasWalletSpend(CWalletTx(prev_tx, TxStateInactive{}, std::nullopt)));
         BOOST_CHECK_EQUAL(wallet->mapWallet.count(block_hash), 1u);
 
         std::vector<uint256> vHashIn{ block_hash }, vHashOut;
         BOOST_CHECK_EQUAL(wallet->ZapSelectTx(vHashIn, vHashOut), DBErrors::LOAD_OK);
 
-        BOOST_CHECK(!wallet->HasWalletSpend(prev_tx));
+        BOOST_CHECK(!wallet->HasWalletSpend(CWalletTx(prev_tx, TxStateInactive{}, std::nullopt)));
         BOOST_CHECK_EQUAL(wallet->mapWallet.count(block_hash), 0u);
     }
 
     TestUnloadWallet(std::move(wallet));
+}
+
+BOOST_FIXTURE_TEST_CASE(IsSpentPartialMWEB, TestChain100Setup)
+{
+    WalletContext context;
+    context.args = &m_args;
+    context.chain = m_node.chain.get();
+    auto wallet = TestLoadWallet(context);
+
+    int tip_height;
+    uint256 tip_hash;
+    {
+        LOCK(Assert(m_node.chainman)->GetMutex());
+        tip_height = m_node.chainman->ActiveChain().Height();
+        tip_hash = m_node.chainman->ActiveChain().Tip()->GetBlockHash();
+    }
+    {
+        LOCK(wallet->cs_wallet);
+        wallet->SetLastBlockProcessed(tip_height, tip_hash);
+    }
+
+    const mw::Hash spent_id = mw::Hash::FromHex("73ee0d7d430d7fdd94fe9ee7f89e7fe9ed6a20f7865d6fdedeb1dd03dd977a0f");
+    const uint256 partial_hash = MWEB::WalletTxInfo(spent_id).GetHash();
+    BOOST_REQUIRE(wallet->AddToWallet(
+        MakeTransactionRef(),
+        std::make_optional<MWEB::WalletTxInfo>(spent_id),
+        TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
+    ));
+
+    {
+        LOCK(wallet->cs_wallet);
+        BOOST_CHECK(wallet->IsSpent(spent_id));
+
+        CWalletTx* wtx = wallet->GetWalletTx(partial_hash);
+        BOOST_REQUIRE(wtx);
+
+        wtx->m_state = TxStateConflicted{tip_hash, tip_height};
+        BOOST_CHECK(!wallet->IsSpent(spent_id));
+
+        wtx->m_state = TxStateInactive{};
+        BOOST_CHECK(wallet->IsSpent(spent_id));
+
+        wtx->m_state = TxStateInactive{/*abandoned=*/true};
+        BOOST_CHECK(!wallet->IsSpent(spent_id));
+    }
+
+    TestUnloadWallet(std::move(wallet));
+}
+
+BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Setup)
+{
+    WalletContext context;
+    context.args = &m_args;
+    context.chain = m_node.chain.get();
+    auto wallet = TestLoadWallet(context);
+
+    int tip_height;
+    uint256 tip_hash;
+    {
+        LOCK(Assert(m_node.chainman)->GetMutex());
+        tip_height = m_node.chainman->ActiveChain().Height();
+        tip_hash = m_node.chainman->ActiveChain().Tip()->GetBlockHash();
+    }
+    {
+        LOCK(wallet->cs_wallet);
+        wallet->SetLastBlockProcessed(tip_height, tip_hash);
+    }
+
+    mw::WalletCoin received_wallet_coin;
+    received_wallet_coin.amount = 1'000'000;
+    received_wallet_coin.output_id = mw::Hash::FromHex("418f6bb03b49b6a0485f20c5e41088d8d0e77ec580c45a216ca2e98c1c4475ee");
+    received_wallet_coin.address_index = mw::CHANGE_INDEX;
+    const StealthAddress received_address = StealthAddress::Random();
+    received_wallet_coin.address = received_address;
+
+    const uint256 partial_hash = MWEB::WalletTxInfo(received_wallet_coin).GetHash();
+    BOOST_REQUIRE(wallet->AddToWallet(
+        MakeTransactionRef(),
+        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin),
+        TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
+    ));
+
+    {
+        LOCK(wallet->cs_wallet);
+        const CWalletTx* wtx = wallet->GetWalletTx(partial_hash);
+        BOOST_REQUIRE(wtx != nullptr);
+        BOOST_REQUIRE(wtx->IsPartialMWEB());
+        BOOST_REQUIRE(wtx->GetMWEBReceivedCoin() != std::nullopt);
+        BOOST_CHECK(*wtx->GetMWEBReceivedCoin() == received_wallet_coin);
+
+        BOOST_CHECK(wtx->GetTxOutputs().empty());
+
+        const std::vector<AnyOutputID> tx_only_ids = wtx->GetOutputIDs(OutputIdMode::TX_OUTPUTS);
+        BOOST_CHECK(tx_only_ids.empty());
+
+        const std::vector<AnyOutputID> wallet_visible_ids = wtx->GetOutputIDs(OutputIdMode::WALLET_OUTPUTS);
+        BOOST_REQUIRE_EQUAL(wallet_visible_ids.size(), 1U);
+        BOOST_CHECK(wallet_visible_ids[0] == received_wallet_coin.output_id);
+
+        mw::WalletCoin wallet_coin;
+        BOOST_REQUIRE(wallet->GetMWEBWalletCoin(received_wallet_coin.output_id, wallet_coin));
+        BOOST_CHECK(wallet_coin == received_wallet_coin);
+        BOOST_CHECK_EQUAL(wallet->GetValue(*wtx, AnyOutputID{received_wallet_coin.output_id}), received_wallet_coin.amount);
+        BOOST_CHECK(wallet->IsMine(AnyOutputID{received_wallet_coin.output_id}) != ISMINE_NO);
+        BOOST_CHECK(OutputIsChange(*wallet, *wtx, AnyOutputID{received_wallet_coin.output_id}));
+
+        GenericAddress extracted_address;
+        BOOST_REQUIRE(wallet->ExtractOutputAddress(*wtx, AnyOutputID{received_wallet_coin.output_id}, extracted_address));
+        BOOST_CHECK(extracted_address == GenericAddress{received_address});
+    }
+
+    TestUnloadWallet(std::move(wallet));
+}
+
+BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100Setup)
+{
+    WalletContext context;
+    context.args = &m_args;
+    context.chain = m_node.chain.get();
+    auto wallet = TestLoadWallet(context);
+
+    int tip_height;
+    uint256 tip_hash;
+    {
+        LOCK(Assert(m_node.chainman)->GetMutex());
+        tip_height = m_node.chainman->ActiveChain().Height();
+        tip_hash = m_node.chainman->ActiveChain().Tip()->GetBlockHash();
+    }
+    {
+        LOCK(wallet->cs_wallet);
+        wallet->SetLastBlockProcessed(tip_height, tip_hash);
+    }
+
+    test::Tx full_mweb_tx = test::TxBuilder()
+        .AddPeginKernel(5'000'000, 0)
+        .AddOutput(2'000'000)
+        .AddOutput(3'000'000)
+        .Build();
+
+    mw::WalletCoin received_wallet_coin_1;
+    received_wallet_coin_1.amount = full_mweb_tx.GetOutputs()[0].GetAmount();
+    received_wallet_coin_1.output_id = full_mweb_tx.GetOutputs()[0].GetOutputID();
+
+    mw::WalletCoin received_wallet_coin_2;
+    received_wallet_coin_2.amount = full_mweb_tx.GetOutputs()[1].GetAmount();
+    received_wallet_coin_2.output_id = full_mweb_tx.GetOutputs()[1].GetOutputID();
+
+    const uint256 partial_hash_1 = MWEB::WalletTxInfo(received_wallet_coin_1).GetHash();
+    const uint256 partial_hash_2 = MWEB::WalletTxInfo(received_wallet_coin_2).GetHash();
+
+    BOOST_REQUIRE(wallet->AddToWallet(
+        MakeTransactionRef(),
+        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin_1),
+        TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
+    ));
+    BOOST_REQUIRE(wallet->AddToWallet(
+        MakeTransactionRef(),
+        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin_2),
+        TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
+    ));
+
+    {
+        LOCK(wallet->cs_wallet);
+        const CWalletTx* partial_wtx_1 = wallet->GetWalletTx(partial_hash_1);
+        const CWalletTx* partial_wtx_2 = wallet->GetWalletTx(partial_hash_2);
+        BOOST_REQUIRE(partial_wtx_1 != nullptr);
+        BOOST_REQUIRE(partial_wtx_2 != nullptr);
+        BOOST_REQUIRE(partial_wtx_1->IsPartialMWEB());
+        BOOST_REQUIRE(partial_wtx_2->IsPartialMWEB());
+        BOOST_REQUIRE(partial_wtx_1->GetMWEBReceivedCoin() != std::nullopt);
+        BOOST_REQUIRE(partial_wtx_2->GetMWEBReceivedCoin() != std::nullopt);
+        BOOST_REQUIRE(wallet->FindWalletTx(AnyOutputID(received_wallet_coin_1.output_id)) == partial_wtx_1);
+        BOOST_REQUIRE(wallet->FindWalletTx(AnyOutputID(received_wallet_coin_2.output_id)) == partial_wtx_2);
+    }
+
+    CMutableTransaction full_tx;
+    full_tx.mweb_tx = mw::MutableTx::From(*full_mweb_tx.GetTransaction());
+    const auto full_tx_ref = MakeTransactionRef(full_tx);
+    const uint256 full_hash = full_tx_ref->GetHash();
+    BOOST_REQUIRE(full_tx_ref->HasMWEBTx());
+    BOOST_REQUIRE(full_tx_ref->HasOutput(AnyOutputID(received_wallet_coin_1.output_id)));
+    BOOST_REQUIRE(full_tx_ref->HasOutput(AnyOutputID(received_wallet_coin_2.output_id)));
+
+    BOOST_REQUIRE(wallet->AddToWallet(full_tx_ref, std::nullopt, TxStateInMempool{}));
+
+    {
+        LOCK(wallet->cs_wallet);
+        BOOST_CHECK_EQUAL(wallet->mapWallet.size(), 1U);
+        BOOST_CHECK_EQUAL(wallet->mapWallet.count(partial_hash_1), 0U);
+        BOOST_CHECK_EQUAL(wallet->mapWallet.count(partial_hash_2), 0U);
+        BOOST_CHECK_EQUAL(wallet->mapWallet.count(full_hash), 1U);
+
+        const CWalletTx* wtx = wallet->GetWalletTx(full_hash);
+        BOOST_REQUIRE(wtx != nullptr);
+        BOOST_CHECK(!wtx->IsPartialMWEB());
+        BOOST_CHECK(wtx->state<TxStateInMempool>() != nullptr);
+    }
+
+    const CWalletTx* from_first_output = wallet->FindWalletTx(AnyOutputID(received_wallet_coin_1.output_id));
+    BOOST_REQUIRE(from_first_output != nullptr);
+    BOOST_CHECK(from_first_output->GetHash() == full_hash);
+
+    const CWalletTx* from_second_output = wallet->FindWalletTx(AnyOutputID(received_wallet_coin_2.output_id));
+    BOOST_REQUIRE(from_second_output != nullptr);
+    BOOST_CHECK(from_second_output->GetHash() == full_hash);
+
+    const CWalletTx* from_kernel = wallet->FindWalletTxByKernelId(full_mweb_tx.GetKernels().front().GetKernelID());
+    BOOST_REQUIRE(from_kernel != nullptr);
+    BOOST_CHECK(from_kernel->GetHash() == full_hash);
+
+    TestUnloadWallet(std::move(wallet));
+}
+
+BOOST_AUTO_TEST_CASE(GetMWEBPegoutsReturnsStableComponentIds)
+{
+    test::Tx mweb_tx = test::TxBuilder()
+        .AddPeginKernel(1'000'000, 0)
+        .AddPegoutKernel(1'000'000, 0)
+        .Build();
+
+    CMutableTransaction tx;
+    tx.mweb_tx = mw::MutableTx::From(*mweb_tx.GetTransaction());
+    CWalletTx wtx(MakeTransactionRef(tx), TxStateInactive{}, std::nullopt);
+
+    const auto pegouts = wtx.GetMWEBPegouts();
+    BOOST_REQUIRE_EQUAL(pegouts.size(), 1U);
+
+    const std::vector<mw::Kernel>& kernels = mweb_tx.GetKernels();
+    auto kernel_it = std::find_if(kernels.cbegin(), kernels.cend(), [](const mw::Kernel& kernel) {
+        return !kernel.GetPegOuts().empty();
+    });
+    BOOST_REQUIRE(kernel_it != kernels.cend());
+
+    BOOST_CHECK(pegouts[0].first.kernel_id == kernel_it->GetKernelID());
+    BOOST_CHECK_EQUAL(pegouts[0].first.pos, 0U);
+    BOOST_CHECK(pegouts[0].second == kernel_it->GetPegOuts()[0]);
 }
 
 /** RAII class that provides access to a FailDatabase. Which fails if needed. */
@@ -931,7 +1295,7 @@ BOOST_FIXTURE_TEST_CASE(wallet_sync_tx_invalid_state_test, TestingSetup)
     CMutableTransaction mtx;
     mtx.vout.push_back({COIN, GetScriptForDestination(*op_dest)});
     mtx.vin.push_back(CTxIn(g_insecure_rand_ctx.rand256(), 0));
-    const auto& tx_id_to_spend = wallet.AddToWallet(MakeTransactionRef(mtx), TxStateInMempool{})->GetHash();
+    const auto& tx_id_to_spend = wallet.AddToWallet(MakeTransactionRef(mtx), std::nullopt, TxStateInMempool{})->GetHash();
 
     {
         // Cache and verify available balance for the wtx

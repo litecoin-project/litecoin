@@ -10,7 +10,6 @@
 #include <net_types.h>                 // For banmap_t
 #include <netaddress.h>                // For Network
 #include <netbase.h>                   // For ConnectionDirection
-#include <primitives/transaction.h>
 #include <support/allocators/secure.h> // For SecureString
 #include <util/settings.h>             // For util::SettingsValue
 #include <util/translation.h>
@@ -206,8 +205,7 @@ public:
     virtual void rpcUnsetTimerInterface(RPCTimerInterface* iface) = 0;
 
     //! Get unspent outputs associated with a transaction.
-    virtual bool getUnspentOutput(const COutPoint& output, Coin& coin) = 0;
-    virtual bool getUnspentOutput(const AnyOutputID& output, AnyOutput& coin) = 0;
+    virtual bool getUnspentOutput(const AnyOutputID& index, AnyOutput& output) = 0;
 
     //! Broadcast transaction.
     virtual TransactionError broadcastTransaction(CTransactionRef tx, CAmount max_tx_fee, std::string& err_string) = 0;
