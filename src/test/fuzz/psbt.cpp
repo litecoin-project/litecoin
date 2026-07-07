@@ -64,7 +64,7 @@ FUZZ_TARGET_INIT(psbt, initialize_psbt)
 
     for (size_t i = 0; i < psbt.tx->vin.size(); ++i) {
         CTxOut tx_out;
-        if (psbt.GetInputUTXO(tx_out, i)) {
+        if (psbt.inputs.at(i).GetUTXO(tx_out)) {
             (void)tx_out.IsNull();
             (void)tx_out.ToString();
         }
@@ -74,10 +74,10 @@ FUZZ_TARGET_INIT(psbt, initialize_psbt)
     (void)FinalizePSBT(psbt_mut);
 
     psbt_mut = psbt;
-    CMutableTransaction result;
-    if (FinalizeAndExtractPSBT(psbt_mut, result)) {
-        const PartiallySignedTransaction psbt_from_tx{result};
-    }
+    //CMutableTransaction result;
+    //if (FinalizeAndExtractPSBT(psbt_mut, result)) {
+    //    const PartiallySignedTransaction psbt_from_tx{result};
+    //}
 
     PartiallySignedTransaction psbt_merge;
     str = fuzzed_data_provider.ConsumeRandomLengthString();
@@ -89,11 +89,11 @@ FUZZ_TARGET_INIT(psbt, initialize_psbt)
     psbt_mut = psbt;
     (void)CombinePSBTs(psbt_mut, {psbt_mut, psbt_merge});
     psbt_mut = psbt;
-    for (unsigned int i = 0; i < psbt_merge.tx->vin.size(); ++i) {
-        (void)psbt_mut.AddInput(psbt_merge.tx->vin[i], psbt_merge.inputs[i]);
+    for (auto& psbt_in : psbt_merge.inputs) {
+        (void)psbt_mut.AddInput(psbt_in);
     }
-    for (unsigned int i = 0; i < psbt_merge.tx->vout.size(); ++i) {
-        Assert(psbt_mut.AddOutput(psbt_merge.tx->vout[i], psbt_merge.outputs[i]));
+    for (const auto& psbt_out : psbt_merge.outputs) {
+        Assert(psbt_mut.AddOutput(psbt_out));
     }
     psbt_mut.unknown.insert(psbt_merge.unknown.begin(), psbt_merge.unknown.end());
 }

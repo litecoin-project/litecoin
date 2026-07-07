@@ -19,9 +19,7 @@ class AnyCoin;
 class COutPoint;
 class SigningProvider;
 
-void SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<COutPoint, Coin>& coins, const UniValue& hashType, UniValue& result);
 void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<AnyOutputID, AnyCoin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result);
-void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const std::map<COutPoint, Coin>& coins, const std::map<int, bilingual_str>& input_errors, UniValue& result);
 
 /**
   * Parse a prevtxs UniValue array and get the map of coins from it
@@ -31,7 +29,6 @@ void SignTransactionResultToJSON(CMutableTransaction& mtx, bool complete, const 
   * @param  coins         Map of unspent outputs - coins in mempool and current chain UTXO set, may be extended by previous txns outputs after call
   */
 void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keystore, std::map<AnyOutputID, AnyCoin>& coins);
-void ParsePrevouts(const UniValue& prevTxsUnival, FillableSigningProvider* keystore, std::map<COutPoint, Coin>& coins);
 
 /** Create a transaction from univalue parameters */
 CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniValue& outputs_in, const UniValue& locktime, std::optional<bool> rbf, bool allow_mweb = true);

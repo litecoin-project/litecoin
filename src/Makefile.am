@@ -691,6 +691,7 @@ libbitcoin_common_a_SOURCES = \
   policy/policy.cpp \
   protocol.cpp \
   psbt.cpp \
+  psbt_merge.cpp \
   rpc/rawtransaction_util.cpp \
   rpc/external_signer.cpp \
   rpc/util.cpp \

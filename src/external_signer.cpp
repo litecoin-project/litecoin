@@ -5,6 +5,7 @@
 #include <chainparams.h>
 #include <core_io.h>
 #include <psbt.h>
+#include <script/descriptor.h>
 #include <util/strencodings.h>
 #include <util/system.h>
 #include <external_signer.h>
@@ -81,6 +82,33 @@ bool ExternalSigner::SignTransaction(PartiallySignedTransaction& psbtx, std::str
         for (const auto& entry : input.hd_keypaths) {
             if (parsed_m_fingerprint == MakeUCharSpan(entry.second.fingerprint)) return true;
         }
+
+        auto provider_matches_fingerprint = [&](const FlatSigningProvider& provider) {
+            for (const auto& entry : provider.origins) {
+                if (parsed_m_fingerprint == MakeUCharSpan(entry.second.second.fingerprint)) return true;
+            }
+            if (provider.mweb_master_scan_origin && parsed_m_fingerprint == MakeUCharSpan(provider.mweb_master_scan_origin->fingerprint)) return true;
+            if (provider.mweb_master_spend_origin && parsed_m_fingerprint == MakeUCharSpan(provider.mweb_master_spend_origin->fingerprint)) return true;
+            return false;
+        };
+
+        if (input.mweb_address_descriptor) {
+            FlatSigningProvider keys;
+            std::string parse_error;
+            std::unique_ptr<Descriptor> descriptor = Parse(*input.mweb_address_descriptor, keys, parse_error, /*require_checksum=*/false);
+            if (!descriptor || descriptor->GetOutputType() != OutputType::MWEB) return false;
+
+            if (provider_matches_fingerprint(keys)) return true;
+
+            for (const int pos : {-2, -1, 0}) {
+                FlatSigningProvider expanded;
+                std::vector<GenericAddress> outputs;
+                if (descriptor->Expand(pos, keys, outputs, expanded) && provider_matches_fingerprint(expanded)) {
+                    return true;
+                }
+            }
+        }
+
         return false;
     };
 

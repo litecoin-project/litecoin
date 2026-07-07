@@ -21,6 +21,7 @@ JSON_TEST_FILES = \
   test/data/blockfilters.json \
   test/data/key_io_valid.json \
   test/data/key_io_invalid.json \
+  test/data/rpc_psbt.json \
   test/data/script_tests.json \
   test/data/sighash.json \
   test/data/tx_invalid.json \
@@ -117,6 +118,10 @@ BITCOIN_TESTS =\
   test/policyestimator_tests.cpp \
   test/pow_tests.cpp \
   test/prevector_tests.cpp \
+  test/psbt_analysis_tests.cpp \
+  test/psbt_finalize_tests.cpp \
+  test/psbt_merge_tests.cpp \
+  test/psbt_tests.cpp \
   test/raii_event_tests.cpp \
   test/random_tests.cpp \
   test/rbf_tests.cpp \

@@ -28,16 +28,18 @@ struct PSBTInputAnalysis {
  * Holds the results of AnalyzePSBT (miscellaneous information about a PSBT)
  */
 struct PSBTAnalysis {
-    std::optional<size_t> estimated_vsize;      //!< Estimated weight of the transaction
-    std::optional<CFeeRate> estimated_feerate;  //!< Estimated feerate (fee / weight) of the transaction
-    std::optional<CAmount> fee;                 //!< Amount of fee being paid by the transaction
-    std::vector<PSBTInputAnalysis> inputs;      //!< More information about the individual inputs of the transaction
-    PSBTRole next;                              //!< Which of the BIP 174 roles needs to handle the transaction next
-    std::string error;                          //!< Error message
+    std::optional<size_t> estimated_vsize;        //!< Estimated vsize of the transaction
+    std::optional<size_t> estimated_mweb_weight;  //!< Estimated MWEB weight of the transaction
+    std::optional<CFeeRate> estimated_feerate;    //!< Estimated feerate (fee / weight) of the transaction
+    std::optional<CAmount> fee;                   //!< Amount of fee being paid by the transaction
+    std::vector<PSBTInputAnalysis> inputs;        //!< More information about the individual inputs of the transaction
+    PSBTRole next;                                //!< Which of the BIP 174 roles needs to handle the transaction next
+    std::string error;                            //!< Error message
 
     void SetInvalid(std::string err_msg)
     {
         estimated_vsize = std::nullopt;
+        estimated_mweb_weight = std::nullopt;
         estimated_feerate = std::nullopt;
         fee = std::nullopt;
         inputs.clear();
