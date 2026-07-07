@@ -25,7 +25,7 @@ BENCHMARKS =
 
 UNIVALUE_INCLUDES=-I$(srcdir)/$(UNIVALUE_INCLUDE_DIR_INT)
 SECP256K1_INCLUDES=-I$(srcdir)/secp256k1/include
-LIBMW_INCLUDES=-I$(srcdir)/libmw/include -I$(srcdir)/libmw/deps/caches/include -I$(srcdir)/libmw/deps/mio/include $(BOOST_CPPFLAGS) $(LIBFMT_CFLAGS)
+LIBMW_INCLUDES=-I$(srcdir)/libmw/include -I$(srcdir)/libmw/deps/caches/include -I$(srcdir)/libmw/deps/mio/include -I$(srcdir)/libmw/deps/crypto/include $(BOOST_CPPFLAGS) $(LIBFMT_CFLAGS)
 BITCOIN_INCLUDES=-I$(builddir) -I$(srcdir)/$(MINISKETCH_INCLUDE_DIR_INT) $(SECP256K1_INCLUDES) $(UNIVALUE_INCLUDES) $(LEVELDB_CPPFLAGS) $(CRYPTO_CFLAGS) $(LIBMW_INCLUDES)
 
 LIBBITCOIN_NODE=libbitcoin_node.a
@@ -193,6 +193,8 @@ BITCOIN_CORE_H = \
   mweb/mweb_models.h \
   mweb/mweb_node.h \
   mweb/mweb_policy.h \
+  mweb/mweb_wallet.h \
+  mweb/mweb_wtx_info.h \
   net.h \
   net_permissions.h \
   net_processing.h \
@@ -249,6 +251,7 @@ BITCOIN_CORE_H = \
   script/descriptor.h \
   script/keyorigin.h \
   script/miniscript.h \
+  script/pubkeyprovider.h \
   script/sigcache.h \
   script/sign.h \
   script/signingprovider.h \
@@ -314,8 +317,10 @@ BITCOIN_CORE_H = \
   validationinterface.h \
   versionbits.h \
   wallet/bdb.h \
+  wallet/change.h \
   wallet/coincontrol.h \
   wallet/coinselection.h \
+  wallet/componentid.h \
   wallet/context.h \
   wallet/crypter.h \
   wallet/db.h \
@@ -327,7 +332,10 @@ BITCOIN_CORE_H = \
   wallet/load.h \
   wallet/mweb_psbt.h \
   wallet/psbt_filler.h \
+  wallet/transactiondraft.h \
   wallet/receive.h \
+  wallet/recipient.h \
+  wallet/reserve.h \
   wallet/rpc/util.h \
   wallet/rpc/wallet.h \
   wallet/salvage.h \
@@ -335,6 +343,10 @@ BITCOIN_CORE_H = \
   wallet/spend.h \
   wallet/sqlite.h \
   wallet/transaction.h \
+  wallet/txbuilder.h \
+  wallet/txlist.h \
+  wallet/txrecord.h \
+  wallet/utxo.h \
   wallet/wallet.h \
   wallet/walletdb.h \
   wallet/wallettool.h \
@@ -474,6 +486,9 @@ endif
 libbitcoin_wallet_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES) $(BOOST_CPPFLAGS) $(BDB_CPPFLAGS) $(SQLITE_CFLAGS)
 libbitcoin_wallet_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 libbitcoin_wallet_a_SOURCES = \
+  libmw/src/wallet/sign.cpp \
+  mweb/mweb_wallet.cpp \
+  wallet/change.cpp \
   wallet/coincontrol.cpp \
   wallet/context.cpp \
   wallet/crypter.cpp \
@@ -486,7 +501,9 @@ libbitcoin_wallet_a_SOURCES = \
   wallet/load.cpp \
   wallet/mweb_psbt.cpp \
   wallet/psbt_filler.cpp \
+  wallet/transactiondraft.cpp \
   wallet/receive.cpp \
+  wallet/reserve.cpp \
   wallet/rpc/addresses.cpp \
   wallet/rpc/backup.cpp \
   wallet/rpc/coins.cpp \
@@ -499,6 +516,9 @@ libbitcoin_wallet_a_SOURCES = \
   wallet/scriptpubkeyman.cpp \
   wallet/spend.cpp \
   wallet/transaction.cpp \
+  wallet/txbuilder.cpp \
+  wallet/txlist.cpp \
+  wallet/txrecord.cpp \
   wallet/wallet.cpp \
   wallet/walletdb.cpp \
   wallet/walletutil.cpp \
@@ -684,6 +704,7 @@ libbitcoin_common_a_SOURCES = \
   libmw/src/mmr/PruneList.cpp \
   libmw/src/mmr/Segment.cpp \
   libmw/src/node/CoinsViewCache.cpp \
+  libmw/src/wallet/Keychain.cpp \
   merkleblock.cpp \
   mweb/mweb_policy.cpp \
   net_types.cpp \

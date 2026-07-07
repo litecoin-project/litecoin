@@ -655,9 +655,9 @@ RPCHelpMan simulaterawtransaction()
         }
 
         // Fetch previous transactions (inputs)
-        std::map<COutPoint, Coin> coins;
-        for (const CTxIn& txin : mtx.vin) {
-            coins[txin.prevout]; // Create empty map entry keyed by prevout.
+        std::map<AnyOutputID, AnyCoin> coins;
+        for (const AnyInput& tx_input : mtx.GetInputs()) {
+            coins[tx_input.GetID()]; // Create empty map entry keyed by prevout.
         }
         wallet.chain().findCoins(coins);
 
@@ -688,8 +688,9 @@ RPCHelpMan simulaterawtransaction()
         const auto& hash = mtx.GetHash();
         for (size_t i = 0; i < mtx.vout.size(); ++i) {
             const auto& txout = mtx.vout[i];
-            bool is_mine = 0 < (wallet.IsMine(txout) & filter);
-            changes += new_utxos[COutPoint(hash, i)] = is_mine ? txout.nValue : 0;
+            COutPoint outpoint(hash, i);
+            bool is_mine = 0 < (wallet.IsMine(AnyOutput(outpoint, txout)) & filter);
+            changes += new_utxos[outpoint] = is_mine ? txout.nValue : 0;
         }
     }
 
@@ -822,6 +823,7 @@ RPCHelpMan signmessage();
 RPCHelpMan listreceivedbyaddress();
 RPCHelpMan listreceivedbylabel();
 RPCHelpMan listtransactions();
+RPCHelpMan listwallettransactions();
 RPCHelpMan listsinceblock();
 RPCHelpMan gettransaction();
 RPCHelpMan abandontransaction();
@@ -873,6 +875,7 @@ Span<const CRPCCommand> GetWalletRPCCommands()
         {"wallet", &listunspent},
         {"wallet", &listwalletdir},
         {"wallet", &listwallets},
+        {"wallet", &listwallettransactions},
         {"wallet", &loadwallet},
         {"wallet", &lockunspent},
         {"wallet", &migratewallet},
