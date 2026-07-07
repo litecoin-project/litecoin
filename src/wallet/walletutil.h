@@ -7,6 +7,7 @@
 
 #include <fs.h>
 #include <script/descriptor.h>
+#include <uint256.h>
 
 #include <vector>
 
@@ -27,7 +28,9 @@ enum WalletFeature
 
     FEATURE_PRE_SPLIT_KEYPOOL = 169900, // Upgraded to HD SPLIT and can have a pre-split keypool
 
-    FEATURE_LATEST = FEATURE_PRE_SPLIT_KEYPOOL
+    FEATURE_MWEB = 210000, // Wallet with MWEB keys and coins
+
+    FEATURE_LATEST = FEATURE_MWEB
 };
 
 bool IsFeatureSupported(int wallet_version, int feature_version);
@@ -112,6 +115,7 @@ class DescriptorScriptPubKeyMan;
 struct MigrationData
 {
     CExtKey master_key;
+    uint256 active_mweb_spkm_id;
     std::vector<std::pair<std::string, int64_t>> watch_descs;
     std::vector<std::pair<std::string, int64_t>> solvable_descs;
     std::vector<std::unique_ptr<DescriptorScriptPubKeyMan>> desc_spkms;
