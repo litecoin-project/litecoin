@@ -162,6 +162,10 @@ OptionsDialog::OptionsDialog(QWidget *parent, bool enableWallet) :
     // Checking the embeddedFont_radioButton automatically unchecks the systemFont_radioButton.
     ui->systemFont_radioButton->setChecked(true);
 
+    if (!gArgs.IsArgSet("-debug")) {
+        ui->mwebFeatures->setVisible(false);
+    }
+
     GUIUtil::handleCloseWindowShortcut(this);
 }
 
@@ -244,6 +248,7 @@ void OptionsDialog::setMapper()
     /* Wallet */
     mapper->addMapping(ui->spendZeroConfChange, OptionsModel::SpendZeroConfChange);
     mapper->addMapping(ui->coinControlFeatures, OptionsModel::CoinControlFeatures);
+    mapper->addMapping(ui->mwebFeatures, OptionsModel::MWEBFeatures);
     mapper->addMapping(ui->subFeeFromAmount, OptionsModel::SubFeeFromAmount);
     mapper->addMapping(ui->externalSignerPath, OptionsModel::ExternalSignerPath);
     mapper->addMapping(ui->m_enable_psbt_controls, OptionsModel::EnablePSBTControls);

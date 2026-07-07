@@ -33,7 +33,6 @@
 
 #include <memory>
 #include <limits>
-#include <set>
 #include <string>
 #include <utility>
 #include <vector>
@@ -118,21 +117,6 @@ WalletTx MakeWalletTx(CWallet& wallet, const CWalletTx& wtx)
     result.is_coinbase = wtx.IsCoinBase();
     result.is_hogex = wtx.IsHogEx();
     result.wtx_hash = wtx.GetHash();
-
-    result.txin_is_mine.reserve(wtx.tx->vin.size());
-    for (const auto& txin : wtx.tx->vin) {
-        result.txin_is_mine.emplace_back(InputIsMine(wallet, txin));
-    }
-    result.txout_is_mine.reserve(wtx.tx->vout.size());
-    result.txout_address.reserve(wtx.tx->vout.size());
-    result.txout_address_is_mine.reserve(wtx.tx->vout.size());
-    for (const auto& txout : wtx.tx->vout) {
-        result.txout_is_mine.emplace_back(wallet.IsMine(GenericAddress(txout.scriptPubKey)));
-        result.txout_address.emplace_back();
-        result.txout_address_is_mine.emplace_back(ExtractDestination(txout.scriptPubKey, result.txout_address.back()) ?
-                                                      wallet.IsMine(result.txout_address.back()) :
-                                                      ISMINE_NO);
-    }
 
     //
     // Inputs
@@ -332,17 +316,6 @@ public:
         LOCK(m_wallet->cs_wallet);
         return m_wallet->ListLockedCoins(outputs);
     }
-    void listLockedCoins(std::vector<COutPoint>& outputs) override
-    {
-        LOCK(m_wallet->cs_wallet);
-        std::vector<AnyOutputID> locked_outputs;
-        m_wallet->ListLockedCoins(locked_outputs);
-        for (const AnyOutputID& output : locked_outputs) {
-            if (output.IsOutPoint()) {
-                outputs.push_back(output.ToOutPoint());
-            }
-        }
-    }
     util::Result<CTransactionRef> createTransaction(const std::vector<CRecipient>& recipients,
         const CCoinControl& coin_control,
         bool sign,
@@ -360,21 +333,6 @@ public:
         change_pos = txr.change_pos;
 
         return MakeTransactionRef(txr.tx);
-    }
-    util::Result<CTransactionRef> createTransaction(const std::vector<CRecipient>& recipients,
-        const CCoinControl& coin_control,
-        bool sign,
-        int& change_pos,
-        CAmount& fee) override
-    {
-        ChangePosition internal_change_pos;
-        if (change_pos >= 0) {
-            internal_change_pos = ChangePosition{static_cast<size_t>(change_pos)};
-        }
-
-        auto result = createTransaction(recipients, coin_control, sign, internal_change_pos, fee);
-        change_pos = internal_change_pos.IsLTC() ? static_cast<int>(internal_change_pos.ToLTC()) : -1;
-        return result;
     }
     void commitTransaction(CTransactionRef tx,
         WalletValueMap value_map,
@@ -431,15 +389,6 @@ public:
         }
         return {};
     }
-    WalletTx getWalletTx(const uint256& txid) override
-    {
-        LOCK(m_wallet->cs_wallet);
-        auto mi = m_wallet->mapWallet.find(txid);
-        if (mi != m_wallet->mapWallet.end()) {
-            return MakeWalletTx(*m_wallet, mi->second);
-        }
-        return {};
-    }
     std::vector<wallet::WalletTxRecord> getWalletTxRecords(const uint256& txid) override
     {
         LOCK(m_wallet->cs_wallet);
@@ -449,16 +398,7 @@ public:
         }
         return {};
     }
-    std::set<WalletTx> getWalletTxs() override
-    {
-        LOCK(m_wallet->cs_wallet);
-        std::set<WalletTx> result;
-        for (const auto& entry : m_wallet->mapWallet) {
-            result.emplace(MakeWalletTx(*m_wallet, entry.second));
-        }
-        return result;
-    }
-    std::vector<wallet::WalletTxRecord> getWalletTxRecords() override
+    std::vector<wallet::WalletTxRecord> getWalletTxs() override
     {
         LOCK(m_wallet->cs_wallet);
         std::vector<wallet::WalletTxRecord> tx_records = TxList(*m_wallet).ListAll(ISMINE_ALL);
@@ -552,11 +492,6 @@ public:
         LOCK(m_wallet->cs_wallet);
         return m_wallet->IsMine(output);
     }
-    isminetype txoutIsMine(const CTxOut& txout) override
-    {
-        LOCK(m_wallet->cs_wallet);
-        return m_wallet->IsMine(GenericAddress(txout.scriptPubKey));
-    }
     CAmount getValue(const AnyOutput& txout) override
     {
         LOCK(m_wallet->cs_wallet);
@@ -566,14 +501,6 @@ public:
     {
         LOCK(m_wallet->cs_wallet);
         return m_wallet->GetDebit(input, filter);
-    }
-    CAmount getCredit(const CTxOut& txout, isminefilter filter) override
-    {
-        if (!MoneyRange(txout.nValue)) {
-            throw std::runtime_error(std::string(__func__) + ": value out of range");
-        }
-        LOCK(m_wallet->cs_wallet);
-        return ((m_wallet->IsMine(GenericAddress(txout.scriptPubKey)) & filter) ? txout.nValue : 0);
     }
     CoinsList listCoins() override
     {
@@ -617,13 +544,6 @@ public:
         if (returned_target) *returned_target = fee_calc.returnedTarget;
         if (reason) *reason = fee_calc.reason;
         return result;
-    }
-    CAmount getMinimumFee(unsigned int tx_bytes,
-        const CCoinControl& coin_control,
-        int* returned_target,
-        FeeReason* reason) override
-    {
-        return getMinimumFee(tx_bytes, /*mweb_weight=*/0, coin_control, returned_target, reason);
     }
     unsigned int getConfirmTarget() override { return m_wallet->m_confirm_target; }
     bool hdEnabled() override { return m_wallet->IsHDEnabled(); }

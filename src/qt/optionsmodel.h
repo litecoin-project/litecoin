@@ -62,6 +62,7 @@ public:
         Language,               // QString
         UseEmbeddedMonospacedFont, // bool
         CoinControlFeatures,    // bool
+        MWEBFeatures,           // bool
         SubFeeFromAmount,       // bool
         ThreadsScriptVerif,     // int
         Prune,                  // bool
@@ -94,6 +95,7 @@ public:
     QString getThirdPartyTxUrls() const { return strThirdPartyTxUrls; }
     bool getUseEmbeddedMonospacedFont() const { return m_use_embedded_monospaced_font; }
     bool getCoinControlFeatures() const { return fCoinControlFeatures; }
+    bool getMWEBFeatures() const { return fMWEBFeatures; }
     bool getSubFeeFromAmount() const { return m_sub_fee_from_amount; }
     bool getEnablePSBTControls() const { return m_enable_psbt_controls; }
     const QString& getOverriddenByCommandLine() { return strOverriddenByCommandLine; }
@@ -118,6 +120,7 @@ private:
     QString strThirdPartyTxUrls;
     bool m_use_embedded_monospaced_font;
     bool fCoinControlFeatures;
+    bool fMWEBFeatures;
     bool m_sub_fee_from_amount;
     bool m_enable_psbt_controls;
 
@@ -142,6 +145,7 @@ private:
 Q_SIGNALS:
     void displayUnitChanged(BitcoinUnit unit);
     void coinControlFeaturesChanged(bool);
+    void mwebFeaturesChanged(bool);
     void showTrayIconChanged(bool);
     void useEmbeddedMonospacedFontChanged(bool);
 };

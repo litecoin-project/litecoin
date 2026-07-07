@@ -81,6 +81,7 @@ private:
     QDateTimeEdit *dateTo;
     QAction *abandonAction{nullptr};
     QAction *bumpFeeAction{nullptr};
+    QAction *rebroadcastAction{nullptr};
     QAction *copyAddressAction{nullptr};
     QAction *copyLabelAction{nullptr};
 
@@ -105,6 +106,7 @@ private Q_SLOTS:
     void updateWatchOnlyColumn(bool fHaveWatchOnly);
     void abandonTx();
     void bumpFee(bool checked);
+    void rebroadcastTx();
 
 Q_SIGNALS:
     void doubleClicked(const QModelIndex&);

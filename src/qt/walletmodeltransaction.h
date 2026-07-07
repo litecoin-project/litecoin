@@ -7,6 +7,7 @@
 
 #include <primitives/transaction.h>
 #include <qt/sendcoinsrecipient.h>
+#include <interfaces/wallet.h>
 
 #include <consensus/amount.h>
 
@@ -16,6 +17,10 @@ class SendCoinsRecipient;
 
 namespace interfaces {
 class Node;
+}
+
+namespace wallet {
+struct ChangePosition;
 }
 
 /** Data model for a walletmodel transaction. */
@@ -36,7 +41,7 @@ public:
 
     CAmount getTotalTransactionAmount() const;
 
-    void reassignAmounts(int nChangePosRet); // needed for the subtract-fee-from-amount feature
+    void reassignAmounts(interfaces::Wallet& wallet, const wallet::ChangePosition& change_pos); // needed for the subtract-fee-from-amount feature
 
 private:
     QList<SendCoinsRecipient> recipients;

@@ -13,11 +13,11 @@
 #include <qt/platformstyle.h>
 #include <qt/transactiondescdialog.h>
 #include <qt/transactionfilterproxy.h>
-#include <qt/transactionrecord.h>
 #include <qt/transactiontablemodel.h>
 #include <qt/walletmodel.h>
 
 #include <node/interface_ui.h>
+#include <wallet/txrecord.h>
 
 #include <chrono>
 #include <optional>
@@ -87,13 +87,13 @@ TransactionView::TransactionView(const PlatformStyle *platformStyle, QWidget *pa
     }
 
     typeWidget->addItem(tr("All"), TransactionFilterProxy::ALL_TYPES);
-    typeWidget->addItem(tr("Received with"), TransactionFilterProxy::TYPE(TransactionRecord::RecvWithAddress) |
-                                        TransactionFilterProxy::TYPE(TransactionRecord::RecvFromOther));
-    typeWidget->addItem(tr("Sent to"), TransactionFilterProxy::TYPE(TransactionRecord::SendToAddress) |
-                                  TransactionFilterProxy::TYPE(TransactionRecord::SendToOther));
-    typeWidget->addItem(tr("To yourself"), TransactionFilterProxy::TYPE(TransactionRecord::SendToSelf));
-    typeWidget->addItem(tr("Mined"), TransactionFilterProxy::TYPE(TransactionRecord::Generated));
-    typeWidget->addItem(tr("Other"), TransactionFilterProxy::TYPE(TransactionRecord::Other));
+    typeWidget->addItem(tr("Received with"), TransactionFilterProxy::TYPE(wallet::WalletTxRecord::RecvWithAddress) |
+                                        TransactionFilterProxy::TYPE(wallet::WalletTxRecord::RecvFromOther));
+    typeWidget->addItem(tr("Sent to"), TransactionFilterProxy::TYPE(wallet::WalletTxRecord::SendToAddress) |
+                                  TransactionFilterProxy::TYPE(wallet::WalletTxRecord::SendToOther));
+    typeWidget->addItem(tr("To yourself"), TransactionFilterProxy::TYPE(wallet::WalletTxRecord::SendToSelf));
+    typeWidget->addItem(tr("Mined"), TransactionFilterProxy::TYPE(wallet::WalletTxRecord::Generated));
+    typeWidget->addItem(tr("Other"), TransactionFilterProxy::TYPE(wallet::WalletTxRecord::Other));
 
     hlayout->addWidget(typeWidget);
 
@@ -178,6 +178,7 @@ TransactionView::TransactionView(const PlatformStyle *platformStyle, QWidget *pa
     GUIUtil::ExceptionSafeConnect(bumpFeeAction, &QAction::triggered, this, &TransactionView::bumpFee);
     bumpFeeAction->setObjectName("bumpFeeAction");
     abandonAction = contextMenu->addAction(tr("A&bandon transaction"), this, &TransactionView::abandonTx);
+    rebroadcastAction = contextMenu->addAction(tr("Re&broadcast transaction"), this, &TransactionView::rebroadcastTx);
     contextMenu->addAction(tr("&Edit address label"), this, &TransactionView::editLabel);
 
     connect(dateWidget, qOverload<int>(&QComboBox::activated), this, &TransactionView::chooseDate);
@@ -400,6 +401,7 @@ void TransactionView::contextualMenu(const QPoint &point)
     hash.SetHex(selection.at(0).data(TransactionTableModel::TxHashRole).toString().toStdString());
     abandonAction->setEnabled(model->wallet().transactionCanBeAbandoned(hash));
     bumpFeeAction->setEnabled(model->wallet().transactionCanBeBumped(hash));
+    rebroadcastAction->setEnabled(model->wallet().transactionCanBeRebroadcast(hash));
     copyAddressAction->setEnabled(GUIUtil::hasEntryData(transactionView, 0, TransactionTableModel::AddressRole));
     copyLabelAction->setEnabled(GUIUtil::hasEntryData(transactionView, 0, TransactionTableModel::LabelRole));
 
@@ -447,6 +449,21 @@ void TransactionView::bumpFee([[maybe_unused]] bool checked)
         qApp->processEvents();
         Q_EMIT bumpedFee(newHash);
     }
+}
+
+void TransactionView::rebroadcastTx()
+{
+    if (!transactionView || !transactionView->selectionModel())
+        return;
+    QModelIndexList selection = transactionView->selectionModel()->selectedRows(0);
+
+    // get the hash from the TxHashRole (QVariant / QString)
+    uint256 hash;
+    QString hashQStr = selection.at(0).data(TransactionTableModel::TxHashRole).toString();
+    hash.SetHex(hashQStr.toStdString());
+
+    // Rebroadcast the wallet transaction over the walletModel
+    model->wallet().rebroadcastTransaction(hash);
 }
 
 void TransactionView::copyAddress()
