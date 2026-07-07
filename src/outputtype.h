@@ -19,6 +19,7 @@ enum class OutputType {
     P2SH_SEGWIT,
     BECH32,
     BECH32M,
+    MWEB,
     UNKNOWN,
 };
 
@@ -27,6 +28,7 @@ static constexpr auto OUTPUT_TYPES = std::array{
     OutputType::P2SH_SEGWIT,
     OutputType::BECH32,
     OutputType::BECH32M,
+    OutputType::MWEB,
 };
 
 std::optional<OutputType> ParseOutputType(const std::string& str);
@@ -36,10 +38,10 @@ const std::string& FormatOutputType(OutputType type);
  * Get a destination of the requested type (if possible) to the specified key.
  * The caller must make sure LearnRelatedScripts has been called beforehand.
  */
-CTxDestination GetDestinationForKey(const CPubKey& key, OutputType);
+CTxDestination GetDestinationForKey(const CPubKey& key, OutputType type, const SecretKey& scan_secret);
 
 /** Get all destinations (potentially) supported by the wallet for the given key. */
-std::vector<CTxDestination> GetAllDestinationsForKey(const CPubKey& key);
+std::vector<CTxDestination> GetAllDestinationsForKey(const CPubKey& key, const SecretKey& scan_secret);
 
 /**
  * Get a destination of the requested type (if possible) to the specified script.

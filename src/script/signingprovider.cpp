@@ -53,6 +53,23 @@ bool HidingSigningProvider::GetTaprootBuilder(const XOnlyPubKey& output_key, Tap
     return m_provider->GetTaprootBuilder(output_key, builder);
 }
 
+bool HidingSigningProvider::GetMWEBMasterScanKey(CKey& out) const
+{
+    if (m_hide_secret) return false;
+    return m_provider->GetMWEBMasterScanKey(out);
+}
+
+bool HidingSigningProvider::GetMWEBMasterSpendKey(CKey& out) const
+{
+    if (m_hide_secret) return false;
+    return m_provider->GetMWEBMasterSpendKey(out);
+}
+
+bool HidingSigningProvider::GetMWEBMasterSpendPubKey(CPubKey& out, KeyOriginInfo* origin_out) const
+{
+    return m_provider->GetMWEBMasterSpendPubKey(out, origin_out);
+}
+
 bool FlatSigningProvider::GetCScript(const CScriptID& scriptid, CScript& script) const { return LookupHelper(scripts, scriptid, script); }
 bool FlatSigningProvider::GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const { return LookupHelper(pubkeys, keyid, pubkey); }
 bool FlatSigningProvider::GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const
@@ -77,6 +94,30 @@ bool FlatSigningProvider::GetTaprootBuilder(const XOnlyPubKey& output_key, Tapro
     return LookupHelper(tr_trees, output_key, builder);
 }
 
+bool FlatSigningProvider::GetMWEBMasterScanKey(CKey& out) const
+{
+    if (!mweb_master_scan_key) return false;
+    out = *mweb_master_scan_key;
+    return true;
+}
+
+bool FlatSigningProvider::GetMWEBMasterSpendKey(CKey& out) const
+{
+    if (!mweb_master_spend_key) return false;
+    out = *mweb_master_spend_key;
+    return true;
+}
+
+bool FlatSigningProvider::GetMWEBMasterSpendPubKey(CPubKey& out, KeyOriginInfo* origin_out) const
+{
+    if (!mweb_master_spend_pk) return false;
+    out = *mweb_master_spend_pk;
+    if (origin_out && mweb_master_spend_origin) {
+        *origin_out = *mweb_master_spend_origin;
+    }
+    return true;
+}
+
 FlatSigningProvider& FlatSigningProvider::Merge(FlatSigningProvider&& b)
 {
     scripts.merge(b.scripts);
@@ -84,6 +125,24 @@ FlatSigningProvider& FlatSigningProvider::Merge(FlatSigningProvider&& b)
     keys.merge(b.keys);
     origins.merge(b.origins);
     tr_trees.merge(b.tr_trees);
+
+    // Prefer already-present MWEB fields. Otherwise, adopt from b.
+    if (!mweb_master_scan_key && b.mweb_master_scan_key) {
+        mweb_master_scan_key = std::move(b.mweb_master_scan_key);
+    }
+    if (!mweb_master_spend_pk && b.mweb_master_spend_pk) {
+        mweb_master_spend_pk = std::move(b.mweb_master_spend_pk);
+    }
+    if (!mweb_master_spend_key && b.mweb_master_spend_key) {
+        mweb_master_spend_key = std::move(b.mweb_master_spend_key);
+    }
+    if (!mweb_master_scan_origin && b.mweb_master_scan_origin) {
+        mweb_master_scan_origin = std::move(b.mweb_master_scan_origin);
+    }
+    if (!mweb_master_spend_origin && b.mweb_master_spend_origin) {
+        mweb_master_spend_origin = std::move(b.mweb_master_spend_origin);
+    }
+
     return *this;
 }
 
@@ -222,6 +281,9 @@ CKeyID GetKeyForDestination(const SigningProvider& store, const CTxDestination& 
             && store.GetPubKeyByXOnly(spenddata.internal_key, pub)) {
             return pub.GetID();
         }
+    }
+    if (auto stealth_address = std::get_if<StealthAddress>(&dest)) {
+        return stealth_address->B().GetID();
     }
     return CKeyID();
 }
