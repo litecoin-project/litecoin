@@ -7,15 +7,17 @@ Test whether persistent or transient I2P sessions are being used, based on `-i2p
 """
 
 from test_framework.test_framework import BitcoinTestFramework
+from test_framework.util import p2p_port
 
 
 class I2PSessions(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 2
         # The test assumes that an I2P SAM proxy is not listening here.
+        port = p2p_port(self.num_nodes)
         self.extra_args = [
-            ["-i2psam=127.0.0.1:60000", "-i2pacceptincoming=1"],
-            ["-i2psam=127.0.0.1:60000", "-i2pacceptincoming=0"],
+            [f"-i2psam=127.0.0.1:{port}", "-i2pacceptincoming=1"],
+            [f"-i2psam=127.0.0.1:{port}", "-i2pacceptincoming=0"],
         ]
 
     def run_test(self):

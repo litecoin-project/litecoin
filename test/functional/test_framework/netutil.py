@@ -13,6 +13,10 @@ import struct
 import array
 import os
 
+# Easily unreachable address. Attempts to connect to it will stay within the machine.
+# Used to avoid non-loopback traffic or DNS queries.
+UNREACHABLE_PROXY_ARG = '-proxy=127.0.0.1:1'
+
 # STATE_ESTABLISHED = '01'
 # STATE_SYN_SENT  = '02'
 # STATE_SYN_RECV = '03'
@@ -142,14 +146,17 @@ def addr_to_hex(addr):
 
 def test_ipv6_local():
     '''
-    Check for (local) IPv6 support.
+    Check for local IPv6 support usable by getaddrinfo.
     '''
-    # By using SOCK_DGRAM this will not actually make a connection, but it will
-    # fail if there is no route to IPv6 localhost.
-    have_ipv6 = True
     try:
-        s = socket.socket(socket.AF_INET6, socket.SOCK_DGRAM)
-        s.connect(('::1', 1))
+        # By using SOCK_DGRAM this will not actually make a connection, but it will
+        # fail if there is no route to IPv6 localhost.
+        with socket.socket(socket.AF_INET6, socket.SOCK_DGRAM) as sock:
+            sock.connect(('::1', 1))
+        # litecoind/libevent may use AI_ADDRCONFIG; require that lookup mode too.
+        ai_addrconfig = getattr(socket, "AI_ADDRCONFIG", 0)
+        if ai_addrconfig:
+            socket.getaddrinfo('::1', 1, 0, socket.SOCK_STREAM, 0, ai_addrconfig)
     except socket.error:
-        have_ipv6 = False
-    return have_ipv6
+        return False
+    return True
