@@ -110,6 +110,10 @@ def output_key_to_p2tr_script(key):
     return program_to_witness_script(1, key)
 
 
+def hogaddr_script(mweb_hash):
+    return program_to_witness_script(8, mweb_hash)
+
+
 def check_key(key):
     if isinstance(key, str):
         key = bytes.fromhex(key)  # Assuming this is hex string

@@ -14,6 +14,7 @@ import logging
 import os
 import random
 import re
+import socket
 import time
 import unittest
 
@@ -314,6 +315,13 @@ class PortSeed:
     n = None
 
 
+def get_unused_port():
+    """Return an unused TCP port on the IPv4 localhost interface."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.bind(('127.0.0.1', 0))
+        return s.getsockname()[1]
+
+
 def get_rpc_proxy(url: str, node_number: int, *, timeout: int=None, coveragedir: str=None) -> coverage.AuthServiceProxyWrapper:
     """
     Args:
@@ -574,6 +582,15 @@ def modinv(a, n):
     if t1 < 0:
         t1 += n
     return t1
+
+
+class CustomJSONEncoder(json.JSONEncoder):
+    """Custom JSON encoder to handle Decimal types."""
+    def default(self, o):
+        if isinstance(o, Decimal):
+            return float(o)
+        return super().default(o)
+
 
 class TestFrameworkUtil(unittest.TestCase):
     def test_modinv(self):

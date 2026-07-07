@@ -20,7 +20,7 @@ from test_framework.util import (
 class ResendWalletTransactionsTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 1
-        self.extra_args = [['-mempoolreplacement=1']]
+        self.extra_args = [['-mempoolreplacement=1', '-walletrbf=1']]
 
     def skip_test_if_missing_module(self):
         self.skip_if_no_wallet()
@@ -74,6 +74,9 @@ class ResendWalletTransactionsTest(BitcoinTestFramework):
         node.setmocktime(now + 36 * 60 * 60 + 600)
         peer_second.wait_for_broadcast([txid])
 
+        self.test_chain_of_unconfirmed_txs(node, addr, txid, indep_utxo)
+
+    def test_chain_of_unconfirmed_txs(self, node, addr, txid, indep_utxo):
         self.log.info("Chain of unconfirmed not-in-mempool txs are rebroadcast")
         # This tests that the node broadcasts the parent transaction before the child transaction.
         # To test that scenario, we need a method to reliably get a child transaction placed

@@ -536,8 +536,12 @@ void RPCRunLater(const std::string& name, std::function<void()> func, int64_t nS
 int RPCSerializationFlags()
 {
     int flag = 0;
-    if (gArgs.GetIntArg("-rpcserialversion", DEFAULT_RPC_SERIALIZE_VERSION) == 0)
-        flag |= SERIALIZE_TRANSACTION_NO_WITNESS;
+    int rpc_serialize_version = gArgs.GetIntArg("-rpcserialversion", DEFAULT_RPC_SERIALIZE_VERSION);
+    if (rpc_serialize_version == 0) {
+        flag |= SERIALIZE_TRANSACTION_NO_WITNESS | SERIALIZE_NO_MWEB;
+    } else if (rpc_serialize_version == 1) {
+        flag |= SERIALIZE_NO_MWEB;
+    }
     return flag;
 }
 
