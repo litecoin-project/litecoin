@@ -80,6 +80,7 @@ TEST_FRAMEWORK_MODULES = [
 EXTENDED_SCRIPTS = [
     # These tests are not run by default.
     # Longest test should go first, to favor running tests in parallel
+    'mweb_weight.py',
     'feature_pruning.py',
     'feature_dbcrash.py',
     'feature_index_prune.py',
@@ -278,6 +279,35 @@ BASE_SCRIPTS = [
     'wallet_scriptaddress2.py --legacy-wallet',
     'feature_dersig.py',
     'feature_cltv.py',
+    'mweb_basic.py',
+    'ltc_replacebyfee.py',
+    'mweb_mempool.py',
+    'mweb_mining.py',
+    'mweb_reorg.py',
+    'mweb_rewind_activation.py',
+    'mweb_consensus.py',
+    'mweb_dbcrash.py',
+    'mweb_duplicate_pegin.py',
+    'mweb_p2p.py',
+    'mweb_p2p_mutated_block_submitblock.py',
+    'mweb_pre_activation_hogex_marker.py',
+    'mweb_pegout_all.py',
+    'mweb_node_compatibility.py',
+    'mweb_psbt.py',
+    'mweb_wallet_address.py --legacy-wallet',
+    'mweb_wallet_address.py --descriptors',
+    'mweb_wallet_basic.py --legacy-wallet',
+    'mweb_wallet_basic.py --descriptors',
+    'mweb_wallet_descriptor.py',
+    'mweb_wallet_sendall.py --legacy-wallet',
+    'mweb_wallet_sendall.py --descriptors',
+    'mweb_wallet_partial_upgrade.py --legacy-wallet',
+    'mweb_wallet_partial_upgrade.py --descriptors',
+    'mweb_wallet_upgrade.py --legacy-wallet',
+    'mweb_wallet_upgrade.py --descriptors',
+    'mweb_wallet_txlist.py',
+    'mweb_watchonly.py --descriptors',
+    'wallet_listwallettransactions.py',
     'rpc_uptime.py',
     'wallet_resendwallettransactions.py --legacy-wallet',
     'wallet_resendwallettransactions.py --descriptors',
@@ -746,7 +776,7 @@ class TestResult():
 def check_script_prefixes():
     """Check that test scripts start with one of the allowed name prefixes."""
 
-    good_prefixes_re = re.compile("^(example|feature|interface|mempool|mining|p2p|rpc|wallet|tool)_")
+    good_prefixes_re = re.compile("^(example|feature|interface|mempool|mining|p2p|rpc|wallet|tool|ltc|mweb)_")
     bad_script_names = [script for script in ALL_SCRIPTS if good_prefixes_re.match(script) is None]
 
     if bad_script_names:

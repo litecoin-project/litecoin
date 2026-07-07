@@ -14,11 +14,12 @@ from test_framework.util import (
 class FeatureIndexPruneTest(BitcoinTestFramework):
     def set_test_params(self):
         self.num_nodes = 4
+        self.disable_mweb = ["-vbparams=mweb:-2:0"]
         self.extra_args = [
-            ["-fastprune", "-prune=1", "-blockfilterindex=1"],
-            ["-fastprune", "-prune=1", "-coinstatsindex=1"],
-            ["-fastprune", "-prune=1", "-blockfilterindex=1", "-coinstatsindex=1"],
-            []
+            ["-fastprune", "-prune=1", "-blockfilterindex=1"] + self.disable_mweb,
+            ["-fastprune", "-prune=1", "-coinstatsindex=1"] + self.disable_mweb,
+            ["-fastprune", "-prune=1", "-blockfilterindex=1", "-coinstatsindex=1"] + self.disable_mweb,
+            self.disable_mweb,
         ]
 
     def sync_index(self, height):
@@ -49,7 +50,7 @@ class FeatureIndexPruneTest(BitcoinTestFramework):
 
     def restart_without_indices(self):
         for i in range(3):
-            self.restart_node(i, extra_args=["-fastprune", "-prune=1"])
+            self.restart_node(i, extra_args=["-fastprune", "-prune=1"] + self.disable_mweb)
         self.reconnect_nodes()
 
     def run_test(self):
