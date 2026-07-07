@@ -6,6 +6,7 @@
 #include <script/sign.h>
 
 #include <consensus/amount.h>
+#include <mw/wallet/sign.h>
 #include <key.h>
 #include <policy/policy.h>
 #include <primitives/transaction.h>
@@ -653,15 +654,6 @@ bool IsSegWitOutput(const SigningProvider& provider, const CScript& script)
         }
     }
     return false;
-}
-
-bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<COutPoint, Coin>& coins, int nHashType, std::map<int, bilingual_str>& input_errors)
-{
-    std::map<AnyOutputID, AnyCoin> any_coins;
-    for (const auto& [outpoint, coin] : coins) {
-        any_coins.emplace(outpoint, AnyCoin(outpoint, coin));
-    }
-    return SignTransaction(mtx, keystore, any_coins, nHashType, input_errors);
 }
 
 bool SignTransaction(CMutableTransaction& mtx, const SigningProvider* keystore, const std::map<AnyOutputID, AnyCoin>& coins, int nHashType, std::map<int, bilingual_str>& input_errors)

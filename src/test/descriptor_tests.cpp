@@ -2,12 +2,14 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <key_io.h>
 #include <pubkey.h>
 #include <script/descriptor.h>
 #include <script/sign.h>
 #include <script/standard.h>
 #include <test/util/setup_common.h>
 #include <util/strencodings.h>
+#include <libmw/include/mw/wallet/Keychain.h>
 
 #include <boost/test/unit_test.hpp>
 
@@ -206,7 +208,7 @@ void DoCheck(const std::string& prv, const std::string& pub, const std::string& 
 
             // Evaluate the descriptor selected by `t` in position `i`.
             FlatSigningProvider script_provider, script_provider_cached;
-            std::vector<CScript> spks, spks_cached;
+            std::vector<GenericAddress> spks, spks_cached;
             DescriptorCache desc_cache;
             BOOST_CHECK((t ? parse_priv : parse_pub)->Expand(i, key_provider, spks, script_provider, &desc_cache));
 
@@ -288,7 +290,7 @@ void DoCheck(const std::string& prv, const std::string& pub, const std::string& 
             if (!(flags & DERIVE_HARDENED)) {
                 // Evaluate the descriptor at i + 1
                 FlatSigningProvider script_provider1, script_provider_cached1;
-                std::vector<CScript> spks1, spk1_from_cache;
+                std::vector<GenericAddress> spks1, spk1_from_cache;
                 BOOST_CHECK((t ? parse_priv : parse_pub)->Expand(i + 1, key_provider, spks1, script_provider1, nullptr));
 
                 // Try again but use the cache from expanding i. That cache won't have the pubkeys for i + 1, but will have the parent xpub for derivation.
@@ -301,7 +303,7 @@ void DoCheck(const std::string& prv, const std::string& pub, const std::string& 
 
             // For each of the produced scripts, verify solvability, and when possible, try to sign a transaction spending it.
             for (size_t n = 0; n < spks.size(); ++n) {
-                BOOST_CHECK_EQUAL(ref[n], HexStr(spks[n]));
+                BOOST_CHECK_EQUAL(ref[n], HexStr(spks[n].GetScript()));
 
                 if (flags & SIGNABLE) {
                     CMutableTransaction spend;
@@ -312,13 +314,13 @@ void DoCheck(const std::string& prv, const std::string& pub, const std::string& 
                     txdata.Init(spend, std::move(utxos), /*force=*/true);
                     MutableTransactionSignatureCreator creator{spend, 0, CAmount{0}, &txdata, SIGHASH_DEFAULT};
                     SignatureData sigdata;
-                    BOOST_CHECK_MESSAGE(ProduceSignature(FlatSigningProvider{keys_priv}.Merge(FlatSigningProvider{script_provider}), creator, spks[n], sigdata), prv);
+                    BOOST_CHECK_MESSAGE(ProduceSignature(FlatSigningProvider{keys_priv}.Merge(FlatSigningProvider{script_provider}), creator, spks[n].GetScript(), sigdata), prv);
                 }
 
                 /* Infer a descriptor from the generated script, and verify its solvability and that it roundtrips. */
                 auto inferred = InferDescriptor(spks[n], script_provider);
                 BOOST_CHECK_EQUAL(inferred->IsSolvable(), !(flags & UNSOLVABLE));
-                std::vector<CScript> spks_inferred;
+                std::vector<GenericAddress> spks_inferred;
                 FlatSigningProvider provider_inferred;
                 BOOST_CHECK(inferred->Expand(0, provider_inferred, spks_inferred, provider_inferred));
                 BOOST_CHECK_EQUAL(spks_inferred.size(), 1U);
@@ -330,8 +332,8 @@ void DoCheck(const std::string& prv, const std::string& pub, const std::string& 
             // Test whether the observed key path is present in the 'paths' variable (which contains expected, unobserved paths),
             // and then remove it from that set.
             for (const auto& origin : script_provider.origins) {
-                BOOST_CHECK_MESSAGE(paths.count(origin.second.second.path), "Unexpected key path: " + prv);
-                left_paths.erase(origin.second.second.path);
+                BOOST_CHECK_MESSAGE(paths.count(origin.second.second.hdkeypath.path), "Unexpected key path: " + prv);
+                left_paths.erase(origin.second.second.hdkeypath.path);
             }
         }
     }
@@ -665,7 +667,7 @@ BOOST_AUTO_TEST_CASE(descriptor_test)
         OutputType::LEGACY,
         {{10, 20, 0xFFFFFFFFUL, 0}}
     );
-
+    
     // Multisig constructions
     BOOST_TEST_MESSAGE("Multisig constructions");
     Check(
@@ -893,7 +895,7 @@ BOOST_AUTO_TEST_CASE(descriptor_test)
         "sh(multi(2,[00000000/111'/222]xpub6ERApfZwUNrhLCkDtcHTcxd75RbzS1ed54G1LkBUHQVHQKqhMkhgbmJbZRkrgZw4koxb5JaHWkY4ALHY2grBGRjaDMzQLcgJvLJuZZvRcEL,xpub68NZiKmJWnxxS6aaHmn81bvJeTESw724CRDs6HbuccFQN9Ku14VQrADWgqbhhTHBaohPX4CjNLf9fq9MYo6oDaPPLPxSb7gwQN3ih19Zm4Y/0))##tjq09x4t",
         "Multiple '#' symbols"
     ); // Error in checksum
-
+    
     // Addr and raw tests
     BOOST_TEST_MESSAGE("Addr and raw tests");
     CheckUnparsable(
@@ -960,7 +962,7 @@ BOOST_AUTO_TEST_CASE(descriptor_test)
     CheckInferRaw(nonminimalmultisig);
 
     // Miniscript tests
-
+    
     BOOST_TEST_MESSAGE("Miniscript tests");
     // Invalid checksum
     CheckUnparsable(
@@ -1041,6 +1043,338 @@ BOOST_AUTO_TEST_CASE(descriptor_test)
         OutputType::P2SH_SEGWIT,
         {{},{0}}
     );
+}
+
+void CheckDescriptor(const std::unique_ptr<Descriptor>& desc, const std::string& expected)
+{
+    BOOST_CHECK_EQUAL(desc->ToString(), expected + '#' + GetDescriptorChecksum(expected));
+}
+
+void CheckDescriptorPrivate(const std::unique_ptr<Descriptor>& desc, const SigningProvider& provider, const std::string& expected)
+{
+    std::string out;
+    BOOST_REQUIRE(desc->ToPrivateString(provider, out));
+    BOOST_CHECK_EQUAL(out, expected + '#' + GetDescriptorChecksum(expected));
+}
+
+static const int KEY_INDICES_TO_TEST = 1000;
+
+
+BOOST_AUTO_TEST_CASE(mweb_descriptor_test)
+{
+    static const std::string xprv = "xprv9s21ZrQH143K31xYSDQpPDxsXRTUcvj2iNHm5NUtrGiGG5e2DtALGdso3pGz6ssrdK4PFmM8NSpSBHNqPqm55Qn3LqFtT2emdEXVYsCzC2U";
+    static const std::string xpub = "xpub661MyMwAqRbcFW31YEwpkMuc5THy2PSt5bDMsktWQcFF8syAmRUapSCGu8ED9W6oDMSgv6Zz8idoc4a6mr8BDzTJY47LJhkJ8UB7WEGuduB";
+
+    CExtKey root_key = DecodeExtKey(xprv);
+    CExtKey master_key, purpose_key, scan_key, spend_key;
+    BOOST_REQUIRE(root_key.Derive(master_key, 0 | 0x80000000UL));
+    BOOST_REQUIRE(master_key.Derive(purpose_key, 100 | 0x80000000UL));
+    BOOST_REQUIRE(purpose_key.Derive(scan_key, 0 | 0x80000000UL));
+    BOOST_REQUIRE(purpose_key.Derive(spend_key, 1 | 0x80000000UL));
+
+    CKeyID root_key_id = root_key.Neuter().pubkey.GetID();
+    std::string root_fingerprint = HexStr(Span(root_key_id.begin(), 4));
+
+    auto keychain = std::make_shared<mw::Keychain>(
+        nullptr,
+        SecretKey(scan_key.key.begin()),
+        SecretKey(spend_key.key.begin())
+    );
+
+    FlatSigningProvider keys;
+    std::string error;
+    auto desc_str = "mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1',*)";
+    auto desc = Parse(desc_str, keys, error);
+    BOOST_REQUIRE(desc);
+
+    const std::string scan_key_str = EncodeSecret(scan_key.key);
+    std::string expected_desc_str = "mweb([" + root_fingerprint + "/0'/100'/0']" + scan_key_str + "," + xpub + "/0'/100'/1',*)";
+    CheckDescriptor(desc, expected_desc_str);
+
+    std::string expected_private_desc_str = "mweb(" + xprv + "/0'/100'/0'," + xprv + "/0'/100'/1',*)";
+    CheckDescriptorPrivate(desc, keys, expected_private_desc_str);
+    BOOST_CHECK(desc->GetOutputType() == OutputType::MWEB);
+    BOOST_CHECK_EQUAL(desc->IsRange(), true);
+
+    {
+        FlatSigningProvider normalized_keys;
+        std::string normalized_error;
+        auto normalized_src = Parse("mweb(" + xprv + "/0'/100'/0'," + xprv + "/0'/100'/1',*)", normalized_keys, normalized_error);
+        BOOST_REQUIRE_MESSAGE(normalized_src, normalized_error);
+
+        std::string normalized_desc_str;
+        DescriptorCache normalized_cache;
+        BOOST_REQUIRE(normalized_src->ToNormalizedString(normalized_keys, normalized_desc_str, &normalized_cache));
+
+        FlatSigningProvider normalized_reparse_keys;
+        auto normalized_desc = Parse(normalized_desc_str, normalized_reparse_keys, normalized_error);
+        BOOST_REQUIRE_MESSAGE(normalized_desc, normalized_error);
+
+        std::vector<GenericAddress> normalized_src_outputs;
+        std::vector<GenericAddress> normalized_outputs;
+        FlatSigningProvider normalized_src_provider;
+        FlatSigningProvider normalized_provider;
+        BOOST_REQUIRE(normalized_src->Expand(21, normalized_keys, normalized_src_outputs, normalized_src_provider));
+        BOOST_REQUIRE(normalized_desc->Expand(21, normalized_reparse_keys, normalized_outputs, normalized_provider));
+        BOOST_REQUIRE_EQUAL(normalized_src_outputs.size(), 1U);
+        BOOST_REQUIRE_EQUAL(normalized_outputs.size(), 1U);
+        BOOST_CHECK(normalized_src_outputs[0] == normalized_outputs[0]);
+    }
+
+    {
+        FlatSigningProvider implicit_keys;
+        std::string implicit_error;
+        auto implicit_desc = Parse("mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1')", implicit_keys, implicit_error);
+        BOOST_REQUIRE_MESSAGE(implicit_desc, implicit_error);
+        BOOST_CHECK(implicit_desc->GetOutputType() == OutputType::MWEB);
+        BOOST_CHECK_EQUAL(implicit_desc->IsRange(), true);
+
+        const std::string expected_implicit_desc_str = "mweb([" + root_fingerprint + "/0'/100'/0']" + scan_key_str + "," + xpub + "/0'/100'/1',*)";
+        CheckDescriptor(implicit_desc, expected_implicit_desc_str);
+
+        std::vector<GenericAddress> implicit_outputs;
+        BOOST_REQUIRE(implicit_desc->Expand(11, implicit_keys, implicit_outputs, implicit_keys));
+        BOOST_REQUIRE_EQUAL(implicit_outputs.size(), 1U);
+        BOOST_CHECK(implicit_outputs[0] == keychain->DeriveAddress(11));
+    }
+
+    {
+        FlatSigningProvider bad_keys;
+        std::string bad_error;
+
+        BOOST_CHECK(!Parse("mweb(" + xpub + "/0'/100'/0'," + xpub + "/0'/100'/1',*)", bad_keys, bad_error));
+        BOOST_CHECK_EQUAL(bad_error, "mweb(): private master_scan_key is needed.");
+
+        BOOST_CHECK(!Parse("mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1',bogus)", bad_keys, bad_error));
+        BOOST_CHECK_EQUAL(bad_error, "mweb(): expected '*' or index, got 'bogus'");
+
+        BOOST_CHECK(!Parse("mweb([" + root_fingerprint + "/0'/100'/0'/x/7]" + scan_key_str + "," + xpub + "/0'/100'/1',*)", bad_keys, bad_error));
+        BOOST_CHECK_NE(bad_error.find("Key path value 'x' is not a valid uint32"), std::string::npos);
+    }
+
+    {
+        FlatSigningProvider watch_keys;
+        std::string watch_error;
+        auto watch_desc = Parse("mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1',*)", watch_keys, watch_error);
+        BOOST_REQUIRE_MESSAGE(watch_desc, watch_error);
+
+        FlatSigningProvider empty_provider;
+        FlatSigningProvider watch_out;
+        std::vector<GenericAddress> watch_outputs;
+        BOOST_CHECK(!watch_desc->Expand(0, empty_provider, watch_outputs, watch_out));
+    }
+
+    std::vector<GenericAddress> output_addresses;
+    DescriptorCache cache;
+    KeyOriginInfo origin_info;
+    CKey key;
+    CPubKey pubkey;
+
+    for (int pos = 0; pos < KEY_INDICES_TO_TEST; pos++) {
+        BOOST_REQUIRE(desc->Expand(pos, keys, output_addresses, keys, &cache));
+
+        // Check generated MWEB address
+        BOOST_REQUIRE_EQUAL(output_addresses.size(), 1);
+        StealthAddress mweb_address = output_addresses[0].GetMWEBAddress();
+        CKeyID key_id = mweb_address.B().GetID();
+        BOOST_CHECK(mweb_address == keychain->DeriveAddress(pos));
+
+        // Check Pubkey
+        BOOST_CHECK(keys.GetPubKey(key_id, pubkey));
+        BOOST_CHECK(PublicKey(pubkey.begin()) == mweb_address.B());
+
+        // Check key origin
+        BOOST_CHECK(keys.GetKeyOrigin(key_id, origin_info));
+        BOOST_CHECK_EQUAL(HexStr(origin_info.fingerprint), root_fingerprint);
+        BOOST_CHECK_EQUAL(WriteHDKeypath(origin_info.hdkeypath), strprintf("x/%d", pos));
+
+        // Test that secret key is available after ExpandPrivate
+        BOOST_CHECK(!keys.GetKey(key_id, key));
+        desc->ExpandPrivate(pos, keys, keys);
+        BOOST_CHECK(keys.GetKey(key_id, key));
+        BOOST_CHECK(SecretKey(key.begin()) == keychain->GetSubaddressSpendKey(pos));
+    }
+
+    keys = FlatSigningProvider();
+    for (int pos = 0; pos < KEY_INDICES_TO_TEST; pos++) {
+        BOOST_REQUIRE(desc->ExpandFromCache(pos, cache, output_addresses, keys));
+
+        // Check generated MWEB address
+        BOOST_REQUIRE_EQUAL(output_addresses.size(), 1);
+        StealthAddress mweb_address = output_addresses[0].GetMWEBAddress();
+        CKeyID key_id = mweb_address.B().GetID();
+        BOOST_CHECK(mweb_address == keychain->DeriveAddress(pos));
+
+        // Check Pubkey
+        BOOST_CHECK(keys.GetPubKey(key_id, pubkey));
+        BOOST_CHECK(PublicKey(pubkey.begin()) == mweb_address.B());
+
+        // Check key origin
+        BOOST_CHECK(keys.GetKeyOrigin(key_id, origin_info));
+        BOOST_CHECK_EQUAL(HexStr(origin_info.fingerprint), root_fingerprint);
+        BOOST_CHECK_EQUAL(WriteHDKeypath(origin_info.hdkeypath), strprintf("x/%d", pos));
+    }
+
+    {
+        FlatSigningProvider special_keys;
+        std::string special_error;
+        auto special_desc = Parse("mweb(" + xprv + "/0'/100'/0'," + xprv + "/0'/100'/1',*)", special_keys, special_error);
+        BOOST_REQUIRE_MESSAGE(special_desc, special_error);
+
+        std::vector<GenericAddress> special_outputs;
+        FlatSigningProvider special_provider;
+
+        BOOST_REQUIRE(special_desc->Expand(-1, special_keys, special_outputs, special_provider));
+        BOOST_CHECK(special_outputs.empty());
+
+        CKey special_scan_key;
+        BOOST_CHECK(special_provider.GetMWEBMasterScanKey(special_scan_key));
+        BOOST_CHECK(special_scan_key == scan_key.key);
+
+        CPubKey master_scan_pubkey = scan_key.key.GetPubKey();
+        BOOST_CHECK(special_provider.GetPubKey(master_scan_pubkey.GetID(), pubkey));
+        BOOST_CHECK(special_provider.GetKeyOrigin(master_scan_pubkey.GetID(), origin_info));
+        BOOST_CHECK_EQUAL(HexStr(origin_info.fingerprint), root_fingerprint);
+        BOOST_CHECK_EQUAL(WriteHDKeypath(origin_info.hdkeypath), "m/0'/100'/0'");
+
+        special_provider = FlatSigningProvider();
+        BOOST_REQUIRE(special_desc->Expand(-2, special_keys, special_outputs, special_provider));
+        BOOST_CHECK(special_outputs.empty());
+
+        CPubKey master_spend_pubkey = spend_key.key.GetPubKey();
+        BOOST_CHECK(special_provider.GetPubKey(master_spend_pubkey.GetID(), pubkey));
+        BOOST_CHECK(special_provider.GetMWEBMasterSpendPubKey(pubkey));
+        BOOST_CHECK(special_provider.GetKeyOrigin(master_spend_pubkey.GetID(), origin_info));
+        BOOST_CHECK_EQUAL(HexStr(origin_info.fingerprint), root_fingerprint);
+        BOOST_CHECK_EQUAL(WriteHDKeypath(origin_info.hdkeypath), "m/0'/100'/1'");
+
+        FlatSigningProvider special_private;
+        special_desc->ExpandPrivate(-1, special_keys, special_private);
+        BOOST_CHECK(special_private.GetMWEBMasterScanKey(special_scan_key));
+        BOOST_CHECK(special_scan_key == scan_key.key);
+
+        special_private = FlatSigningProvider();
+        special_desc->ExpandPrivate(-2, special_keys, special_private);
+        CKey spend_priv;
+        BOOST_CHECK(special_private.GetKey(master_spend_pubkey.GetID(), spend_priv));
+        BOOST_CHECK(spend_priv == spend_key.key);
+    }
+
+    // Fixed index
+    for (int pos = 0; pos < KEY_INDICES_TO_TEST; pos++) {
+        desc_str = "mweb(" + xprv + "/0'/100'/0'," + xprv + "/0'/100'/1'," + std::to_string(pos) + ")";
+        desc = Parse(desc_str, keys, error);
+        BOOST_REQUIRE(desc);
+        expected_desc_str = "mweb([" + root_fingerprint + "/0'/100'/0']" + scan_key_str + "," + xpub + "/0'/100'/1'," + std::to_string(pos) + ")";
+        CheckDescriptor(desc, expected_desc_str);
+        expected_private_desc_str = "mweb(" + xprv + "/0'/100'/0'," + xprv + "/0'/100'/1'," + std::to_string(pos) + ")";
+        CheckDescriptorPrivate(desc, keys, expected_private_desc_str);
+        BOOST_CHECK(desc->GetOutputType() == OutputType::MWEB);
+        BOOST_CHECK_EQUAL(desc->IsRange(), false);
+    
+        BOOST_REQUIRE(desc->Expand(0, keys, output_addresses, keys, &cache));
+        BOOST_CHECK(output_addresses[0] == keychain->DeriveAddress(pos));
+        BOOST_REQUIRE(desc->ExpandFromCache(0, cache, output_addresses, keys));
+        BOOST_CHECK(output_addresses[0] == keychain->DeriveAddress(pos));
+    }
+
+    {
+        const uint32_t subaddr_index = 7;
+        SecretKey subaddr_spend_secret = keychain->GetSubaddressSpendKey(subaddr_index);
+        CKey subaddr_spend_key;
+        subaddr_spend_key.Set(subaddr_spend_secret.vec().begin(), subaddr_spend_secret.vec().end(), true);
+        const std::string subaddr_spend_pub = HexStr(subaddr_spend_key.GetPubKey());
+
+        desc_str = "mweb(" + scan_key_str + "," + subaddr_spend_pub + ")";
+        desc = Parse(desc_str, keys, error);
+        BOOST_REQUIRE(desc);
+        BOOST_CHECK_EQUAL(desc->IsRange(), false);
+
+        BOOST_REQUIRE(desc->Expand(0, keys, output_addresses, keys, &cache));
+        BOOST_CHECK(output_addresses[0] == keychain->DeriveAddress(subaddr_index));
+    }
+
+    {
+        FlatSigningProvider infer_keys;
+        DescriptorCache infer_cache;
+        std::vector<GenericAddress> infer_outputs;
+        std::string infer_error;
+        const int infer_pos = 42;
+
+        auto infer_desc_str = "mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1',*)";
+        auto infer_desc = Parse(infer_desc_str, infer_keys, infer_error);
+        BOOST_REQUIRE(infer_desc);
+        BOOST_REQUIRE(infer_desc->Expand(infer_pos, infer_keys, infer_outputs, infer_keys, &infer_cache));
+        BOOST_REQUIRE_EQUAL(infer_outputs.size(), 1U);
+
+        auto inferred = InferDescriptor(infer_outputs[0], infer_keys);
+        BOOST_REQUIRE(inferred);
+        BOOST_CHECK(inferred->GetOutputType() == OutputType::MWEB);
+        BOOST_CHECK_EQUAL(inferred->IsRange(), false);
+        const std::string inferred_str = inferred->ToString();
+        BOOST_CHECK(inferred_str.find(",42)") != std::string::npos);
+        BOOST_CHECK(inferred_str.find("[" + root_fingerprint + "/0'/100'/0']") != std::string::npos);
+        BOOST_CHECK(inferred_str.find("[" + root_fingerprint + "/0'/100'/1']") != std::string::npos);
+
+        std::vector<GenericAddress> inferred_outputs;
+        FlatSigningProvider inferred_provider;
+        BOOST_REQUIRE(inferred->Expand(0, inferred_provider, inferred_outputs, inferred_provider));
+        BOOST_REQUIRE_EQUAL(inferred_outputs.size(), 1U);
+        BOOST_CHECK(inferred_outputs[0] == infer_outputs[0]);
+
+        FlatSigningProvider no_scan_provider;
+        auto inferred_addr = InferDescriptor(infer_outputs[0], no_scan_provider);
+        BOOST_REQUIRE(inferred_addr);
+        BOOST_CHECK(inferred_addr->ToString().rfind("addr(", 0) == 0);
+
+        FlatSigningProvider single_subaddr_provider;
+        CKey inferred_scan_key;
+        BOOST_REQUIRE(infer_keys.GetMWEBMasterScanKey(inferred_scan_key));
+        single_subaddr_provider.mweb_master_scan_key = inferred_scan_key;
+        const StealthAddress& inferred_address = infer_outputs[0].GetMWEBAddress();
+        const CPubKey inferred_subaddr_spend_pubkey(inferred_address.GetSpendPubKey().vec());
+        KeyOriginInfo inferred_subaddr_origin;
+        std::copy(root_key_id.begin(), root_key_id.begin() + 4, inferred_subaddr_origin.fingerprint);
+        inferred_subaddr_origin.hdkeypath.mweb_index = infer_pos;
+        single_subaddr_provider.origins.emplace(
+            inferred_subaddr_spend_pubkey.GetID(),
+            std::make_pair(inferred_subaddr_spend_pubkey, inferred_subaddr_origin));
+
+        auto inferred_subaddr = InferDescriptor(infer_outputs[0], single_subaddr_provider);
+        BOOST_REQUIRE(inferred_subaddr);
+        BOOST_CHECK(inferred_subaddr->GetOutputType() == OutputType::MWEB);
+        BOOST_CHECK_EQUAL(inferred_subaddr->IsRange(), false);
+        const std::string inferred_subaddr_str = inferred_subaddr->ToString();
+        BOOST_CHECK(inferred_subaddr_str.rfind("mweb(", 0) == 0);
+        BOOST_CHECK(inferred_subaddr_str.find(",*)") == std::string::npos);
+        BOOST_CHECK(inferred_subaddr_str.find(",42)") == std::string::npos);
+        BOOST_CHECK(inferred_subaddr_str.find("/x/42") == std::string::npos);
+
+        std::vector<GenericAddress> inferred_subaddr_outputs;
+        FlatSigningProvider inferred_subaddr_provider;
+        BOOST_REQUIRE(inferred_subaddr->Expand(0, inferred_subaddr_provider, inferred_subaddr_outputs, inferred_subaddr_provider));
+        BOOST_REQUIRE_EQUAL(inferred_subaddr_outputs.size(), 1U);
+        BOOST_CHECK(inferred_subaddr_outputs[0] == infer_outputs[0]);
+
+        KeyOriginInfo inferred_provider_subaddr_origin;
+        BOOST_REQUIRE(inferred_subaddr_provider.GetKeyOrigin(inferred_subaddr_spend_pubkey.GetID(), inferred_provider_subaddr_origin));
+        BOOST_CHECK_EQUAL(WriteHDKeypath(inferred_provider_subaddr_origin.hdkeypath), strprintf("x/%d", infer_pos));
+
+        FlatSigningProvider reparsed_subaddr_keys;
+        std::string reparsed_subaddr_error;
+        auto reparsed_subaddr = Parse(inferred_subaddr_str, reparsed_subaddr_keys, reparsed_subaddr_error);
+        BOOST_REQUIRE_MESSAGE(reparsed_subaddr, reparsed_subaddr_error);
+        std::vector<GenericAddress> reparsed_subaddr_outputs;
+        FlatSigningProvider reparsed_subaddr_provider;
+        BOOST_REQUIRE(reparsed_subaddr->Expand(0, reparsed_subaddr_keys, reparsed_subaddr_outputs, reparsed_subaddr_provider));
+        BOOST_REQUIRE_EQUAL(reparsed_subaddr_outputs.size(), 1U);
+        BOOST_CHECK(reparsed_subaddr_outputs[0] == infer_outputs[0]);
+
+        KeyOriginInfo reparsed_subaddr_origin;
+        BOOST_REQUIRE(reparsed_subaddr_provider.GetKeyOrigin(inferred_subaddr_spend_pubkey.GetID(), reparsed_subaddr_origin));
+        BOOST_CHECK(reparsed_subaddr_origin.hdkeypath.path.empty());
+        BOOST_CHECK(!reparsed_subaddr_origin.hdkeypath.mweb_index.has_value());
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

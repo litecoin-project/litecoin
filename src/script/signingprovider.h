@@ -28,6 +28,11 @@ public:
     virtual bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const { return false; }
     virtual bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const { return false; }
 
+    // MWEB Master Keys
+    virtual bool GetMWEBMasterScanKey(CKey& out) const { return false; }
+    virtual bool GetMWEBMasterSpendKey(CKey& out) const { return false; }
+    virtual bool GetMWEBMasterSpendPubKey(CPubKey& out, KeyOriginInfo* origin_out = nullptr) const { return false; }
+
     bool GetKeyByXOnly(const XOnlyPubKey& pubkey, CKey& key) const
     {
         for (const auto& id : pubkey.GetKeyIDs()) {
@@ -70,6 +75,11 @@ public:
     bool GetKeyOrigin(const CKeyID& keyid, KeyOriginInfo& info) const override;
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
+    
+    // MWEB
+    bool GetMWEBMasterScanKey(CKey& out) const override;
+    bool GetMWEBMasterSpendKey(CKey& out) const override;
+    bool GetMWEBMasterSpendPubKey(CPubKey& out, KeyOriginInfo* origin_out = nullptr) const override;
 };
 
 struct FlatSigningProvider final : public SigningProvider
@@ -79,6 +89,13 @@ struct FlatSigningProvider final : public SigningProvider
     std::map<CKeyID, std::pair<CPubKey, KeyOriginInfo>> origins;
     std::map<CKeyID, CKey> keys;
     std::map<XOnlyPubKey, TaprootBuilder> tr_trees; /** Map from output key to Taproot tree (which can then make the TaprootSpendData */
+    
+    // MWEB Master Key Info
+    std::optional<CKey> mweb_master_scan_key;
+    std::optional<CKey> mweb_master_spend_key;
+    std::optional<CPubKey> mweb_master_spend_pk;
+    std::optional<KeyOriginInfo> mweb_master_scan_origin;
+    std::optional<KeyOriginInfo> mweb_master_spend_origin;
 
     bool GetCScript(const CScriptID& scriptid, CScript& script) const override;
     bool GetPubKey(const CKeyID& keyid, CPubKey& pubkey) const override;
@@ -86,6 +103,11 @@ struct FlatSigningProvider final : public SigningProvider
     bool GetKey(const CKeyID& keyid, CKey& key) const override;
     bool GetTaprootSpendData(const XOnlyPubKey& output_key, TaprootSpendData& spenddata) const override;
     bool GetTaprootBuilder(const XOnlyPubKey& output_key, TaprootBuilder& builder) const override;
+
+    // MWEB
+    bool GetMWEBMasterScanKey(CKey& out) const override;
+    bool GetMWEBMasterSpendKey(CKey& out) const override;
+    bool GetMWEBMasterSpendPubKey(CPubKey& out, KeyOriginInfo* origin_out = nullptr) const override;
 
     FlatSigningProvider& Merge(FlatSigningProvider&& b) LIFETIMEBOUND;
 };

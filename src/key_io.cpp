@@ -94,8 +94,8 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
 
     // Note this will be false if it is a valid Bech32 address for a different network
     bool is_bech32 = (ToLower(str.substr(0, params.Bech32HRP().size())) == params.Bech32HRP());
-    bool is_mweb = (ToLower(str.substr(0, params.MWEB_HRP().size())) == params.MWEB_HRP());
-    bool is_base58 = !is_bech32 && !is_mweb;
+	bool is_mweb = (ToLower(str.substr(0, params.MWEB_HRP().size())) == params.MWEB_HRP());
+	bool is_base58 = !is_bech32 && !is_mweb;
 
     if (is_base58 && DecodeBase58Check(str, data, 21)) {
         // base58-encoded Bitcoin addresses.
@@ -142,6 +142,7 @@ CTxDestination DecodeDestination(const std::string& str, const CChainParams& par
     }
 
     data.clear();
+
     if (is_mweb) {
         const auto decoded = bech32::Decode(str, true);
         if (decoded.encoding == bech32::Encoding::BECH32 && decoded.hrp == params.MWEB_HRP()) {
