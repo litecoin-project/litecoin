@@ -37,12 +37,12 @@ class WalletDescriptorTest(BitcoinTestFramework):
         self.log.info("Making a descriptor wallet")
         self.nodes[0].createwallet(wallet_name="desc1", descriptors=True)
 
-        # A descriptor wallet should have 100 addresses * 4 types = 400 keys
+        # A descriptor wallet should have 100 addresses * 5 types = 500 keys
         self.log.info("Checking wallet info")
         wallet_info = self.nodes[0].getwalletinfo()
         assert_equal(wallet_info['format'], 'sqlite')
-        assert_equal(wallet_info['keypoolsize'], 400)
-        assert_equal(wallet_info['keypoolsize_hd_internal'], 400)
+        assert_equal(wallet_info['keypoolsize'], 500)
+        assert_equal(wallet_info['keypoolsize_hd_internal'], 400) # No internal MWEB keypool, so only 100 address * 4 types = 400 keys for internal
         assert 'keypoololdest' not in wallet_info
 
         # Check that getnewaddress works

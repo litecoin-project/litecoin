@@ -27,6 +27,23 @@ class KeyPoolTest(BitcoinTestFramework):
 
         # Encrypt wallet and wait to terminate
         nodes[0].encryptwallet('test')
+
+        # MWEB: We don't update hd seed when encrypting wallet, so new keypool was not generated.
+        # We need to refill keypool manually.
+        if not self.options.descriptors:
+            self.nodes[0].walletpassphrase('test', 10)
+            self.nodes[0].keypoolrefill(2)
+            self.nodes[0].walletlock()
+
+        # MWEB: We don't update hd seed when encrypting wallet, so fingerprint shouldn't change
+        addr = nodes[0].getnewaddress()
+        addr_data = nodes[0].getaddressinfo(addr)
+        wallet_info = nodes[0].getwalletinfo()
+
+        if not self.options.descriptors:
+            assert addr_before_encrypting_data['hdmasterfingerprint'] == addr_data['hdmasterfingerprint']
+            assert addr_data['hdseedid'] == wallet_info['hdseedid']
+
         if self.options.descriptors:
             # Import hardened derivation only descriptors
             nodes[0].walletpassphrase('test', 10)
@@ -72,13 +89,11 @@ class KeyPoolTest(BitcoinTestFramework):
                 }
             ])
             nodes[0].walletlock()
-        # Keep creating keys
-        addr = nodes[0].getnewaddress()
-        addr_data = nodes[0].getaddressinfo(addr)
-        wallet_info = nodes[0].getwalletinfo()
-        assert addr_before_encrypting_data['hdmasterfingerprint'] != addr_data['hdmasterfingerprint']
-        if not self.options.descriptors:
-            assert addr_data['hdseedid'] == wallet_info['hdseedid']
+
+        # generate next address to use up the remaining keypool key
+        nodes[0].getnewaddress()
+
+        # try creating another address, which should fail due to locked wallet and no remaining keys in keypool
         assert_raises_rpc_error(-12, "Error: Keypool ran out, please call keypoolrefill first", nodes[0].getnewaddress)
 
         # put six (plus 2) new keys in the keypool (100% external-, +100% internal-keys, 1 in min)
@@ -88,7 +103,7 @@ class KeyPoolTest(BitcoinTestFramework):
         wi = nodes[0].getwalletinfo()
         if self.options.descriptors:
             assert_equal(wi['keypoolsize_hd_internal'], 24)
-            assert_equal(wi['keypoolsize'], 24)
+            assert_equal(wi['keypoolsize'], 30)
         else:
             assert_equal(wi['keypoolsize_hd_internal'], 6)
             assert_equal(wi['keypoolsize'], 6)
@@ -133,7 +148,7 @@ class KeyPoolTest(BitcoinTestFramework):
         wi = nodes[0].getwalletinfo()
         if self.options.descriptors:
             assert_equal(wi['keypoolsize_hd_internal'], 400)
-            assert_equal(wi['keypoolsize'], 400)
+            assert_equal(wi['keypoolsize'], 500)
         else:
             assert_equal(wi['keypoolsize_hd_internal'], 100)
             assert_equal(wi['keypoolsize'], 100)

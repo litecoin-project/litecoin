@@ -20,7 +20,7 @@ static void ExpandDescriptor(benchmark::Bench& bench)
 
     bench.run([&] {
         for (int i = range.first; i <= range.second; ++i) {
-            std::vector<CScript> scripts;
+            std::vector<GenericAddress> scripts;
             bool success = desc->Expand(i, provider, scripts, provider);
             assert(success);
         }

@@ -50,11 +50,11 @@ ExternalSigner ExternalSignerScriptPubKeyMan::GetExternalSigner() {
     return signers[0];
 }
 
-bool ExternalSignerScriptPubKeyMan::DisplayAddress(const CScript scriptPubKey, const ExternalSigner &signer) const
+bool ExternalSignerScriptPubKeyMan::DisplayAddress(const GenericAddress& address, const ExternalSigner &signer) const
 {
     // TODO: avoid the need to infer a descriptor from inside a descriptor wallet
-    auto provider = GetSolvingProvider(scriptPubKey);
-    auto descriptor = InferDescriptor(scriptPubKey, *provider);
+    auto provider = GetSolvingProvider(address);
+    auto descriptor = InferDescriptor(address, *provider);
 
     signer.DisplayAddress(descriptor->ToString());
     // TODO inspect result
@@ -69,11 +69,7 @@ TransactionError ExternalSignerScriptPubKeyMan::FillPSBT(PartiallySignedTransact
     }
 
     // Already complete if every input is now signed
-    bool complete = true;
-    for (const auto& input : psbt.inputs) {
-        // TODO: for multisig wallets, we should only care if all _our_ inputs are signed
-        complete &= PSBTInputSigned(input);
-    }
+    bool complete = psbt.IsComplete();
     if (complete) return TransactionError::OK;
 
     std::string strFailReason;
