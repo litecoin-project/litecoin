@@ -149,11 +149,13 @@ class CreateWalletTest(BitcoinTestFramework):
         w6.walletpassphrase('thisisapassphrase', 60)
         w6.signmessage(w6.getnewaddress('', 'legacy'), "test")
         w6.keypoolrefill(1)
-        # There should only be 1 key for legacy, 3 for descriptors
         walletinfo = w6.getwalletinfo()
-        keys = 4 if self.options.descriptors else 1
-        assert_equal(walletinfo['keypoolsize'], keys)
-        assert_equal(walletinfo['keypoolsize_hd_internal'], keys)
+        # There should only be 1 key for legacy, 5 for descriptors (LEGACY, P2SH_SEGWIT, BECH32, BECH32M, MWEB)
+        external_keys = 5 if self.options.descriptors else 1
+        assert_equal(walletinfo['keypoolsize'], external_keys)
+        # There is no internal keypool for MWEB keys
+        internal_keys = 4 if self.options.descriptors else 1
+        assert_equal(walletinfo['keypoolsize_hd_internal'], internal_keys)
         # Allow empty passphrase, but there should be a warning
         resp = self.nodes[0].createwallet(wallet_name='w7', disable_private_keys=False, blank=False, passphrase='')
         assert 'Empty string given as passphrase, wallet will not be encrypted.' in resp['warning']
