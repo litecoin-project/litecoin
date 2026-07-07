@@ -114,11 +114,13 @@ class AddressInputTypeGrouping(BitcoinTestFramework):
                 "-addresstype=bech32",
                 "-whitelist=noban@127.0.0.1",
                 "-txindex",
+                "-mintxfee=0.00000100"
             ],
             [
                 "-addresstype=p2sh-segwit",
                 "-whitelist=noban@127.0.0.1",
                 "-txindex",
+                "-mintxfee=0.00000100"
             ],
         ]
 

@@ -122,10 +122,10 @@ std::string LabelFromValue(const UniValue& value)
     return label;
 }
 
-void PushParentDescriptors(const CWallet& wallet, const CScript& script_pubkey, UniValue& entry)
+void PushParentDescriptors(const CWallet& wallet, const GenericAddress& dest_addr, UniValue& entry)
 {
     UniValue parent_descs(UniValue::VARR);
-    for (const auto& desc: wallet.GetWalletDescriptors(script_pubkey)) {
+    for (const auto& desc: wallet.GetWalletDescriptors(dest_addr)) {
         parent_descs.push_back(desc.descriptor->ToString());
     }
     entry.pushKV("parent_descs", parent_descs);
