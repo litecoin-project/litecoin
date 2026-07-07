@@ -9,8 +9,51 @@
 #include <policy/feerate.h>
 #include <primitives/transaction.h>
 #include <random.h>
+#include <script/address.h>
+#include <script/standard.h>
+#include <wallet/utxo.h>
 
 #include <optional>
+
+enum class TxType {
+    // A traditional LTC->LTC transaction with no MWEB components.
+    // INPUTS: LTC inputs only.
+    // KERNELS: None.
+    // OUTPUTS: LTC outputs only.
+    // CHANGE: LTC change only.
+    // FEES: All fees must be included in the LTC transaction.
+    LTC_TO_LTC,
+    // A pure MWEB->MWEB transaction.
+    // INPUTS: MWEB inputs only.
+    // OUTPUTS: MWEB outputs only.
+    // CHANGE: MWEB change only.
+    // FEES: All fees must be included in the transaction's kernel(s).
+    MWEB_TO_MWEB,
+    // A LTC->MWEB pegin transaction.
+    // INPUTS: At least one LTC input, but could also include MWEB inputs.
+    // KERNELS: At least one kernel with a peg-in amount.
+    // OUTPUTS: At least one LTC output with a peg-in script. At least one MWEB output.
+    // CHANGE: Could include MWEB change or explicit LTC change.
+    // FEES: Split between layers. LTC fee is paid on the LTC transaction (CalcLTCFee, via LTC input/output delta),
+    //       and MWEB fee is paid in kernel(s) (CalcMWEBFee, funded by pegin amount and/or MWEB inputs).
+    PEGIN,
+    // An MWEB->LTC pegout transaction.
+    // INPUTS: MWEB inputs only.
+    // KERNELS: At least one kernel with a pegout script. Kernel(s) do not contain a pegin amount.
+    // OUTPUTS: LTC outputs will be created by miners for each pegout script in the kernel. Could optionally contain MWEB outputs.
+    // CHANGE: MWEB change by default; explicit LTC change is represented as an additional pegout.
+    // FEES: All fees must be included in the transaction's kernel(s).
+    PEGOUT,
+    // A LTC->MWEB->LTC pegin and pegout in the same transaction.
+    // Created when sending to a LTC address where the wallet only has enough available balance if we include inputs from both LTC and the MWEB.
+    // INPUTS: At least one LTC input, but could also include MWEB inputs.
+    // KERNELS: At least one kernel with a pegout script. At least one kernel with a pegin amount. Typically, a single kernel used which contains both. 
+    // OUTPUTS: At least one LTC output with a peg-in script. Could include additional LTC outputs.
+    // CHANGE: Could include MWEB change or explicit LTC change represented as an additional pegout.
+    // FEES: Split between layers. LTC fee is paid on the LTC transaction (CalcLTCFee, including hogex input bytes),
+    //       and MWEB fee is paid in kernel(s) (CalcMWEBFee, including pegout output bytes and kernel weight).
+    PEGIN_PEGOUT
+};
 
 namespace wallet {
 //! lower bound for randomly-chosen target change amount
@@ -18,108 +61,18 @@ static constexpr CAmount CHANGE_LOWER{50000};
 //! upper bound for randomly-chosen target change amount
 static constexpr CAmount CHANGE_UPPER{1000000};
 
-/** A UTXO under consideration for use in funding a new transaction. */
-struct COutput {
-private:
-    /** The output's value minus fees required to spend it.*/
-    std::optional<CAmount> effective_value;
+// Add some waste for every MWEB input so that we minimize the number of MWEB inputs consumed.
+static constexpr CAmount MWEB_INPUT_WASTE{1};
 
-    /** The fee required to spend this output at the transaction's target feerate. */
-    std::optional<CAmount> fee;
-
-public:
-    /** The outpoint identifying this UTXO */
-    COutPoint outpoint;
-
-    /** The output itself */
-    CTxOut txout;
-
-    /**
-     * Depth in block chain.
-     * If > 0: the tx is on chain and has this many confirmations.
-     * If = 0: the tx is waiting confirmation.
-     * If < 0: a conflicting tx is on chain and has this many confirmations. */
-    int depth;
-
-    /** Pre-computed estimated size of this output as a fully-signed input in a transaction. Can be -1 if it could not be calculated */
-    int input_bytes;
-
-    /** Whether we have the private keys to spend this output */
-    bool spendable;
-
-    /** Whether we know how to spend this output, ignoring the lack of keys */
-    bool solvable;
-
-    /**
-     * Whether this output is considered safe to spend. Unconfirmed transactions
-     * from outside keys and unconfirmed replacement transactions are considered
-     * unsafe and will not be used to fund new spending transactions.
-     */
-    bool safe;
-
-    /** The time of the transaction containing this output as determined by CWalletTx::nTimeSmart */
-    int64_t time;
-
-    /** Whether the transaction containing this output is sent from the owning wallet */
-    bool from_me;
-
-    /** The fee required to spend this output at the consolidation feerate. */
-    CAmount long_term_fee{0};
-
-    COutput(const COutPoint& outpoint, const CTxOut& txout, int depth, int input_bytes, bool spendable, bool solvable, bool safe, int64_t time, bool from_me, const std::optional<CFeeRate> feerate = std::nullopt)
-        : outpoint{outpoint},
-          txout{txout},
-          depth{depth},
-          input_bytes{input_bytes},
-          spendable{spendable},
-          solvable{solvable},
-          safe{safe},
-          time{time},
-          from_me{from_me}
-    {
-        if (feerate) {
-            fee = input_bytes < 0 ? 0 : feerate.value().GetFee(input_bytes);
-            effective_value = txout.nValue - fee.value();
-        }
-    }
-
-    COutput(const COutPoint& outpoint, const CTxOut& txout, int depth, int input_bytes, bool spendable, bool solvable, bool safe, int64_t time, bool from_me, const CAmount fees)
-        : COutput(outpoint, txout, depth, input_bytes, spendable, solvable, safe, time, from_me)
-    {
-        // if input_bytes is unknown, then fees should be 0, if input_bytes is known, then the fees should be a positive integer or 0 (input_bytes known and fees = 0 only happens in the tests)
-        assert((input_bytes < 0 && fees == 0) || (input_bytes > 0 && fees >= 0));
-        fee = fees;
-        effective_value = txout.nValue - fee.value();
-    }
-
-    std::string ToString() const;
-
-    bool operator<(const COutput& rhs) const
-    {
-        return outpoint < rhs.outpoint;
-    }
-
-    CAmount GetFee() const
-    {
-        assert(fee.has_value());
-        return fee.value();
-    }
-
-    CAmount GetEffectiveValue() const
-    {
-        assert(effective_value.has_value());
-        return effective_value.value();
-    }
+enum class TxSizeType {
+    BYTES,
+    VBYTES,
+    WEIGHT,
+    MWEB_WEIGHT
 };
 
-/** Parameters for one iteration of Coin Selection. */
-struct CoinSelectionParams {
-    /** Randomness to use in the context of coin selection. */
-    FastRandomContext& rng_fast;
-    /** Size of a change output in bytes, determined by the output type. */
-    size_t change_output_size = 0;
-    /** Size of the input to spend a change output in virtual bytes. */
-    size_t change_spend_size = 0;
+/** Change parameters for one iteration of Coin Selection. */
+struct ChangeParams {
     /** Mininmum change to target in Knapsack solver: select coins to cover the payment and
      * at least this value of change. */
     CAmount m_min_change_target{0};
@@ -131,6 +84,14 @@ struct CoinSelectionParams {
     CAmount m_change_fee{0};
     /** Cost of creating the change output + cost of spending the change output in the future. */
     CAmount m_cost_of_change{0};
+};
+
+/** Parameters for one iteration of Coin Selection. */
+struct CoinSelectionParams {
+    /** Randomness to use in the context of coin selection. */
+    FastRandomContext& rng_fast;
+    /** Change-related parameters. */
+    ChangeParams m_change_params;
     /** The targeted feerate of the transaction being built. */
     CFeeRate m_effective_feerate;
     /** The feerate estimate used to estimate an upper bound on what should be sufficient to spend
@@ -138,28 +99,24 @@ struct CoinSelectionParams {
     CFeeRate m_long_term_feerate;
     /** If the cost to spend a change output at the discard feerate exceeds its value, drop it to fees. */
     CFeeRate m_discard_feerate;
-    /** Size of the transaction before coin selection, consisting of the header and recipient
-     * output(s), excluding the inputs and change output(s). */
-    size_t tx_noinputs_size = 0;
     /** Indicate that we are subtracting the fee from outputs */
     bool m_subtract_fee_outputs = false;
     /** When true, always spend all (up to OUTPUT_GROUP_MAX_ENTRIES) or none of the outputs
      * associated with the same address. This helps reduce privacy leaks resulting from address
      * reuse. Dust outputs are not eligible to be added to output groups and thus not considered. */
     bool m_avoid_partial_spends = false;
+    /** The tx type (LTC, MWEB, pegin, pegout, pegin_pegout) */
+    TxType m_tx_type{TxType::LTC_TO_LTC};
 
-    CoinSelectionParams(FastRandomContext& rng_fast, size_t change_output_size, size_t change_spend_size,
-                        CAmount min_change_target, CFeeRate effective_feerate,
-                        CFeeRate long_term_feerate, CFeeRate discard_feerate, size_t tx_noinputs_size, bool avoid_partial)
+    CoinSelectionParams(FastRandomContext& rng_fast, ChangeParams change_params, CFeeRate effective_feerate,
+                        CFeeRate long_term_feerate, CFeeRate discard_feerate, bool avoid_partial, TxType tx_type)
         : rng_fast{rng_fast},
-          change_output_size(change_output_size),
-          change_spend_size(change_spend_size),
-          m_min_change_target(min_change_target),
+          m_change_params(std::move(change_params)),
           m_effective_feerate(effective_feerate),
           m_long_term_feerate(long_term_feerate),
           m_discard_feerate(discard_feerate),
-          tx_noinputs_size(tx_noinputs_size),
-          m_avoid_partial_spends(avoid_partial)
+          m_avoid_partial_spends(avoid_partial),
+          m_tx_type(tx_type)
     {
     }
     CoinSelectionParams(FastRandomContext& rng_fast)
@@ -192,7 +149,7 @@ struct CoinEligibilityFilter
 struct OutputGroup
 {
     /** The list of UTXOs contained in this output group. */
-    std::vector<COutput> m_outputs;
+    std::vector<AnyWalletUTXO> m_outputs;
     /** Whether the UTXOs were sent by the wallet to itself. This is relevant because we may want at
      * least a certain number of confirmations on UTXOs received from outside wallets while trusting
      * our own UTXOs more. */
@@ -229,9 +186,20 @@ struct OutputGroup
         m_subtract_fee_outputs(params.m_subtract_fee_outputs)
     {}
 
-    void Insert(const COutput& output, size_t ancestors, size_t descendants, bool positive_only);
-    bool EligibleForSpending(const CoinEligibilityFilter& eligibility_filter) const;
+    void Insert(const AnyWalletUTXO& output, size_t ancestors, size_t descendants, bool positive_only);
+    bool EligibleForSpending(const CoinEligibilityFilter& eligibility_filter, const TxType& tx_type) const;
     CAmount GetSelectionAmount() const;
+
+    bool IsMWEB() const noexcept
+    {
+        return !m_outputs.empty() && m_outputs.front().IsMWEB();
+    }
+
+    CAmount GetWaste() const noexcept
+    {
+        if (IsMWEB()) return MWEB_INPUT_WASTE * m_outputs.size();
+        return fee - long_term_fee;
+    }
 };
 
 /** Compute the waste for this result given the cost of change
@@ -251,7 +219,7 @@ struct OutputGroup
  * @param[in] use_effective_value Whether to use the input's effective value (when true) or the real value (when false).
  * @return The waste
  */
-[[nodiscard]] CAmount GetSelectionWaste(const std::set<COutput>& inputs, CAmount change_cost, CAmount target, bool use_effective_value = true);
+[[nodiscard]] CAmount GetSelectionWaste(const std::set<AnyWalletUTXO>& inputs, CAmount change_cost, CAmount target, bool use_effective_value = true);
 
 
 /** Choose a random change target for each transaction to make it harder to fingerprint the Core
@@ -284,7 +252,7 @@ struct SelectionResult
 {
 private:
     /** Set of inputs selected by the algorithm to use in the transaction */
-    std::set<COutput> m_selected_inputs;
+    std::set<AnyWalletUTXO> m_selected_inputs;
     /** The target the algorithm selected for. Equal to the recipient amount plus non-input fees */
     CAmount m_target;
     /** The algorithm used to produce this result */
@@ -316,9 +284,9 @@ public:
     void Merge(const SelectionResult& other);
 
     /** Get m_selected_inputs */
-    const std::set<COutput>& GetInputSet() const;
+    const std::set<AnyWalletUTXO>& GetInputSet() const;
     /** Get the vector of COutputs that will be used to fill in a CTransaction's vin */
-    std::vector<COutput> GetShuffledInputVector() const;
+    std::vector<AnyWalletUTXO> GetShuffledInputVector() const;
 
     bool operator<(SelectionResult other) const;
 

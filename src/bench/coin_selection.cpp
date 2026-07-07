@@ -14,7 +14,8 @@
 using node::NodeContext;
 using wallet::AttemptSelection;
 using wallet::CHANGE_LOWER;
-using wallet::COutput;
+using wallet::ChangeParams;
+using wallet::CWalletUTXO;
 using wallet::CWallet;
 using wallet::CWalletTx;
 using wallet::CoinEligibilityFilter;
@@ -31,7 +32,7 @@ static void addCoin(const CAmount& nValue, const CWallet& wallet, std::vector<st
     tx.nLockTime = nextLockTime++; // so all transactions get different hashes
     tx.vout.resize(1);
     tx.vout[0].nValue = nValue;
-    wtxs.push_back(std::make_unique<CWalletTx>(MakeTransactionRef(std::move(tx)), TxStateInactive{}));
+    wtxs.push_back(std::make_unique<CWalletTx>(MakeTransactionRef(std::move(tx)), TxStateInactive{}, std::nullopt));
 }
 
 // Simple benchmark for wallet coin selection. Note that it maybe be necessary
@@ -59,21 +60,24 @@ static void CoinSelection(benchmark::Bench& bench)
     wallet::CoinsResult available_coins;
     for (const auto& wtx : wtxs) {
         const auto txout = wtx->tx->vout.at(0);
-        available_coins.coins[OutputType::BECH32].emplace_back(COutPoint(wtx->GetHash(), 0), txout, /*depth=*/6 * 24, CalculateMaximumSignedInputSize(txout, &wallet, /*coin_control=*/nullptr), /*spendable=*/true, /*solvable=*/true, /*safe=*/true, wtx->GetTxTime(), /*from_me=*/true, /*fees=*/ 0);
+        available_coins.coins[OutputType::BECH32].emplace_back(CWalletUTXO{COutPoint(wtx->GetHash(), 0), txout, /*depth=*/6 * 24, CalculateMaximumSignedInputSize(txout, &wallet, /*coin_control=*/nullptr), /*spendable=*/true, /*solvable=*/true, /*safe=*/true, wtx->GetTxTime(), /*from_me=*/true, /*fees=*/ 0});
     }
 
     const CoinEligibilityFilter filter_standard(1, 6, 0);
     FastRandomContext rand{};
     const CoinSelectionParams coin_selection_params{
         rand,
-        /*change_output_size=*/ 34,
-        /*change_spend_size=*/ 148,
-        /*min_change_target=*/ CHANGE_LOWER,
+        ChangeParams{
+            /*min_change_target=*/ CHANGE_LOWER,
+            /*min_viable_change=*/ 0,
+            /*change_fee=*/ 0,
+            /*cost_of_change=*/ 0,
+        },
         /*effective_feerate=*/ CFeeRate(0),
         /*long_term_feerate=*/ CFeeRate(0),
         /*discard_feerate=*/ CFeeRate(0),
-        /*tx_noinputs_size=*/ 0,
         /*avoid_partial=*/ false,
+        /*tx_type=*/ TxType::LTC_TO_LTC,
     };
     bench.run([&] {
         auto result = AttemptSelection(wallet, 1003 * COIN, filter_standard, available_coins, coin_selection_params, /*allow_mixed_output_types=*/true);
@@ -89,7 +93,7 @@ static void add_coin(const CAmount& nValue, int nInput, std::vector<OutputGroup>
     CMutableTransaction tx;
     tx.vout.resize(nInput + 1);
     tx.vout[nInput].nValue = nValue;
-    COutput output(COutPoint(tx.GetHash(), nInput), tx.vout.at(nInput), /*depth=*/ 0, /*input_bytes=*/ -1, /*spendable=*/ true, /*solvable=*/ true, /*safe=*/ true, /*time=*/ 0, /*from_me=*/ true, /*fees=*/ 0);
+    CWalletUTXO output(COutPoint(tx.GetHash(), nInput), tx.vout.at(nInput), /*depth=*/ 0, /*input_bytes=*/ -1, /*spendable=*/ true, /*solvable=*/ true, /*safe=*/ true, /*time=*/ 0, /*from_me=*/ true, /*fees=*/ 0);
     set.emplace_back();
     set.back().Insert(output, /*ancestors=*/ 0, /*descendants=*/ 0, /*positive_only=*/ false);
 }
