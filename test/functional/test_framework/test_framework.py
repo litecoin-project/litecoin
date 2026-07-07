@@ -5,6 +5,7 @@
 """Base class for RPC testing."""
 
 import configparser
+from decimal import Decimal
 from enum import Enum
 import argparse
 import logging
@@ -812,8 +813,14 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
 
             os.rmdir(cache_path('wallets'))  # Remove empty wallets dir
             for entry in os.listdir(cache_path()):
-                if entry not in ['chainstate', 'blocks', 'indexes']:  # Only indexes, chainstate and blocks folders
-                    os.remove(cache_path(entry))
+                # Keep the persistent chain data directories. Remove everything
+                # else, regardless of whether it is a file or directory.
+                if entry not in ['chainstate', 'blocks', 'indexes']:
+                    path = cache_path(entry)
+                    if os.path.isdir(path):
+                        shutil.rmtree(path)
+                    else:
+                        os.remove(path)
 
         for i in range(self.num_nodes):
             self.log.debug("Copy cache directory {} to node {}".format(cache_node_dir, i))
@@ -964,3 +971,31 @@ class BitcoinTestFramework(metaclass=BitcoinTestMetaClass):
     def is_syscall_sandbox_compiled(self):
         """Checks whether the syscall sandbox was compiled."""
         return self.config["components"].getboolean("ENABLE_SYSCALL_SANDBOX")
+
+
+class LitecoinTestFramework(BitcoinTestFramework):
+    def run_test(self):
+        """Tests must override this method to define test logic"""
+        raise NotImplementedError
+
+    def set_test_params(self):
+        """Tests must override this method to change default values for number of nodes, topology, etc"""
+        raise NotImplementedError
+
+    def setup_mweb_chain(self, node: TestNode, pegin_amount: Decimal = Decimal(1.0)) -> None:
+        generate_addr = node.getnewaddress()
+
+        # Create all pre-MWEB blocks
+        self.generatetoaddress(node, nblocks=431, address=generate_addr, sync_fun=self.no_op)
+
+        # Pegin some coins
+        mweb_addr = node.getnewaddress(address_type='mweb')
+        outputs = [{mweb_addr: pegin_amount}]
+        options = {
+            "add_to_wallet": True,
+            "change_address": generate_addr,
+        }
+        node.send(outputs=outputs, options=options)
+
+        # Create some blocks - activate MWEB
+        self.generatetoaddress(node, nblocks=1, address=generate_addr, sync_fun=self.no_op)
