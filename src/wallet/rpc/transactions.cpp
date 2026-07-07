@@ -9,6 +9,7 @@
 #include <util/vector.h>
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
+#include <wallet/txlist.h>
 #include <wallet/wallet.h>
 
 using interfaces::FoundBlock;
@@ -26,7 +27,9 @@ static void WalletTxToJSON(const CWallet& wallet, const CWalletTx& wtx, UniValue
     {
         entry.pushKV("blockhash", conf->confirmed_block_hash.GetHex());
         entry.pushKV("blockheight", conf->confirmed_block_height);
-        entry.pushKV("blockindex", conf->position_in_block);
+        if (conf->HasPositionInBlock()) {
+            entry.pushKV("blockindex", conf->position_in_block);
+        }
         int64_t block_time;
         CHECK_NONFATAL(chain.findBlock(conf->confirmed_block_hash, FoundBlock().time(block_time)));
         entry.pushKV("blocktime", block_time);
@@ -104,13 +107,13 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
 
         // Coinbase with less than 1 confirmation is no longer in the main chain
         if ((wtx.IsCoinBase() && (nDepth < 1))
-            || (wallet.IsTxImmatureCoinBase(wtx) && !include_immature_coinbase)) {
+            || (wallet.IsTxImmature(wtx) && !include_immature_coinbase)) {
             continue;
         }
 
-        for (const CTxOut& txout : wtx.tx->vout) {
+        for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS)) {
             CTxDestination address;
-            if (!ExtractDestination(txout.scriptPubKey, address))
+            if (!wallet.ExtractOutputDestination(wtx, output_id, address))
                 continue;
 
             if (filtered_address && !(filtered_address == address)) {
@@ -122,7 +125,28 @@ static UniValue ListReceived(const CWallet& wallet, const UniValue& params, cons
                 continue;
 
             tallyitem& item = mapTally[address];
-            item.nAmount += txout.nValue;
+            item.nAmount += wallet.GetValue(wtx, output_id);
+            item.nConf = std::min(item.nConf, nDepth);
+            item.txids.push_back(wtx.GetHash());
+            if (mine & ISMINE_WATCH_ONLY)
+                item.fIsWatchonly = true;
+        }
+
+        for (const PegOutCoin& pegout : wtx.tx->mweb_tx.GetPegOuts()) {
+            CTxDestination address;
+            if (!ExtractDestination(pegout.GetScriptPubKey(), address))
+                continue;
+
+            if (filtered_address && !(filtered_address == address)) {
+                continue;
+            }
+
+            isminefilter mine = wallet.IsMine(address);
+            if (!(mine & filter))
+                continue;
+
+            tallyitem& item = mapTally[address];
+            item.nAmount += pegout.GetAmount();
             item.nConf = std::min(item.nConf, nDepth);
             item.txids.push_back(wtx.GetHash());
             if (mine & ISMINE_WATCH_ONLY)
@@ -344,7 +368,15 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
             if (address_book_entry) {
                 entry.pushKV("label", address_book_entry->GetLabel());
             }
-            entry.pushKV("vout", s.vout);
+
+            if (s.component_id.IsOutPoint()) {
+                entry.pushKV("vout", (int)s.component_id.ToOutPoint().n);
+            } else if (s.component_id.IsMWEBOutputID()) {
+                entry.pushKV("mweb_out", s.component_id.ToMWEBOutputID().ToHex());
+            } else if (s.component_id.IsPegoutIndex()) {
+                entry.pushKV("pegout", s.component_id.ToPegoutIndex().ToString());
+            }
+
             entry.pushKV("fee", ValueFromAmount(-nFee));
             if (fLong)
                 WalletTxToJSON(wallet, wtx, entry);
@@ -370,15 +402,21 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
                 entry.pushKV("involvesWatchonly", true);
             }
             MaybePushAddress(entry, r.destination);
-            PushParentDescriptors(wallet, wtx.tx->vout.at(r.vout).scriptPubKey, entry);
-            if (wtx.IsCoinBase())
+
+            if (!std::holds_alternative<CNoDestination>(r.destination)) {
+                PushParentDescriptors(wallet, GenericAddress(r.destination), entry);
+            }
+
+            if (wtx.IsCoinBase() || wtx.IsHogEx())
             {
                 if (wallet.GetTxDepthInMainChain(wtx) < 1)
                     entry.pushKV("category", "orphan");
-                else if (wallet.IsTxImmatureCoinBase(wtx))
+                else if (wallet.IsTxImmature(wtx))
                     entry.pushKV("category", "immature");
-                else
+                else if (wtx.IsCoinBase())
                     entry.pushKV("category", "generate");
+                else
+                    entry.pushKV("category", "hogex");
             }
             else
             {
@@ -388,7 +426,15 @@ static void ListTransactions(const CWallet& wallet, const CWalletTx& wtx, int nM
             if (address_book_entry) {
                 entry.pushKV("label", label);
             }
-            entry.pushKV("vout", r.vout);
+            
+            if (r.component_id.IsOutPoint()) {
+                entry.pushKV("vout", (int)r.component_id.ToOutPoint().n);
+            } else if (r.component_id.IsMWEBOutputID()) {
+                entry.pushKV("mweb_out", r.component_id.ToMWEBOutputID().ToHex());
+            } else if (r.component_id.IsPegoutIndex()) {
+                entry.pushKV("pegout", r.component_id.ToPegoutIndex().ToString());
+            }
+
             if (fLong)
                 WalletTxToJSON(wallet, wtx, entry);
             ret.push_back(entry);
@@ -416,7 +462,6 @@ static const std::vector<RPCResult> TransactionDescriptionString()
            }},
            {RPCResult::Type::STR_HEX, "replaced_by_txid", /*optional=*/true, "The txid if this tx was replaced."},
            {RPCResult::Type::STR_HEX, "replaces_txid", /*optional=*/true, "The txid if the tx replaces one."},
-           {RPCResult::Type::STR, "comment", /*optional=*/true, ""},
            {RPCResult::Type::STR, "to", /*optional=*/true, "If a comment to is associated with the transaction."},
            {RPCResult::Type::NUM_TIME, "time", "The transaction time expressed in " + UNIX_EPOCH_TIME + "."},
            {RPCResult::Type::NUM_TIME, "timereceived", "The time received expressed in " + UNIX_EPOCH_TIME + "."},
@@ -457,7 +502,9 @@ RPCHelpMan listtransactions()
                             {RPCResult::Type::STR_AMOUNT, "amount", "The amount in " + CURRENCY_UNIT + ". This is negative for the 'send' category, and is positive\n"
                                 "for all other categories"},
                             {RPCResult::Type::STR, "label", /*optional=*/true, "A comment for the address/transaction, if any"},
-                            {RPCResult::Type::NUM, "vout", "the vout value"},
+                            {RPCResult::Type::NUM, "vout", /*optional=*/true, "the vout value"},
+                            {RPCResult::Type::STR_HEX, "mweb_out", /*optional=*/true, "the MWEB output ID"},
+                            {RPCResult::Type::STR, "pegout", /*optional=*/true, "the MWEB pegout kernel and position (format: \"kernel_id:position\""},
                             {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The amount of the fee in " + CURRENCY_UNIT + ". This is negative and only available for the\n"
                                  "'send' category of transactions."},
                         },
@@ -535,6 +582,92 @@ RPCHelpMan listtransactions()
     UniValue result{UniValue::VARR};
     result.push_backV(txs_rev_it - nFrom - nCount, txs_rev_it - nFrom); // Return oldest to newest
     return result;
+},
+    };
+}
+
+RPCHelpMan listwallettransactions()
+{
+    return RPCHelpMan{"listwallettransactions",
+                "\nReturns the list of transactions as they would be displayed in the GUI.\n",
+                {
+                    {"txid", RPCArg::Type::STR, RPCArg::Optional::OMITTED_NAMED_ARG, "The transaction id"},
+                },
+                RPCResult{
+                    RPCResult::Type::ARR, "", "",
+                    {
+                        {RPCResult::Type::OBJ, "", "", Cat(Cat<std::vector<RPCResult>>(
+                        {
+                            {RPCResult::Type::STR, "type", "The transaction type (Generated, SendToAddress, SendToOther, RecvWithAddress, RecvFromOther, SendToSelf, Other)."},
+                            {RPCResult::Type::STR_AMOUNT, "amount", "The amount in " + CURRENCY_UNIT + ". This is negative for the 'send' category, and is positive\n"
+                                "for all other categories"},
+                            {RPCResult::Type::STR_AMOUNT, "net", "The net amount in " + CURRENCY_UNIT + "."},
+                            {RPCResult::Type::BOOL, "involvesWatchonly", /*optional=*/true, "Only returns true if imported addresses were involved in transaction."},
+                            {RPCResult::Type::STR, "address", /*optional=*/true, "The litecoin address of the transaction."},
+                            {RPCResult::Type::STR, "label", /*optional=*/true, "A comment for the address/transaction, if any"},
+                            {RPCResult::Type::NUM, "vout", /*optional=*/true, "the vout value"},
+                            {RPCResult::Type::STR_HEX, "mweb_out", /*optional=*/true, "the MWEB output ID"},
+                            {RPCResult::Type::STR, "pegout", /*optional=*/true, "the MWEB pegout kernel and position (format: \"kernel_id:position\""},
+                            {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The amount of the fee in " + CURRENCY_UNIT + ". This is negative and only available for the\n"
+                                 "'send' category of transactions."},
+                        },
+                        TransactionDescriptionString()),
+                        {
+                            {RPCResult::Type::BOOL, "abandoned", /*optional=*/true, "'true' if the transaction has been abandoned (inputs are respendable). Only available for the \n"
+                                 "'send' category of transactions."},
+                        })},
+                    }
+                },
+                RPCExamples{
+            "\nList the wallet's transaction records\n"
+            + HelpExampleCli("listwallettransactions", "") +
+            "\nAs a JSON-RPC call\n"
+            + HelpExampleRpc("listwallettransactions", "")
+                },
+        [&](const RPCHelpMan& self, const JSONRPCRequest& request) -> UniValue
+{
+    std::shared_ptr<CWallet> const wallet = GetWalletForJSONRPCRequest(request);
+    if (!wallet) return NullUniValue;
+    const CWallet* const pwallet = wallet.get();
+
+    // Make sure the results are valid at least up to the most recent block
+    // the user could have gotten from another RPC command prior to now
+    pwallet->BlockUntilSyncedToCurrentChain();
+
+    UniValue ret(UniValue::VARR);
+
+    {
+        LOCK(pwallet->cs_wallet);
+
+        std::vector<WalletTxRecord> tx_records;
+        if (request.params[0].isNull()) {
+            tx_records = TxList(*pwallet).ListAll(ISMINE_ALL);
+        } else {
+            uint256 hash(ParseHashV(request.params[0], "txid"));
+            auto iter = pwallet->mapWallet.find(hash);
+            if (iter == pwallet->mapWallet.end()) {
+                throw JSONRPCError(RPC_INVALID_ADDRESS_OR_KEY, "Invalid or non-wallet transaction id");
+            }
+            
+            tx_records = TxList(*pwallet).List(iter->second, ISMINE_ALL, std::nullopt, std::nullopt);
+        }
+
+        for (WalletTxRecord& tx_record : tx_records) {
+            tx_record.UpdateStatusIfNeeded(pwallet->GetLastBlockHash());
+        }
+
+        std::sort(tx_records.begin(), tx_records.end(), [](const WalletTxRecord& a, const WalletTxRecord& b) {
+            return a.status.sortKey > b.status.sortKey;
+        });
+        
+        for (WalletTxRecord& tx_record : tx_records) {
+            UniValue entry = tx_record.ToUniValue();
+            WalletTxToJSON(*pwallet, tx_record.GetWTX(), entry);
+            ret.push_back(entry);
+        }
+    }
+
+    return ret;
 },
     };
 }
@@ -714,7 +847,9 @@ RPCHelpMan gettransaction()
                                     "\"orphan\"                Orphaned coinbase transactions received."},
                                 {RPCResult::Type::STR_AMOUNT, "amount", "The amount in " + CURRENCY_UNIT},
                                 {RPCResult::Type::STR, "label", /*optional=*/true, "A comment for the address/transaction, if any"},
-                                {RPCResult::Type::NUM, "vout", "the vout value"},
+                                {RPCResult::Type::NUM, "vout", /*optional=*/true, "the vout value"},
+                                {RPCResult::Type::STR_HEX, "mweb_out", /*optional=*/true, "the MWEB output commitment"},
+                                {RPCResult::Type::STR, "pegout", /*optional=*/true, "the MWEB pegout index"},
                                 {RPCResult::Type::STR_AMOUNT, "fee", /*optional=*/true, "The amount of the fee in " + CURRENCY_UNIT + ". This is negative and only available for the \n"
                                     "'send' category of transactions."},
                                 {RPCResult::Type::BOOL, "abandoned", /*optional=*/true, "'true' if the transaction has been abandoned (inputs are respendable). Only available for the \n"
@@ -768,7 +903,7 @@ RPCHelpMan gettransaction()
     CAmount nCredit = CachedTxGetCredit(*pwallet, wtx, filter);
     CAmount nDebit = CachedTxGetDebit(*pwallet, wtx, filter);
     CAmount nNet = nCredit - nDebit;
-    CAmount nFee = (CachedTxIsFromMe(*pwallet, wtx, filter) ? wtx.tx->GetValueOut() - nDebit : 0);
+    CAmount nFee = (CachedTxIsFromMe(*pwallet, wtx, filter) ? -CachedTxGetFee(*pwallet, wtx, filter) : 0);
 
     entry.pushKV("amount", ValueFromAmount(nNet - nFee));
     if (CachedTxIsFromMe(*pwallet, wtx, filter))

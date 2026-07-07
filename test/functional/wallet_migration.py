@@ -88,12 +88,12 @@ class WalletMigrationTest(BitcoinTestFramework):
         # The wallet should create the following descriptors:
         # * BIP32 descriptors in the form of "0'/0'/*" and "0'/1'/*" (2 descriptors)
         # * BIP44 descriptors in the form of "44'/1'/0'/0/*" and "44'/1'/0'/1/*" (2 descriptors)
-        # * BIP49 descriptors, P2SH(P2WPKH), in the form of "86'/1'/0'/0/*" and "86'/1'/0'/1/*" (2 descriptors)
+        # * BIP49 descriptors, P2SH(P2WPKH), in the form of "49'/1'/0'/0/*" and "49'/1'/0'/1/*" (2 descriptors)
         # * BIP84 descriptors, P2WPKH, in the form of "84'/1'/0'/1/*" and "84'/1'/0'/1/*" (2 descriptors)
         # * BIP86 descriptors, P2TR, in the form of "86'/1'/0'/0/*" and "86'/1'/0'/1/*" (2 descriptors)
         # * A combo(PK) descriptor for the wallet master key.
-        # So, should have a total of 11 descriptors on it.
-        assert_equal(len(basic0.listdescriptors()["descriptors"]), 11)
+        # So, should have a total of 12 descriptors on it.
+        assert_equal(len(basic0.listdescriptors()["descriptors"]), 12)
 
         # Compare addresses info
         addr_info = basic0.getaddressinfo(addr)
