@@ -159,7 +159,12 @@ public:
     const OutputMessage& GetOutputMessage() const noexcept { return m_message; }
     const Signature& GetSignature() const noexcept { return m_signature; }
 
-    bool IsStandard() const noexcept { return m_message.features == OutputMessage::STANDARD_FIELDS_FEATURE_BIT; }
+    bool IsStandard() const noexcept
+    {
+        return m_message.features == OutputMessage::STANDARD_FIELDS_FEATURE_BIT
+            && m_message.key_exchange_pubkey.IsValid()
+            && m_receiverPubKey.IsValid();
+    }
     const std::vector<uint8_t>& GetExtraData() const noexcept { return m_message.extra_data; }
     uint8_t GetFeatures() const noexcept { return m_message.features; }
     bool HasStandardFields() const noexcept { return m_message.features & OutputMessage::STANDARD_FIELDS_FEATURE_BIT; }

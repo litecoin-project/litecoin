@@ -17,6 +17,11 @@ PublicKey PublicKey::Random()
     return PublicKey::From(SecretKey::Random());
 }
 
+bool PublicKey::IsValid() const noexcept
+{
+    return PublicKeys::IsValid(*this);
+}
+
 PublicKey PublicKey::Mul(const SecretKey& mul) const
 {
     return PublicKeys::MultiplyKey(*this, mul);

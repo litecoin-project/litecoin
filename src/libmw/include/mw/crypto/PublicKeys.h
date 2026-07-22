@@ -3,6 +3,7 @@
 #include <mw/models/crypto/BigInteger.h>
 #include <mw/models/crypto/SecretKey.h>
 #include <mw/models/crypto/PublicKey.h>
+#include <mw/models/crypto/Commitment.h>
 
 class PublicKeys
 {
@@ -11,6 +12,11 @@ public:
     // Calculates the 33 byte public key from the 32 byte private key using curve secp256k1.
     //
     static PublicKey Calculate(const BigInt<32>& privateKey);
+    
+    //
+    // Checks if the given public key is a valid point on the secp256k1 curve.
+    //
+    static bool IsValid(const PublicKey& publicKey) noexcept;
 
     //
     // Converts curve point from Pedersen Commitment serialization to standard PublicKey serialization.

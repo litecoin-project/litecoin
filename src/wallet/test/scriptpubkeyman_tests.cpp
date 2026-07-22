@@ -4,6 +4,9 @@
 
 #include <key.h>
 #include <key_io.h>
+#include <mweb/mweb_models.h>
+#include <mw/models/tx/Output.h>
+#include <mw/models/tx/Transaction.h>
 #include <script/standard.h>
 #include <test/util/setup_common.h>
 #include <wallet/scriptpubkeyman.h>
@@ -12,6 +15,59 @@
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(scriptpubkeyman_tests, BasicTestingSetup)
+
+namespace {
+
+PublicKey MalformedPublicKey()
+{
+    std::array<uint8_t, 33> bytes{};
+    bytes[0] = 0x04;
+    return PublicKey(bytes.data());
+}
+
+Output WithMWEBKeys(const Output& output, const PublicKey& key_exchange, const PublicKey& output_key)
+{
+    OutputMessage message{
+        output.GetFeatures(),
+        key_exchange,
+        output.GetViewTag(),
+        output.GetMaskedValue(),
+        output.GetMaskedNonce()
+    };
+
+    return Output{
+        output.GetCommitment(),
+        output.GetSenderPubKey(),
+        output_key,
+        std::move(message),
+        output.GetRangeProof(),
+        output.GetSignature()
+    };
+}
+
+CTransactionRef MWEBTransaction(Output output)
+{
+    Kernel kernel = Kernel::Create(
+        BlindingFactor::Random(),
+        boost::none,
+        0,
+        boost::none,
+        std::vector<PegOutCoin>{},
+        boost::none
+    );
+
+    CMutableTransaction tx;
+    tx.mweb_tx = MWEB::Tx{mw::Transaction::Create(
+        BlindingFactor::Random(),
+        BlindingFactor::Random(),
+        std::vector<Input>{},
+        std::vector<Output>{std::move(output)},
+        std::vector<Kernel>{std::move(kernel)}
+    )};
+    return MakeTransactionRef(std::move(tx));
+}
+
+} // namespace
 
 // Test LegacyScriptPubKeyMan::CanProvide behavior, making sure it returns true
 // for recognized scripts even when keys may not be available for signing.
@@ -84,6 +140,86 @@ BOOST_AUTO_TEST_CASE(StealthAddresses)
     BOOST_CHECK(*keyman.GetMetadata(receive_address)->mweb_index == 2);
 
     BOOST_CHECK(keyman.GetHDChain().nMWEBIndexCounter == 1002);
+}
+
+BOOST_AUTO_TEST_CASE(MalformedMWEBOutputKeys)
+{
+    NodeContext node;
+    std::unique_ptr<interfaces::Chain> chain = interfaces::MakeChain(node);
+    CWallet wallet(chain.get(), "", CreateMockWalletDatabase());
+    wallet.SetMinVersion(WalletFeature::FEATURE_HD_SPLIT);
+    LegacyScriptPubKeyMan& keyman = *wallet.GetOrCreateLegacyScriptPubKeyMan();
+
+    CKey seed_key = DecodeSecret("6usgJoGKXW12i7Ruxy8Z1C5hrRMVGfLmi9NU9uDQJMPXDJ6tQAH");
+    keyman.SetHDSeed(keyman.DeriveNewSeed(seed_key));
+    keyman.TopUp();
+
+    mw::Keychain::Ptr mweb_keychain = keyman.GetMWEBKeychain();
+    BOOST_REQUIRE(mweb_keychain != nullptr);
+
+    constexpr CAmount amount = 1'234'567;
+    Output valid_output = Output::Create(
+        nullptr,
+        SecretKey::Random(),
+        mweb_keychain->GetStealthAddress(2),
+        amount
+    );
+
+    mw::Coin valid_coin;
+    BOOST_REQUIRE(mweb_keychain->RewindOutput(valid_output, valid_coin));
+    BOOST_CHECK_EQUAL(valid_coin.address_index, 2);
+    BOOST_CHECK_EQUAL(valid_coin.amount, amount);
+    BOOST_CHECK(valid_coin.output_id == valid_output.GetOutputID());
+    BOOST_CHECK(valid_coin.HasSpendKey());
+
+    const PublicKey malformed_key = MalformedPublicKey();
+    const Output malformed_ke = WithMWEBKeys(valid_output, malformed_key, valid_output.Ko());
+    const Output malformed_ko = WithMWEBKeys(valid_output, valid_output.Ke(), malformed_key);
+
+    auto check_rewind_failure = [&](const Output& output) {
+        mw::Coin coin = valid_coin;
+        const std::vector<uint8_t> original_coin = coin.Serialized();
+        bool rewound = true;
+        BOOST_CHECK_NO_THROW(rewound = mweb_keychain->RewindOutput(output, coin));
+        BOOST_CHECK(!rewound);
+        BOOST_CHECK(coin.Serialized() == original_coin);
+    };
+
+    check_rewind_failure(malformed_ke);
+    check_rewind_failure(malformed_ko);
+
+    auto check_callback_ignores_output = [&](const Output& output) {
+        const CTransactionRef tx = MWEBTransaction(output);
+        size_t wallet_size;
+        {
+            LOCK(wallet.cs_wallet);
+            wallet_size = wallet.mapWallet.size();
+        }
+
+        BOOST_CHECK_NO_THROW(wallet.transactionAddedToMempool(tx, 0));
+
+        {
+            LOCK(wallet.cs_wallet);
+            BOOST_CHECK_EQUAL(wallet.mapWallet.size(), wallet_size);
+        }
+        mw::Coin stored_coin;
+        BOOST_CHECK(!wallet.GetMWWallet()->GetCoin(output.GetOutputID(), stored_coin));
+    };
+
+    check_callback_ignores_output(malformed_ke);
+    check_callback_ignores_output(malformed_ko);
+
+    const CTransactionRef valid_tx = MWEBTransaction(valid_output);
+    BOOST_CHECK_NO_THROW(wallet.transactionAddedToMempool(valid_tx, 0));
+    {
+        LOCK(wallet.cs_wallet);
+        BOOST_CHECK_EQUAL(wallet.mapWallet.count(valid_tx->GetHash()), 1);
+    }
+
+    mw::Coin stored_coin;
+    BOOST_REQUIRE(wallet.GetMWWallet()->GetCoin(valid_output.GetOutputID(), stored_coin));
+    BOOST_CHECK_EQUAL(stored_coin.address_index, 2);
+    BOOST_CHECK_EQUAL(stored_coin.amount, amount);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

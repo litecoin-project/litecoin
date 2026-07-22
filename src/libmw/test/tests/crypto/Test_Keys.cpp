@@ -44,4 +44,17 @@ BOOST_AUTO_TEST_CASE(SecretKeyValidation)
     BOOST_REQUIRE(SecretKey::FromHash(mw::Hash(order)) == SecretKey(order));
 }
 
+BOOST_AUTO_TEST_CASE(PublicKeyValidation)
+{
+    BOOST_REQUIRE(PublicKey::Random().IsValid());
+
+    std::vector<uint8_t> uncompressed(33, 0);
+    uncompressed.front() = 0x04;
+    BOOST_REQUIRE(!PublicKey(uncompressed.data()).IsValid());
+
+    std::vector<uint8_t> invalid_compressed(33, 0xff);
+    invalid_compressed.front() = 0x02;
+    BOOST_REQUIRE(!PublicKey(invalid_compressed.data()).IsValid());
+}
+
 BOOST_AUTO_TEST_SUITE_END()

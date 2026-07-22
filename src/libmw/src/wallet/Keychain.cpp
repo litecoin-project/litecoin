@@ -1,6 +1,7 @@
 #include <mw/wallet/Keychain.h>
 #include <mw/crypto/Hasher.h>
 #include <mw/crypto/SecretKeys.h>
+#include <mw/exceptions/CryptoException.h>
 #include <mw/models/tx/OutputMask.h>
 #include <wallet/scriptpubkeyman.h>
 #include <key_io.h>
@@ -13,54 +14,65 @@ bool Keychain::RewindOutput(const Output& output, mw::Coin& coin) const
         return false;
     }
 
-    assert(!GetScanSecret().IsNull());
-    PublicKey shared_secret = output.Ke().Mul(GetScanSecret());
-    uint8_t view_tag = Hashed(EHashTag::TAG, shared_secret)[0];
-    if (view_tag != output.GetViewTag()) {
+    if (!output.Ko().IsValid() || !output.Ke().IsValid()) {
         return false;
     }
 
-    SecretKey t = SecretKey::FromHash(Hashed(EHashTag::DERIVE, shared_secret));
-    PublicKey B_i = output.Ko().Div(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, t)));
+    try {
+        assert(!GetScanSecret().IsNull());
+        PublicKey shared_secret = output.Ke().Mul(GetScanSecret());
+        uint8_t view_tag = Hashed(EHashTag::TAG, shared_secret)[0];
+        if (view_tag != output.GetViewTag()) {
+            return false;
+        }
 
-    // Check if B_i belongs to wallet
-    StealthAddress address(B_i.Mul(m_scanSecret), B_i);
-    auto pMetadata = m_spk_man.GetMetadata(address);
-    if (!pMetadata) {
+        SecretKey t = SecretKey::FromHash(Hashed(EHashTag::DERIVE, shared_secret));
+        PublicKey B_i = output.Ko().Div(SecretKey::FromHash(Hashed(EHashTag::OUT_KEY, t)));
+
+        // Check if B_i belongs to wallet
+        StealthAddress address(B_i.Mul(m_scanSecret), B_i);
+        auto pMetadata = m_spk_man.GetMetadata(address);
+        if (!pMetadata) {
+            return false;
+        }
+
+        // Calc blinding factor and unmask nonce and amount.
+        OutputMask mask = OutputMask::FromShared(t);
+        uint64_t value = mask.MaskValue(output.GetMaskedValue());
+        BigInt<16> n = mask.MaskNonce(output.GetMaskedNonce());
+
+        if (mask.SwitchCommit(value) != output.GetCommitment()) {
+            return false;
+        }
+
+        // Calculate Carol's sending key 's' and check that s*B ?= Ke
+        SecretKey s = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
+            .Append(address.A())
+            .Append(address.B())
+            .Append(value)
+            .Append(n)
+            .hash());
+        if (output.Ke() != address.B().Mul(s)) {
+            return false;
+        }
+
+        mw::Coin rewound_coin;
+
+        // v0.21.2 incorrectly generated MWEB keys from the pre-split keypool for upgraded wallets.
+        // These keys will not have an mweb_index, so we set the address_index as CUSTOM_KEY.
+        rewound_coin.address_index = pMetadata->mweb_index.get_value_or(CUSTOM_KEY);
+        rewound_coin.blind = boost::make_optional(mask.GetRawBlind());
+        rewound_coin.amount = value;
+        rewound_coin.output_id = output.GetOutputID();
+        rewound_coin.address = address;
+        rewound_coin.shared_secret = boost::make_optional(std::move(t));
+        rewound_coin.spend_key = CalculateOutputKey(rewound_coin);
+
+        coin = std::move(rewound_coin);
+        return true;
+    } catch (const CryptoException&) {
         return false;
     }
-
-    // Calc blinding factor and unmask nonce and amount.
-    OutputMask mask = OutputMask::FromShared(t);
-    uint64_t value = mask.MaskValue(output.GetMaskedValue());
-    BigInt<16> n = mask.MaskNonce(output.GetMaskedNonce());
-
-    if (mask.SwitchCommit(value) != output.GetCommitment()) {
-        return false;
-    }
-
-    // Calculate Carol's sending key 's' and check that s*B ?= Ke
-    SecretKey s = SecretKey::FromHash(Hasher(EHashTag::SEND_KEY)
-        .Append(address.A())
-        .Append(address.B())
-        .Append(value)
-        .Append(n)
-        .hash());
-    if (output.Ke() != address.B().Mul(s)) {
-        return false;
-    }
-
-    // v0.21.2 incorrectly generated MWEB keys from the pre-split keypool for upgraded wallets.
-    // These keys will not have an mweb_index, so we set the address_index as CUSTOM_KEY.
-    coin.address_index = pMetadata->mweb_index.get_value_or(CUSTOM_KEY);
-    coin.blind = boost::make_optional(mask.GetRawBlind());
-    coin.amount = value;
-    coin.output_id = output.GetOutputID();
-    coin.address = address;
-    coin.shared_secret = boost::make_optional(std::move(t));
-    coin.spend_key = CalculateOutputKey(coin);
-
-    return true;
 }
 
 boost::optional<SecretKey> Keychain::CalculateOutputKey(const mw::Coin& coin) const
