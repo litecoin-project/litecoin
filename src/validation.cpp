@@ -23,6 +23,7 @@
 #include <mw/node/CoinsView.h>
 #include <mweb/mweb_db.h>
 #include <mweb/mweb_node.h>
+#include <mweb/mweb_policy.h>
 #include <node/ui_interface.h>
 #include <optional.h>
 #include <policy/fees.h>
@@ -579,6 +580,18 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
     // MWEB: Don't accept MWEB transactions before activation.
     if (tx.HasMWEBTx() && !IsMWEBEnabled(::ChainActive().Tip(), args.m_chainparams.GetConsensus())) {
         return state.Invalid(TxValidationResult::TX_NOT_STANDARD, "mweb-before-activation");
+    }
+
+    // MWEB: Reject oversized MWEB transactions under relay policy *before* the
+    // expensive signature/rangeproof verification in MWEB::Node::CheckTransaction.
+    // The consensus limits allow a single tx to carry a whole block's worth of
+    // inputs/outputs; verifying that for an unpaid, invalid tx would be a
+    // cheap-to-relay, expensive-to-verify DoS.
+    if (fRequireStandard && tx.HasMWEBTx()) {
+        std::string mweb_reason;
+        if (!MWEB::Policy::CheckWeight(tx, mweb_reason)) {
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, mweb_reason);
+        }
     }
 
     // MWEB: Check MWEB tx
