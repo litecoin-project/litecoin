@@ -21,7 +21,7 @@ class MWEBWeightTest(BitcoinTestFramework):
 
     def run_test(self):
         self.log.info("Create some blocks")
-        self.nodes[0].generate(101)
+        self.nodes[0].generate(431)
 
         self.log.info("Pegin some coins - activate MWEB")
         addr = self.nodes[0].getnewaddress(address_type='mweb')
@@ -37,8 +37,8 @@ class MWEBWeightTest(BitcoinTestFramework):
         self.nodes[2].generate(700)
         self.sync_all()
 
-        # Max number of MWEB transactions in a block (21000/39)
-        tx_limit = 538
+        # Max number of MWEB transactions in a block (20000/39)
+        tx_limit = 512
 
         self.log.info("Create transactions up to the max block weight")
         addr = self.nodes[0].getnewaddress(address_type='mweb')
