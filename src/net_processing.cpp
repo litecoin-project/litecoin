@@ -107,13 +107,11 @@ static const int MAX_BLOCKTXN_DEPTH = 10;
 static const int MAX_MWEB_LEAFSET_DEPTH = 10;
 /** Maximum number of MWEB UTXOs that can be requested in a batch. */
 static const uint16_t MAX_REQUESTED_MWEB_UTXOS = 4096;
-/** Serving an MWEB leafset/UTXO request rewinds and replays up to
- *  MAX_MWEB_LEAFSET_DEPTH blocks under cs_main, so each request is expensive.
- *  Rate-limit these per-peer with a token bucket to bound the CPU a single peer
- *  can force. Values are deliberately conservative: a small burst, refilled
- *  slowly. These messages are only used by external light clients, so throttling
- *  does not affect the node's own operation. */
-static constexpr double MWEB_SERVE_MAX_TOKENS{10.0};
+/** Serving an MWEB leafset/UTXO request rewinds and replays up to MAX_MWEB_LEAFSET_DEPTH blocks under cs_main,
+ *  so each request is expensive. Rate-limit these across the node to bound the CPU peers can force, including
+ *  by reconnecting. Values are deliberately conservative: a small burst, refilled slowly.
+ *  These messages are only used by external light clients, so throttling does not affect the node's own operation. */
+static constexpr double MWEB_SERVE_MAX_TOKENS{32.0};
 static constexpr double MWEB_SERVE_REFILL_PER_SECOND{0.5};
 /** Size of the "block download window": how far ahead of our current height do we fetch?
  *  Larger windows tolerate larger download speed differences between peer, but increase the potential
@@ -421,10 +419,6 @@ struct CNodeState {
 
     //! Whether this peer relays txs via wtxid
     bool m_wtxid_relay{false};
-
-    //! Token-bucket state for rate-limiting expensive MWEB leafset/UTXO serving requests.
-    double m_mweb_serve_tokens{MWEB_SERVE_MAX_TOKENS};
-    std::chrono::microseconds m_mweb_serve_timestamp{GetTime<std::chrono::microseconds>()};
 
     CNodeState(CAddress addrIn, bool is_inbound, bool is_manual)
         : address(addrIn), m_is_inbound(is_inbound), m_is_manual_connection(is_manual)
@@ -1751,11 +1745,11 @@ struct MWEBLeafsetMsg
     BitSet leafset;
 };
 
-/** Token-bucket rate limiter for expensive MWEB leafset/UTXO serving requests.
- *  Returns true (and consumes a token) if the peer may be served now. Serving
- *  each request rewinds/replays up to MAX_MWEB_LEAFSET_DEPTH blocks under
- *  cs_main, so without this an unauthenticated peer could pin the node by
- *  flooding valid requests. */
+/** Node-wide token-bucket rate limiter for expensive MWEB leafset/UTXO serving
+ *  requests. Returns true (and consumes a token) if the request may be served
+ *  now. Serving each request rewinds/replays up to MAX_MWEB_LEAFSET_DEPTH
+ *  blocks under cs_main, so without this an unauthenticated peer could pin the
+ *  node by flooding valid requests. */
 static bool AllowMWEBServe(CNode& pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     // Whitelisted peers (e.g. -whitelist / PF_NOBAN) are exempt.
@@ -1763,23 +1757,23 @@ static bool AllowMWEBServe(CNode& pfrom) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
         return true;
     }
 
-    CNodeState* state = State(pfrom.GetId());
-    if (state == nullptr) {
-        return false;
-    }
+    // This state is independent of CNodeState so reconnecting cannot reset the
+    // node-wide allowance.
+    static double node_tokens{MWEB_SERVE_MAX_TOKENS};
+    static std::chrono::microseconds node_timestamp{GetTime<std::chrono::microseconds>()};
 
     const auto now = GetTime<std::chrono::microseconds>();
-    const auto time_diff = std::max(now - state->m_mweb_serve_timestamp, std::chrono::microseconds{0});
-    state->m_mweb_serve_tokens = std::min<double>(
-        state->m_mweb_serve_tokens + Ticks<SecondsDouble>(time_diff) * MWEB_SERVE_REFILL_PER_SECOND,
+    const auto node_time_diff = std::max(now - node_timestamp, std::chrono::microseconds{0});
+    node_tokens = std::min<double>(
+        node_tokens + Ticks<SecondsDouble>(node_time_diff) * MWEB_SERVE_REFILL_PER_SECOND,
         MWEB_SERVE_MAX_TOKENS);
-    state->m_mweb_serve_timestamp = now;
+    node_timestamp = now;
 
-    if (state->m_mweb_serve_tokens < 1.0) {
+    if (node_tokens < 1.0) {
         return false;
     }
 
-    state->m_mweb_serve_tokens -= 1.0;
+    node_tokens -= 1.0;
     return true;
 }
 

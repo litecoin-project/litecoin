@@ -10,6 +10,7 @@ Test LIP-0006
 3. Test MSG_BLOCK vs MSG_MWEB_BLOCK serving.
 4. Test compact block v1/v2/v3 announcements after activation.
 5. Test getmwebutxos success, bounds, invalid format, and inactive-chain behavior.
+6. Test the expensive MWEB serving rate limit cannot be reset by reconnecting.
 """
 
 from test_framework.messages import (
@@ -42,6 +43,7 @@ from test_framework.util import assert_equal
 
 MAX_MWEB_LEAFSET_DEPTH = 10
 MAX_REQUESTED_MWEB_UTXOS = 4096
+MWEB_SERVE_MAX_TOKENS = 32
 
 # Can be used to mimic a light client requesting MWEB data from a full node
 class MockLightClient(P2PInterface):
@@ -334,6 +336,28 @@ class MWEBP2PTest(BitcoinTestFramework):
         peer.request_mweb_leafset(old_mweb_hash)
         peer.wait_for_disconnect(timeout=10)
 
+    def test_mweb_serve_rate_limit_survives_reconnect(self, node, block_hash):
+        self.log.info("Check MWEB serving rate limit cannot be reset by reconnecting")
+        self.restart_node(0)
+        node.setmocktime(node.getblockheader(block_hash)["time"])
+
+        peer = node.add_p2p_connection(MockLightClient())
+        for expected_responses in range(1, MWEB_SERVE_MAX_TOKENS + 1):
+            peer.request_mweb_leafset(block_hash)
+            peer.wait_until(
+                lambda: peer.message_count["mwebleafset"] == expected_responses,
+                timeout=10,
+            )
+
+        peer.peer_disconnect()
+        peer.wait_for_disconnect(timeout=10)
+
+        replacement_peer = node.add_p2p_connection(MockLightClient())
+        replacement_peer.request_mweb_leafset(block_hash)
+        replacement_peer.sync_with_ping(timeout=10)
+        with p2p_lock:
+            assert_equal(replacement_peer.message_count["mwebleafset"], 0)
+
     def run_test(self):
         node, block_source = self.nodes
         light_client = node.add_p2p_connection(MockLightClient())
@@ -411,6 +435,7 @@ class MWEBP2PTest(BitcoinTestFramework):
         self.test_inactive_chain_requests(node)
         self.test_invalid_light_client_requests(node, node.getbestblockhash())
         self.test_depth_limit_disconnect(node, post_mweb_block_hash)
+        self.test_mweb_serve_rate_limit_survives_reconnect(node, node.getbestblockhash())
 
         with p2p_lock:
             assert NODE_MWEB & light_client.nServices
