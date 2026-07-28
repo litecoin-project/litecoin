@@ -743,8 +743,8 @@ private:
 
     bool RollforwardBlock(const CBlockIndex* pindex, CCoinsViewCache& inputs, const CChainParams& params) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
-    //! Mark a block as not having block data
-    void EraseBlockData(CBlockIndex* index) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
+    //! Mark a block as not having block data.
+    void EraseBlockData(CBlockIndex* index, bool preserve_tx_metadata = false) EXCLUSIVE_LOCKS_REQUIRED(cs_main);
 
     friend ChainstateManager;
 };

@@ -7,7 +7,7 @@
 import copy
 
 from test_framework.ltc_util import setup_mweb_chain
-from test_framework.messages import CBlock, FromHex, Hash, msg_block
+from test_framework.messages import CBlock, CBlockHeader, FromHex, Hash, msg_block, msg_headers
 from test_framework.p2p import P2PDataStore
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
@@ -48,9 +48,14 @@ class MWEBP2PMutatedBlockSubmitBlockTest(BitcoinTestFramework):
         mutated_parent.rehash()
         assert_equal(mutated_parent.sha256, valid_parent.sha256)
 
+        # Announce both headers, then provide the child first so it is parked
+        # until the parent data arrives. This exercises mutation cleanup with
+        # an already-downloaded descendant.
+        peer.send_and_ping(msg_headers([CBlockHeader(valid_parent), CBlockHeader(valid_child)]))
+        peer.send_and_ping(msg_block(valid_child))
+
         with node.assert_debug_log(expected_msgs=[expected_reason], timeout=10):
-            peer.send_message(msg_block(mutated_parent))
-            peer.send_message(msg_block(valid_child))
+            peer.send_and_ping(msg_block(mutated_parent))
 
     def run_test(self):
         node0, node1, node2 = self.nodes
@@ -145,9 +150,18 @@ class MWEBP2PMutatedBlockSubmitBlockTest(BitcoinTestFramework):
         self.send_mutated_parent_and_child(node0, peer, valid_parent, valid_child, "output pubkey rebinding", swap_output_pubkeys, "bad-blk-mweb")
         self.send_mutated_parent_and_child(node0, peer, valid_parent, valid_child, "frozen output id", spend_frozen_output_id, "bad-blk-mweb")
 
+        self.log.info("Restart with the discarded parent and downloaded child in the block index")
+        self.restart_node(0)
+
+        self.log.info("Accept the honest same-hash parent and connect its downloaded child")
+        replacement_peer = node0.add_p2p_connection(P2PDataStore())
+        replacement_peer.send_and_ping(msg_block(valid_parent))
+        self.wait_until(lambda: node0.getbestblockhash() == valid_child_hash)
+
         self.log.info("Mine several new blocks on node0 via submitblock")
-        for block in submit_blocks:
-            assert_equal(node0.submitblock(block), None)
+        for index, block in enumerate(submit_blocks):
+            expected = None if index == len(submit_blocks) - 1 else "inconclusive"
+            assert_equal(node0.submitblock(block), expected)
 
         assert_equal(node0.getblockcount(), original_height + 3)
         assert_equal(node0.getbestblockhash(), submit_hashes[-1])
