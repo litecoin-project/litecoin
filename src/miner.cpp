@@ -25,6 +25,11 @@
 #include <algorithm>
 #include <utility>
 
+static size_t GetMWEBInputCount(const CTransaction& tx)
+{
+    return tx.HasMWEBTx() ? tx.mweb_tx.m_transaction->GetInputs().size() : 0;
+}
+
 int64_t UpdateTime(CBlockHeader* pblock, const Consensus::Params& consensusParams, const CBlockIndex* pindexPrev)
 {
     int64_t nOldTime = pblock->nTime;
@@ -91,6 +96,7 @@ void BlockAssembler::resetBlock()
     nBlockWeight = 4000;
     nBlockSigOpsCost = 400;
     nBlockMWEBWeight = 0;
+    nBlockMWEBInputs = 0;
     fIncludeWitness = false;
     fIncludeMWEB = false;
 
@@ -225,6 +231,12 @@ bool BlockAssembler::TestPackage(uint64_t packageSize, int64_t packageSigOpsCost
     return true;
 }
 
+bool BlockAssembler::TestPackageMWEBInputs(uint64_t packageMWEBInputs) const
+{
+    return nBlockMWEBInputs <= mw::MAX_NUM_INPUTS &&
+           packageMWEBInputs <= mw::MAX_NUM_INPUTS - nBlockMWEBInputs;
+}
+
 // Perform transaction-level checks before adding to block:
 // - transaction finality (locktime)
 // - premature witness (in case segwit transactions are added to mempool before
@@ -285,6 +297,7 @@ bool BlockAssembler::AddToBlock(CTxMemPool::txiter iter)
     nBlockWeight += iter->GetTxWeight();
     nBlockSigOpsCost += iter->GetSigOpCost();
     nBlockMWEBWeight += iter->GetMWEBWeight();
+    nBlockMWEBInputs += GetMWEBInputCount(iter->GetTx());
     nFees += iter->GetFee();
     inBlock.insert(iter);
 
@@ -463,6 +476,26 @@ void BlockAssembler::addPackageTxs(int &nPackagesSelected, int &nDescendantsUpda
 
         onlyUnconfirmed(ancestors);
         ancestors.insert(iter);
+
+        uint64_t packageMWEBInputs = 0;
+        for (CTxMemPool::txiter packageTx : ancestors) {
+            packageMWEBInputs += GetMWEBInputCount(packageTx->GetTx());
+        }
+
+        if (!TestPackageMWEBInputs(packageMWEBInputs)) {
+            if (fUsingModified) {
+                mapModifiedTx.get<ancestor_score>().erase(modit);
+                failedTx.insert(iter);
+            }
+
+            ++nConsecutiveFailed;
+
+            if (nConsecutiveFailed > MAX_CONSECUTIVE_FAILURES && nBlockWeight >
+                    nBlockMaxWeight - 4000) {
+                break;
+            }
+            continue;
+        }
 
         // Test if all tx's are Final, and none have failed
         if (!TestPackageTransactions(ancestors, failedTx)) {

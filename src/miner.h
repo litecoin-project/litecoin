@@ -149,6 +149,7 @@ private:
     uint64_t nBlockTx;
     uint64_t nBlockSigOpsCost;
     uint64_t nBlockMWEBWeight;
+    uint64_t nBlockMWEBInputs;
     CAmount nFees;
     CTxMemPool::setEntries inBlock;
 
@@ -193,6 +194,8 @@ private:
     void onlyUnconfirmed(CTxMemPool::setEntries& testSet);
     /** Test if a new package would "fit" in the block */
     bool TestPackage(uint64_t packageSize, int64_t packageSigOpsCost, int64_t packageMWEBWeight) const;
+    /** Test if a new package would exceed the MWEB input limit */
+    bool TestPackageMWEBInputs(uint64_t packageMWEBInputs) const;
     /** Perform checks on each transaction in a package:
       * locktime, premature-witness, serialized size (if necessary)
       * These checks should always succeed, and they're here

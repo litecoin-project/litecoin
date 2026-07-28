@@ -2,6 +2,7 @@
 // Distributed under the MIT software license, see the accompanying
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
+#include <mw/consensus/Params.h>
 #include <mw/node/BlockBuilder.h>
 #include <mw/node/CoinsView.h>
 #include <mw/node/BlockValidator.h>
@@ -61,6 +62,16 @@ BOOST_AUTO_TEST_CASE(BlockBuilder)
         std::vector<PegOutCoin>{}
     );
     BOOST_CHECK(block_valid);
+
+    // Adding an input-bearing transaction leaves room for at most 49,999 more inputs.
+    test::Tx builder_tx2 = test::Tx::CreatePegOut(block1_tx1.GetOutputs().front());
+    BOOST_REQUIRE(block_builder->AddTransaction(builder_tx2.GetTransaction(), {}));
+
+    // A transaction that would take the aggregate count over 50,000 is rejected
+    // before its otherwise-invalid placeholder inputs are validated.
+    std::vector<Input> inputs(mw::MAX_NUM_INPUTS);
+    const auto oversized_tx = mw::Transaction::Create({}, {}, std::move(inputs), {}, {});
+    BOOST_CHECK(!block_builder->AddTransaction(oversized_tx, {}));
 }
 
 BOOST_AUTO_TEST_SUITE_END()
