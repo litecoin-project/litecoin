@@ -4,6 +4,10 @@
 
 #include <mw/crypto/Schnorr.h>
 #include <mw/models/tx/Kernel.h>
+#include <mw/models/tx/Transaction.h>
+
+#include <mweb/mweb_policy.h>
+#include <primitives/transaction.h>
 
 #include <test_framework/TestMWEB.h>
 
@@ -99,9 +103,26 @@ BOOST_AUTO_TEST_CASE(NonStandardKernel_Test)
         standard_kernel.GetSignature()
     );
 
+    CDataStream serialized(SER_DISK, 0);
+    serialized << uint8_t(Kernel::PEGOUT_FEATURE_BIT);
+    serialized << std::vector<PegOutCoin>{};
+    serialized << standard_kernel.GetCommitment();
+    serialized << standard_kernel.GetSignature();
+    Kernel nonstandard_kernel3;
+    serialized >> nonstandard_kernel3;
+
     BOOST_REQUIRE(standard_kernel.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel1.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel2.IsStandard());
+    BOOST_REQUIRE(!nonstandard_kernel3.IsStandard());
+
+    mw::Transaction::CPtr nonstandard_tx = mw::Transaction::Create(
+        BlindingFactor::Random(), BlindingFactor::Random(), {}, {}, { nonstandard_kernel3 });
+    CMutableTransaction transaction;
+    transaction.mweb_tx = MWEB::Tx{std::move(nonstandard_tx)};
+    std::string reason;
+    BOOST_REQUIRE(!MWEB::Policy::IsStandardTx(CTransaction{std::move(transaction)}, reason));
+    BOOST_REQUIRE_EQUAL(reason, "non-standard-mweb-tx");
 }
 
 BOOST_AUTO_TEST_CASE(PegOutAmountOutOfRange_Test)
