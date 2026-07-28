@@ -1131,8 +1131,18 @@ bool PeerManager::MaybePunishNodeForBlock(NodeId nodeid, const BlockValidationSt
     case BlockValidationResult::BLOCK_RESULT_UNSET:
         break;
     // The node is providing invalid data:
-    case BlockValidationResult::BLOCK_CONSENSUS:
     case BlockValidationResult::BLOCK_MUTATED:
+        // BIP 152 permits compact-block peers to forward blocks after checking
+        // only the header. MWEB block bodies are not committed to by that
+        // header, however, so accepting bad MWEB bodies from compact-block
+        // peers without penalty permits their expensive validation to be
+        // replayed indefinitely.
+        if (!via_compact_block || state.GetRejectReason() == "bad-blk-mweb") {
+            Misbehaving(nodeid, 100, message);
+            return true;
+        }
+        break;
+    case BlockValidationResult::BLOCK_CONSENSUS:
         if (!via_compact_block) {
             Misbehaving(nodeid, 100, message);
             return true;
