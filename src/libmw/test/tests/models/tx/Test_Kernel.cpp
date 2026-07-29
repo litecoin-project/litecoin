@@ -115,6 +115,7 @@ BOOST_AUTO_TEST_CASE(NonStandardKernel_Test)
     BOOST_REQUIRE(!nonstandard_kernel1.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel2.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel3.IsStandard());
+    BOOST_REQUIRE(!nonstandard_kernel3.HasCanonicalPegOutFeature());
 
     mw::Transaction::CPtr nonstandard_tx = mw::Transaction::Create(
         BlindingFactor::Random(), BlindingFactor::Random(), {}, {}, { nonstandard_kernel3 });
@@ -123,6 +124,37 @@ BOOST_AUTO_TEST_CASE(NonStandardKernel_Test)
     std::string reason;
     BOOST_REQUIRE(!MWEB::Policy::IsStandardTx(CTransaction{std::move(transaction)}, reason));
     BOOST_REQUIRE_EQUAL(reason, "non-standard-mweb-tx");
+}
+
+BOOST_AUTO_TEST_CASE(EmptyPegOutFeature_Test)
+{
+    const BlindingFactor blind = BlindingFactor::Random();
+    const Commitment excess = Commitment::Blinded(blind, 0);
+    const uint8_t features = Kernel::PEGOUT_FEATURE_BIT;
+    const auto message = Kernel::GetSignatureMessage(
+        features,
+        excess,
+        boost::none,
+        boost::none,
+        boost::none,
+        {},
+        boost::none,
+        {}
+    );
+    const Kernel kernel(
+        features,
+        boost::none,
+        boost::none,
+        {},
+        boost::none,
+        boost::none,
+        {},
+        excess,
+        Schnorr::Sign(blind.data(), message)
+    );
+
+    BOOST_REQUIRE(!kernel.HasCanonicalPegOutFeature());
+    BOOST_REQUIRE_NO_THROW(TxBody({}, {}, {kernel}).Validate());
 }
 
 BOOST_AUTO_TEST_CASE(PegOutAmountOutOfRange_Test)

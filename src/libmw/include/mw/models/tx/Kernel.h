@@ -87,8 +87,12 @@ public:
 
     bool IsStandard() const noexcept
     {
-        return m_features < EXTRA_DATA_FEATURE_BIT
-            && (!(m_features & PEGOUT_FEATURE_BIT) || !m_pegouts.empty());
+        return m_features < EXTRA_DATA_FEATURE_BIT && HasCanonicalPegOutFeature();
+    }
+
+    bool HasCanonicalPegOutFeature() const noexcept
+    {
+        return !(m_features & PEGOUT_FEATURE_BIT) || !m_pegouts.empty();
     }
 
     SignedMessage BuildSignedMsg() const;

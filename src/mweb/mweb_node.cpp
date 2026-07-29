@@ -94,6 +94,15 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "mweb-height-mismatch", "Invalid MWEB block height");
     }
 
+    // Verify that the MWEB block's pegouts are valid if the pegout feature is active.
+    if (pindexPrev->nHeight + 1 >= consensus_params.mweb_pegout_feature_activation_height) {
+        for (const Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
+            if (!kernel.HasCanonicalPegOutFeature()) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-pegout", "Pegout feature set without pegouts");
+            }
+        }
+    }
+
     // For the very first HogEx transaction, all inputs are pegins, so start at index of 0.
     // For all other HogEx transaction, the first input is not a pegin, so start looking for pegins at index 1.
     const bool is_first_hogex = !IsMWEBEnabled(pindexPrev->pprev, consensus_params);
