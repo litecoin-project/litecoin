@@ -95,6 +95,11 @@ public:
         return !(m_features & PEGOUT_FEATURE_BIT) || !m_pegouts.empty();
     }
 
+    bool HasCanonicalExtraDataFeature() const noexcept
+    {
+        return !(m_features & EXTRA_DATA_FEATURE_BIT) || !m_extraData.empty();
+    }
+
     SignedMessage BuildSignedMsg() const;
     static mw::Hash GetSignatureMessage(
         const uint8_t features,

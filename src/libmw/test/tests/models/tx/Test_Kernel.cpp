@@ -7,6 +7,7 @@
 #include <mw/models/tx/Transaction.h>
 
 #include <mweb/mweb_policy.h>
+#include <chainparams.h>
 #include <primitives/transaction.h>
 
 #include <test_framework/TestMWEB.h>
@@ -14,6 +15,21 @@
 #include <limits>
 
 BOOST_FIXTURE_TEST_SUITE(TestKernel, MWEBTestingSetup)
+
+BOOST_AUTO_TEST_CASE(FeatureActivationHeights_Test)
+{
+    const auto main_params = CreateChainParams(*m_node.args, CBaseChainParams::MAIN);
+    BOOST_REQUIRE_EQUAL(main_params->GetConsensus().mweb_pegout_feature_activation_height, 3'154'440);
+    BOOST_REQUIRE_EQUAL(main_params->GetConsensus().mweb_extradata_feature_activation_height, 3'200'000);
+
+    const auto testnet_params = CreateChainParams(*m_node.args, CBaseChainParams::TESTNET);
+    BOOST_REQUIRE_EQUAL(testnet_params->GetConsensus().mweb_pegout_feature_activation_height, 0);
+    BOOST_REQUIRE_EQUAL(testnet_params->GetConsensus().mweb_extradata_feature_activation_height, 0);
+
+    const auto regtest_params = CreateChainParams(*m_node.args, CBaseChainParams::REGTEST);
+    BOOST_REQUIRE_EQUAL(regtest_params->GetConsensus().mweb_pegout_feature_activation_height, 0);
+    BOOST_REQUIRE_EQUAL(regtest_params->GetConsensus().mweb_extradata_feature_activation_height, 0);
+}
 
 BOOST_AUTO_TEST_CASE(PlainKernel_Test)
 {
@@ -115,6 +131,8 @@ BOOST_AUTO_TEST_CASE(NonStandardKernel_Test)
     BOOST_REQUIRE(!nonstandard_kernel1.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel2.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel3.IsStandard());
+    BOOST_REQUIRE(nonstandard_kernel1.HasCanonicalExtraDataFeature());
+    BOOST_REQUIRE(!nonstandard_kernel2.HasCanonicalExtraDataFeature());
     BOOST_REQUIRE(!nonstandard_kernel3.HasCanonicalPegOutFeature());
 
     mw::Transaction::CPtr nonstandard_tx = mw::Transaction::Create(
@@ -154,6 +172,37 @@ BOOST_AUTO_TEST_CASE(EmptyPegOutFeature_Test)
     );
 
     BOOST_REQUIRE(!kernel.HasCanonicalPegOutFeature());
+    BOOST_REQUIRE_NO_THROW(TxBody({}, {}, {kernel}).Validate());
+}
+
+BOOST_AUTO_TEST_CASE(EmptyExtraDataFeature_Test)
+{
+    const BlindingFactor blind = BlindingFactor::Random();
+    const Commitment excess = Commitment::Blinded(blind, 0);
+    const uint8_t features = Kernel::EXTRA_DATA_FEATURE_BIT;
+    const auto message = Kernel::GetSignatureMessage(
+        features,
+        excess,
+        boost::none,
+        boost::none,
+        boost::none,
+        {},
+        boost::none,
+        {}
+    );
+    const Kernel kernel(
+        features,
+        boost::none,
+        boost::none,
+        {},
+        boost::none,
+        boost::none,
+        {},
+        excess,
+        Schnorr::Sign(blind.data(), message)
+    );
+
+    BOOST_REQUIRE(!kernel.HasCanonicalExtraDataFeature());
     BOOST_REQUIRE_NO_THROW(TxBody({}, {}, {kernel}).Validate());
 }
 

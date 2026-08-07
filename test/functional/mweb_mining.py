@@ -51,7 +51,7 @@ class MWEBMiningTest(BitcoinTestFramework):
         assert_equal(first_hogex.vin[0].prevout.hash, int(first_pegin_txid, 16))
         self.sync_all()
 
-        self.test_empty_pegout_feature_rejected(node)
+        self.test_noncanonical_kernel_features_rejected(node)
 
         # Call getblocktemplate
         node.generatetoaddress(1, node.get_deterministic_priv_key().address)
@@ -98,7 +98,7 @@ class MWEBMiningTest(BitcoinTestFramework):
         self.log.info("Mine after MWEB mempool spend becomes stale across a reorg")
         self.mine_after_stale_mweb_spend_reorg()
 
-    def test_empty_pegout_feature_rejected(self, node):
+    def test_noncanonical_kernel_features_rejected(self, node):
         self.log.info("Reject a block with an empty pegout feature")
         node.sendtoaddress(node.getnewaddress(address_type='mweb'), Decimal("0.1"))
 
@@ -132,6 +132,19 @@ class MWEBMiningTest(BitcoinTestFramework):
             'mode': 'proposal',
             'rules': ['mweb', 'segwit'],
         }), 'bad-mweb-empty-pegout')
+
+        kernel.features &= ~4
+        kernel.pegouts = None
+        kernel.features |= 32
+        kernel.extradata = b""
+        kernel.rehash()
+
+        self.log.info("Reject a block with an empty extra data feature")
+        assert_equal(node.getblocktemplate(template_request={
+            'data': block.serialize().hex(),
+            'mode': 'proposal',
+            'rules': ['mweb', 'segwit'],
+        }), 'bad-mweb-empty-extradata')
 
         # Do not leave the valid MWEB transaction in the mempool for the
         # following empty-block proposal.
