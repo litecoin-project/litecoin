@@ -11,6 +11,13 @@ MW_NAMESPACE
 
 bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const std::vector<PegInCoin>& pegins)
 {
+    // Check input count
+    const size_t num_inputs = pTransaction->GetInputs().size();
+    if ((num_inputs + m_num_inputs) > mw::MAX_NUM_INPUTS) {
+        LogPrintf("Exceeds max input count\n");
+        return false;
+    }
+
     // Check weight
     uint64_t weight = Weight::Calculate(pTransaction->GetBody());
     if ((weight + m_weight) > mw::MAX_BLOCK_WEIGHT) {
@@ -108,6 +115,7 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
 
     m_stagedTxs.push_back(pTransaction);
     m_weight += weight;
+    m_num_inputs += num_inputs;
 
     for (const mw::Input& input : pTransaction->GetInputs()) {
         auto inserted = m_stagedInputs.insert(input.GetOutputID());
