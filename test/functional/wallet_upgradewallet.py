@@ -183,7 +183,7 @@ class UpgradeWalletTest(BitcoinTestFramework):
         copy_v16()
         wallet = node_master.get_wallet_rpc(self.default_wallet_name)
         self.log.info("Test upgradewallet without a version argument")
-        self.test_upgradewallet(wallet, previous_version=159900, expected_version=210000)
+        self.test_upgradewallet(wallet, previous_version=159900, expected_version=240000)
         # wallet should still contain the same balance
         assert_equal(wallet.getbalance(), v16_3_balance)
 
@@ -343,18 +343,18 @@ class UpgradeWalletTest(BitcoinTestFramework):
             self.log.info("Checking that descriptor wallets do nothing, successfully")
             self.nodes[0].createwallet(wallet_name="desc_upgrade", descriptors=True)
             desc_wallet = self.nodes[0].get_wallet_rpc("desc_upgrade")
-            self.test_upgradewallet(desc_wallet, previous_version=210000, expected_version=210000)
+            self.test_upgradewallet(desc_wallet, previous_version=240000, expected_version=240000)
 
             self.log.info("Checking that descriptor wallets without privkeys do nothing, successfully")
             self.nodes[0].createwallet(wallet_name="desc_upgrade_nopriv", descriptors=True, disable_private_keys=True)
             desc_wallet = self.nodes[0].get_wallet_rpc("desc_upgrade_nopriv")
-            self.test_upgradewallet(desc_wallet, previous_version=210000, expected_version=210000)
+            self.test_upgradewallet(desc_wallet, previous_version=240000, expected_version=240000)
 
         if self.is_bdb_compiled():
             self.log.info("Upgrading a wallet with private keys disabled")
             self.nodes[0].createwallet(wallet_name="privkeys_disabled_upgrade", disable_private_keys=True, descriptors=False)
             disabled_wallet = self.nodes[0].get_wallet_rpc("privkeys_disabled_upgrade")
-            self.test_upgradewallet(disabled_wallet, previous_version=210000, expected_version=210000)
+            self.test_upgradewallet(disabled_wallet, previous_version=240000, expected_version=240000)
 
 if __name__ == '__main__':
     UpgradeWalletTest().main()

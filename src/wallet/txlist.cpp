@@ -132,16 +132,17 @@ void TxList::List_Credit(std::vector<WalletTxRecord>& tx_records, const CWalletT
         }
     }
 
-    std::optional<mw::WalletCoin> mweb_coin = wtx.GetMWEBReceivedCoin();
-    if (mweb_coin != std::nullopt) {
-        wallet::isminetype ismine = m_wallet.IsMine(mweb_coin->output_id);
+    std::optional<mw::Hash> mweb_output_id = wtx.GetMWEBReceivedOutputID();
+    mw::WalletCoin mweb_coin;
+    if (mweb_output_id != std::nullopt && m_wallet.GetMWEBWalletCoin(*mweb_output_id, mweb_coin)) {
+        wallet::isminetype ismine = m_wallet.IsMine(*mweb_output_id);
         if (ismine & filter_ismine) {
-            WalletTxRecord sub(&m_wallet, &wtx, mweb_coin->output_id);
-            sub.credit = mweb_coin->amount;
+            WalletTxRecord sub(&m_wallet, &wtx, *mweb_output_id);
+            sub.credit = mweb_coin.amount;
             sub.involvesWatchAddress = ismine & ISMINE_WATCH_ONLY;
             sub.type = WalletTxRecord::Type::RecvWithAddress;
             StealthAddress addr;
-            if (m_wallet.GetMWWallet()->GetStealthAddress(*mweb_coin, addr)) {
+            if (m_wallet.GetMWWallet()->GetStealthAddress(mweb_coin, addr)) {
                 sub.address = GenericAddress(addr).Encode();
             }
             tx_records.push_back(sub);

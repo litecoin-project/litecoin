@@ -1061,10 +1061,119 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
     for (ScriptPubKeyMan* spk_man : pwallet->GetAllScriptPubKeyMans()) {
         spk_man->LoadMWEBKeychain();
     }
-    
+
+    // Migrate released MWEB wtx records, which embedded the full received coin.
+    // Promote the coin into the wallet's coin map unless a mweb_coin record
+    // already exists (the coin map copy is at least as fresh as the embedded
+    // one), then rewrite the record in the ID-only format. Each MWEB migration
+    // is committed with its old-key removal so a failed write cannot remove
+    // the only complete copy of a received coin.
+    //
+    // The minversion is only raised when v24-format records are actually
+    // written (here and at the MWEB coin persistence sites), not on every
+    // open: a blanket bump at load would erase the feature-version transitions
+    // CWallet::UpgradeWallet needs, and a wallet that has not written v24 MWEB
+    // state contains nothing that older releases would misread.
+    struct MWEBMigration
+    {
+        CWalletTx* wtx;
+        mw::WalletCoin coin;
+        bool promote_coin;
+        std::optional<uint256> old_wtx_hash;
+    };
+
+    std::vector<MWEBMigration> mweb_migrations;
+    for (auto& [wtx_hash, wtx] : pwallet->mapWallet) {
+        if (!wtx.mweb_wtx_info || !wtx.mweb_wtx_info->legacy_received_coin) {
+            continue;
+        }
+
+        const mw::WalletCoin legacy_coin = *wtx.mweb_wtx_info->legacy_received_coin;
+        mw::WalletCoin existing_coin;
+        const bool promote_coin = !pwallet->GetMWEBWalletCoin(legacy_coin.output_id, existing_coin);
+        if (promote_coin) {
+            // The legacy record is still the durable source if migration
+            // fails, so keep the coin available for this wallet session.
+            pwallet->GetMWWallet()->LoadToWallet(legacy_coin);
+        }
+        const uint256 released_wtx_hash{legacy_coin.output_id.vec()};
+        const bool rewrite_key = std::find(wss.vWalletRemove.begin(), wss.vWalletRemove.end(), released_wtx_hash) != wss.vWalletRemove.end();
+        mweb_migrations.push_back(MWEBMigration{
+            &wtx,
+            legacy_coin,
+            promote_coin,
+            rewrite_key ? std::make_optional(released_wtx_hash) : std::nullopt,
+        });
+
+        // This migration rewrites the complete record itself. Remove its
+        // entries from the generic, non-atomic transaction-key upgrade path.
+        wss.vWalletUpgrade.erase(std::remove(wss.vWalletUpgrade.begin(), wss.vWalletUpgrade.end(), wtx_hash), wss.vWalletUpgrade.end());
+        if (rewrite_key) {
+            wss.vWalletRemove.erase(std::remove(wss.vWalletRemove.begin(), wss.vWalletRemove.end(), released_wtx_hash), wss.vWalletRemove.end());
+        }
+    }
+
+    bool mweb_migration_write_failed = false;
+    if (!mweb_migrations.empty() && !pwallet->SetMinVersion(FEATURE_V24, this)) {
+        pwallet->WalletLogPrintf("Failed to write wallet minimum version before migrating MWEB records\n");
+        mweb_migration_write_failed = true;
+    }
+
+    if (!mweb_migration_write_failed && !mweb_migrations.empty()) {
+        const bool transaction_started = TxnBegin();
+        bool transaction_ok = transaction_started;
+        if (!transaction_ok) {
+            pwallet->WalletLogPrintf("Failed to begin MWEB record migration transaction\n");
+        }
+
+        for (const MWEBMigration& migration : mweb_migrations) {
+            if (transaction_ok && migration.promote_coin && !WriteMWEBWalletCoin(migration.coin)) {
+                pwallet->WalletLogPrintf("Failed to write MWEB coin %s during wtx record migration\n", migration.coin.output_id.ToHex());
+                transaction_ok = false;
+            }
+        }
+
+        for (const MWEBMigration& migration : mweb_migrations) {
+            if (transaction_ok && !WriteTx(*migration.wtx)) {
+                pwallet->WalletLogPrintf("Failed to rewrite MWEB wallet transaction %s during migration\n", migration.wtx->GetHash().ToString());
+                transaction_ok = false;
+            }
+        }
+
+        for (const MWEBMigration& migration : mweb_migrations) {
+            if (transaction_ok && migration.old_wtx_hash && !EraseTx(*migration.old_wtx_hash)) {
+                pwallet->WalletLogPrintf("Failed to erase old MWEB wallet transaction %s during migration\n", migration.old_wtx_hash->ToString());
+                transaction_ok = false;
+            }
+        }
+
+        if (transaction_ok && !TxnCommit()) {
+            pwallet->WalletLogPrintf("Failed to commit MWEB record migration transaction\n");
+            transaction_ok = false;
+        }
+
+        if (!transaction_ok) {
+            if (transaction_started) {
+                TxnAbort();
+            }
+            mweb_migration_write_failed = true;
+        } else {
+            for (const MWEBMigration& migration : mweb_migrations) {
+                migration.wtx->mweb_wtx_info->legacy_received_coin = std::nullopt;
+            }
+        }
+    }
+
+    // Do not run later load-time rewrites after a failed MWEB migration. In
+    // particular, ReorderTransactions() would serialize an unordered legacy
+    // transaction under its new ID-only key, defeating the rollback above.
+    if (mweb_migration_write_failed) {
+        return DBErrors::NONCRITICAL_ERROR;
+    }
+
     for (const uint256& hash : wss.vWalletUpgrade)
         WriteTx(pwallet->mapWallet.at(hash));
-    
+
     for (const uint256& hash : wss.vWalletRemove) {
         EraseTx(hash);
     }
@@ -1108,7 +1217,7 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
             }
         }
     }
-    
+
     return result;
 }
 

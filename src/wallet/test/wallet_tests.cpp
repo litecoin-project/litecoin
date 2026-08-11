@@ -3,10 +3,13 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <wallet/wallet.h>
+#include <mweb/mweb_wallet.h>
 
 #include <algorithm>
 #include <future>
+#include <map>
 #include <memory>
+#include <optional>
 #include <stdint.h>
 #include <vector>
 
@@ -1015,10 +1018,10 @@ BOOST_FIXTURE_TEST_CASE(IsSpentPartialMWEB, TestChain100Setup)
     }
 
     const mw::Hash spent_id = mw::Hash::FromHex("73ee0d7d430d7fdd94fe9ee7f89e7fe9ed6a20f7865d6fdedeb1dd03dd977a0f");
-    const uint256 partial_hash = MWEB::WalletTxInfo(spent_id).GetHash();
+    const uint256 partial_hash = MWEB::WalletTxInfo::Spent(spent_id).GetHash();
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
-        std::make_optional<MWEB::WalletTxInfo>(spent_id),
+        std::make_optional(MWEB::WalletTxInfo::Spent(spent_id)),
         TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
     ));
 
@@ -1068,10 +1071,15 @@ BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Se
     const StealthAddress received_address = StealthAddress::Random();
     received_wallet_coin.address = received_address;
 
-    const uint256 partial_hash = MWEB::WalletTxInfo(received_wallet_coin).GetHash();
+    {
+        LOCK(wallet->cs_wallet);
+        BOOST_REQUIRE(wallet->GetMWWallet()->SaveToWallet({received_wallet_coin}));
+    }
+
+    const uint256 partial_hash = MWEB::WalletTxInfo::Received(received_wallet_coin.output_id).GetHash();
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
-        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin),
+        std::make_optional(MWEB::WalletTxInfo::Received(received_wallet_coin.output_id)),
         TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
     ));
 
@@ -1080,8 +1088,8 @@ BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Se
         const CWalletTx* wtx = wallet->GetWalletTx(partial_hash);
         BOOST_REQUIRE(wtx != nullptr);
         BOOST_REQUIRE(wtx->IsPartialMWEB());
-        BOOST_REQUIRE(wtx->GetMWEBReceivedCoin() != std::nullopt);
-        BOOST_CHECK(*wtx->GetMWEBReceivedCoin() == received_wallet_coin);
+        BOOST_REQUIRE(wtx->GetMWEBReceivedOutputID() != std::nullopt);
+        BOOST_CHECK(*wtx->GetMWEBReceivedOutputID() == received_wallet_coin.output_id);
 
         BOOST_CHECK(wtx->GetTxOutputs().empty());
 
@@ -1140,17 +1148,22 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
     received_wallet_coin_2.amount = full_mweb_tx.GetOutputs()[1].GetAmount();
     received_wallet_coin_2.output_id = full_mweb_tx.GetOutputs()[1].GetOutputID();
 
-    const uint256 partial_hash_1 = MWEB::WalletTxInfo(received_wallet_coin_1).GetHash();
-    const uint256 partial_hash_2 = MWEB::WalletTxInfo(received_wallet_coin_2).GetHash();
+    {
+        LOCK(wallet->cs_wallet);
+        BOOST_REQUIRE(wallet->GetMWWallet()->SaveToWallet({received_wallet_coin_1, received_wallet_coin_2}));
+    }
+
+    const uint256 partial_hash_1 = MWEB::WalletTxInfo::Received(received_wallet_coin_1.output_id).GetHash();
+    const uint256 partial_hash_2 = MWEB::WalletTxInfo::Received(received_wallet_coin_2.output_id).GetHash();
 
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
-        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin_1),
+        std::make_optional(MWEB::WalletTxInfo::Received(received_wallet_coin_1.output_id)),
         TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
     ));
     BOOST_REQUIRE(wallet->AddToWallet(
         MakeTransactionRef(),
-        std::make_optional<MWEB::WalletTxInfo>(received_wallet_coin_2),
+        std::make_optional(MWEB::WalletTxInfo::Received(received_wallet_coin_2.output_id)),
         TxStateConfirmed{tip_hash, tip_height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
     ));
 
@@ -1162,8 +1175,8 @@ BOOST_FIXTURE_TEST_CASE(UpgradePartialMWEBReceiveToFullTransaction, TestChain100
         BOOST_REQUIRE(partial_wtx_2 != nullptr);
         BOOST_REQUIRE(partial_wtx_1->IsPartialMWEB());
         BOOST_REQUIRE(partial_wtx_2->IsPartialMWEB());
-        BOOST_REQUIRE(partial_wtx_1->GetMWEBReceivedCoin() != std::nullopt);
-        BOOST_REQUIRE(partial_wtx_2->GetMWEBReceivedCoin() != std::nullopt);
+        BOOST_REQUIRE(partial_wtx_1->GetMWEBReceivedOutputID() != std::nullopt);
+        BOOST_REQUIRE(partial_wtx_2->GetMWEBReceivedOutputID() != std::nullopt);
         BOOST_REQUIRE(wallet->FindWalletTx(AnyOutputID(received_wallet_coin_1.output_id)) == partial_wtx_1);
         BOOST_REQUIRE(wallet->FindWalletTx(AnyOutputID(received_wallet_coin_2.output_id)) == partial_wtx_2);
     }
@@ -1275,6 +1288,194 @@ public:
     std::unique_ptr<DatabaseBatch> MakeBatch(bool flush_on_close = true) override { return std::make_unique<FailBatch>(m_pass); }
 };
 
+enum class FaultPoint {
+    NONE,
+    WRITE_MINVERSION,
+    WRITE_COIN,
+    WRITE_TX,
+    ERASE_TX,
+    COMMIT,
+};
+
+using TestDatabaseBytes = std::vector<std::byte>;
+using TestDatabaseRecords = std::map<TestDatabaseBytes, TestDatabaseBytes>;
+
+struct FaultDatabaseState
+{
+    TestDatabaseRecords records;
+    std::optional<TestDatabaseRecords> transaction;
+    FaultPoint fault{FaultPoint::NONE};
+};
+
+class FaultBatch : public DatabaseBatch
+{
+    std::shared_ptr<FaultDatabaseState> m_state;
+    std::optional<TestDatabaseRecords::const_iterator> m_cursor;
+
+    TestDatabaseRecords& Records()
+    {
+        return m_state->transaction ? *m_state->transaction : m_state->records;
+    }
+
+    const TestDatabaseRecords& Records() const
+    {
+        return m_state->transaction ? *m_state->transaction : m_state->records;
+    }
+
+    static std::string KeyType(const TestDatabaseBytes& key)
+    {
+        CDataStream stream(key, SER_DISK, CLIENT_VERSION);
+        std::string type;
+        stream >> type;
+        return type;
+    }
+
+    bool Fail(const FaultPoint point)
+    {
+        if (m_state->fault != point) {
+            return false;
+        }
+
+        m_state->fault = FaultPoint::NONE;
+        return true;
+    }
+
+    bool ReadKey(CDataStream&& key, CDataStream& value) override
+    {
+        const TestDatabaseBytes key_bytes{key.begin(), key.end()};
+        const auto iter = Records().find(key_bytes);
+        if (iter == Records().end()) {
+            return false;
+        }
+
+        value.write(Span<const std::byte>{iter->second.data(), iter->second.size()});
+        return true;
+    }
+
+    bool WriteKey(CDataStream&& key, CDataStream&& value, bool overwrite = true) override
+    {
+        const TestDatabaseBytes key_bytes{key.begin(), key.end()};
+        const std::string type = KeyType(key_bytes);
+        if ((type == DBKeys::MINVERSION && Fail(FaultPoint::WRITE_MINVERSION))
+            || (type == DBKeys::COIN && Fail(FaultPoint::WRITE_COIN))
+            || (type == DBKeys::TX && Fail(FaultPoint::WRITE_TX))) {
+            return false;
+        }
+
+        TestDatabaseRecords& records = Records();
+        if (!overwrite && records.count(key_bytes) != 0) {
+            return false;
+        }
+
+        records[key_bytes] = TestDatabaseBytes{value.begin(), value.end()};
+        return true;
+    }
+
+    bool EraseKey(CDataStream&& key) override
+    {
+        const TestDatabaseBytes key_bytes{key.begin(), key.end()};
+        if (KeyType(key_bytes) == DBKeys::TX && Fail(FaultPoint::ERASE_TX)) {
+            return false;
+        }
+
+        Records().erase(key_bytes);
+        return true;
+    }
+
+    bool HasKey(CDataStream&& key) override
+    {
+        const TestDatabaseBytes key_bytes{key.begin(), key.end()};
+        return Records().count(key_bytes) != 0;
+    }
+
+public:
+    explicit FaultBatch(std::shared_ptr<FaultDatabaseState> state)
+        : m_state(std::move(state)) { }
+
+    void Flush() override { }
+    void Close() override { }
+
+    bool StartCursor() override
+    {
+        m_cursor = m_state->records.cbegin();
+        return true;
+    }
+
+    bool ReadAtCursor(CDataStream& key, CDataStream& value, bool& complete) override
+    {
+        if (!m_cursor) {
+            return false;
+        }
+
+        if (*m_cursor == m_state->records.cend()) {
+            complete = true;
+            return true;
+        }
+
+        complete = false;
+        key.write(Span<const std::byte>{(*m_cursor)->first.data(), (*m_cursor)->first.size()});
+        value.write(Span<const std::byte>{(*m_cursor)->second.data(), (*m_cursor)->second.size()});
+        ++(*m_cursor);
+        return true;
+    }
+
+    void CloseCursor() override { m_cursor.reset(); }
+
+    bool TxnBegin() override
+    {
+        if (m_state->transaction) {
+            return false;
+        }
+
+        m_state->transaction = m_state->records;
+        return true;
+    }
+
+    bool TxnCommit() override
+    {
+        if (!m_state->transaction || Fail(FaultPoint::COMMIT)) {
+            return false;
+        }
+
+        m_state->records = std::move(*m_state->transaction);
+        m_state->transaction.reset();
+        return true;
+    }
+
+    bool TxnAbort() override
+    {
+        if (!m_state->transaction) {
+            return false;
+        }
+
+        m_state->transaction.reset();
+        return true;
+    }
+};
+
+class FaultDatabase : public WalletDatabase
+{
+    std::shared_ptr<FaultDatabaseState> m_state;
+
+public:
+    explicit FaultDatabase(std::shared_ptr<FaultDatabaseState> state)
+        : m_state(std::move(state)) { }
+
+    void Open() override { }
+    void AddRef() override { }
+    void RemoveRef() override { }
+    bool Rewrite(const char* pszSkip = nullptr) override { return true; }
+    bool Backup(const std::string& strDest) const override { return true; }
+    void Close() override { }
+    void Flush() override { }
+    bool PeriodicFlush() override { return true; }
+    void IncrementUpdateCounter() override { ++nUpdateCounter; }
+    void ReloadDbEnv() override { }
+    std::string Filename() override { return "faultdb"; }
+    std::string Format() override { return "faultdb"; }
+    std::unique_ptr<DatabaseBatch> MakeBatch(bool flush_on_close = true) override { return std::make_unique<FaultBatch>(m_state); }
+};
+
 /**
  * Checks a wallet invalid state where the inputs (prev-txs) of a new arriving transaction are not marked dirty,
  * while the transaction that spends them exist inside the in-memory wallet tx map (not stored on db due a db write failure).
@@ -1334,6 +1535,280 @@ BOOST_FIXTURE_TEST_CASE(wallet_sync_tx_invalid_state_test, TestingSetup)
     BOOST_CHECK_EXCEPTION(wallet.transactionAddedToMempool(MakeTransactionRef(mtx), 0),
                           std::runtime_error,
                           HasReason("DB error adding transaction to wallet, write failed"));
+}
+
+static const std::string V0215_MWEB_INFO_HEX{
+    "01020700008097ca20a34f2dc3a2f78cbb2b3ab34aaf42a34e9c86e6f8dbcd44f9a3f68d5eb3e8be91000000"
+};
+
+static void SetV0215PartialMWEBInfo(CWalletTx& wtx)
+{
+    wtx.mapValue["mweb_info"] = V0215_MWEB_INFO_HEX;
+}
+
+static mw::WalletCoin V0215MWEBWalletCoin()
+{
+    const MWEB::WalletTxInfo info = MWEB::WalletTxInfo::FromHex(V0215_MWEB_INFO_HEX);
+    assert(info.legacy_received_coin);
+    return *info.legacy_received_coin;
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBWalletDatabaseWriteFailures, TestingSetup)
+{
+    auto state = std::make_shared<FaultDatabaseState>();
+    CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+
+    state->fault = FaultPoint::WRITE_MINVERSION;
+    BOOST_CHECK(!wallet.SetMinVersion(FEATURE_V24));
+    BOOST_CHECK(wallet.GetVersion() < FEATURE_V24);
+
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+    {
+        LOCK(wallet.cs_wallet);
+        state->fault = FaultPoint::WRITE_MINVERSION;
+        BOOST_CHECK(!wallet.GetMWWallet()->SaveToWallet({coin}));
+        BOOST_CHECK(wallet.GetVersion() < FEATURE_V24);
+
+        mw::WalletCoin loaded_coin;
+        BOOST_CHECK(!wallet.GetMWEBWalletCoin(coin.output_id, loaded_coin));
+
+        state->fault = FaultPoint::WRITE_COIN;
+        BOOST_CHECK(!wallet.GetMWWallet()->SaveToWallet({coin}));
+
+        BOOST_CHECK(!wallet.GetMWEBWalletCoin(coin.output_id, loaded_coin));
+        BOOST_CHECK_EQUAL(wallet.GetVersion(), FEATURE_V24);
+        int persisted_min_version{0};
+        BOOST_REQUIRE(wallet.GetDatabase().MakeBatch()->Read(DBKeys::MINVERSION, persisted_min_version));
+        BOOST_CHECK_EQUAL(persisted_min_version, FEATURE_V24);
+
+        mw::WalletCoin second_coin = coin;
+        second_coin.output_id = mw::Hash::FromHex("418f6bb03b49b6a0485f20c5e41088d8d0e77ec580c45a216ca2e98c1c4475ee");
+        wallet.GetMWWallet()->StageWalletCoins({
+            {coin.output_id, coin},
+            {second_coin.output_id, second_coin},
+        });
+
+        state->fault = FaultPoint::WRITE_COIN;
+        BOOST_CHECK(!wallet.GetMWWallet()->SaveStagedCoinsToWallet({coin.output_id, second_coin.output_id}));
+        BOOST_CHECK(!wallet.GetMWEBWalletCoin(coin.output_id, loaded_coin));
+        BOOST_CHECK(!wallet.GetMWEBWalletCoin(second_coin.output_id, loaded_coin));
+
+        BOOST_REQUIRE(wallet.GetMWWallet()->SaveStagedCoinsToWallet({coin.output_id, second_coin.output_id}));
+        BOOST_CHECK(wallet.GetMWEBWalletCoin(coin.output_id, loaded_coin));
+        BOOST_CHECK(wallet.GetMWEBWalletCoin(second_coin.output_id, loaded_coin));
+    }
+
+    auto partial_state = std::make_shared<FaultDatabaseState>();
+    CWallet partial_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(partial_state));
+    partial_state->fault = FaultPoint::WRITE_MINVERSION;
+    BOOST_CHECK(partial_wallet.AddToWallet(
+        MakeTransactionRef(),
+        std::make_optional(MWEB::WalletTxInfo::Received(coin.output_id)),
+        TxStateInactive{}
+    ) == nullptr);
+
+    CWalletTx persisted_wtx(nullptr, TxStateInactive{}, std::nullopt);
+    BOOST_CHECK(!partial_wallet.GetDatabase().MakeBatch()->Read(
+        std::make_pair(DBKeys::TX, MWEB::WalletTxInfo::Received(coin.output_id).GetHash()),
+        persisted_wtx
+    ));
+
+    auto rewind_state = std::make_shared<FaultDatabaseState>();
+    CWallet rewind_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(rewind_state));
+    rewind_wallet.LoadMinVersion(FEATURE_MWEB);
+    rewind_wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+    rewind_wallet.SetupDescriptorScriptPubKeyMans();
+
+    FlatSigningProvider provider;
+    std::string error;
+    CKey descriptor_key;
+    descriptor_key.MakeNewKey(true);
+    WalletDescriptor desc(Parse("combo(" + EncodeSecret(descriptor_key) + ")", provider, error, false), 0, 0, 1, 1);
+    BOOST_REQUIRE(rewind_wallet.AddWalletDescriptor(desc, provider, "", false));
+
+    const util::Result<CTxDestination> dest = rewind_wallet.GetNewDestination(OutputType::MWEB, "");
+    BOOST_REQUIRE(dest);
+    BOOST_REQUIRE(std::holds_alternative<StealthAddress>(*dest));
+    const mw::Output output = test::TxBuilder()
+        .AddPeginKernel(1'000'000, 0)
+        .AddOutput(1'000'000, SecretKey::Random(), std::get<StealthAddress>(*dest))
+        .Build()
+        .GetOutputs()
+        .front()
+        .GetOutput();
+
+    {
+        LOCK(rewind_wallet.cs_wallet);
+        rewind_state->fault = FaultPoint::WRITE_COIN;
+        mw::WalletCoin rewound_coin;
+        if (rewind_wallet.GetMWWallet()->RewindOutput(output, rewound_coin)) {
+            rewind_wallet.AddToWallet(
+                MakeTransactionRef(),
+                std::make_optional(MWEB::WalletTxInfo::Received(rewound_coin.output_id)),
+                TxStateInactive{}
+            );
+        }
+
+        BOOST_CHECK(!rewind_wallet.GetMWEBWalletCoin(output.GetOutputID(), rewound_coin));
+        BOOST_CHECK(rewind_wallet.mapWallet.empty());
+    }
+}
+
+BOOST_AUTO_TEST_CASE(MWEBWalletTxInfoSerialization)
+{
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+
+    // v0.21.5.4 received records contain a bool followed by a version-2 coin.
+    const MWEB::WalletTxInfo from_legacy = MWEB::WalletTxInfo::FromHex(V0215_MWEB_INFO_HEX);
+    BOOST_REQUIRE(from_legacy.received_output_id.has_value());
+    BOOST_CHECK(*from_legacy.received_output_id == coin.output_id);
+    BOOST_REQUIRE(from_legacy.legacy_received_coin.has_value());
+    BOOST_CHECK(*from_legacy.legacy_received_coin == coin);
+
+    // The wtx hash covers only the output ID, so it is stable across formats.
+    const MWEB::WalletTxInfo received = MWEB::WalletTxInfo::Received(coin.output_id);
+    BOOST_CHECK(from_legacy.GetHash() == received.GetHash());
+
+    // Round-trip of the v24 received format: ID only, no embedded coin.
+    const MWEB::WalletTxInfo received_rt = MWEB::WalletTxInfo::FromHex(received.ToHex());
+    BOOST_CHECK(received_rt == received);
+    BOOST_CHECK(!received_rt.legacy_received_coin.has_value());
+    BOOST_CHECK(received_rt.GetHash() == received.GetHash());
+
+    // Re-serializing a parsed legacy record emits the v24 format.
+    BOOST_CHECK_EQUAL(from_legacy.ToHex(), received.ToHex());
+
+    // Spent records are byte-identical between the two formats.
+    const mw::Hash spent_id = mw::Hash::FromHex("73ee0d7d430d7fdd94fe9ee7f89e7fe9ed6a20f7865d6fdedeb1dd03dd977a0f");
+    CDataStream legacy_spent(SER_DISK, PROTOCOL_VERSION);
+    legacy_spent << false << spent_id;
+    const MWEB::WalletTxInfo spent = MWEB::WalletTxInfo::Spent(spent_id);
+    BOOST_CHECK_EQUAL(HexStr(legacy_spent), spent.ToHex());
+    const MWEB::WalletTxInfo spent_rt = MWEB::WalletTxInfo::FromHex(spent.ToHex());
+    BOOST_CHECK(spent_rt == spent);
+    BOOST_CHECK(spent_rt.GetHash() == spent.GetHash());
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBLegacyWalletCoinMigration, TestingSetup)
+{
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+    const uint256 old_wtx_hash{coin.output_id.vec()};
+    const uint256 new_wtx_hash = MWEB::WalletTxInfo::Received(coin.output_id).GetHash();
+
+    auto database = CreateMockWalletDatabase();
+    {
+        CWalletTx legacy_wtx(MakeTransactionRef(), TxStateInactive{}, std::nullopt);
+        SetV0215PartialMWEBInfo(legacy_wtx);
+        std::unique_ptr<DatabaseBatch> batch = database->MakeBatch();
+        BOOST_REQUIRE(batch->Write(std::make_pair(DBKeys::TX, old_wtx_hash), legacy_wtx));
+    }
+
+    CWallet wallet(m_node.chain.get(), "", m_args, std::move(database));
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+
+    LOCK(wallet.cs_wallet);
+
+    // Loading in v24 must raise the minversion so older releases fail hard.
+    BOOST_CHECK_EQUAL(wallet.GetVersion(), FEATURE_V24);
+
+    // The embedded coin was promoted into the wallet's coin map.
+    mw::WalletCoin loaded_coin;
+    BOOST_REQUIRE(wallet.GetMWEBWalletCoin(coin.output_id, loaded_coin));
+    BOOST_CHECK(loaded_coin == coin);
+
+    // The in-memory wtx keeps only the output ID.
+    const CWalletTx* wtx = wallet.GetWalletTx(new_wtx_hash);
+    BOOST_REQUIRE(wtx != nullptr);
+    BOOST_REQUIRE(wtx->mweb_wtx_info.has_value());
+    BOOST_CHECK(!wtx->mweb_wtx_info->legacy_received_coin.has_value());
+    BOOST_REQUIRE(wtx->mweb_wtx_info->received_output_id.has_value());
+    BOOST_CHECK(*wtx->mweb_wtx_info->received_output_id == coin.output_id);
+
+    // The tx record was rewritten in the ID-only format and the coin was
+    // persisted as a mweb_coin record.
+    CWalletTx reread(nullptr, TxStateInactive{}, std::nullopt);
+    std::unique_ptr<DatabaseBatch> batch = wallet.GetDatabase().MakeBatch();
+    int persisted_min_version{0};
+    BOOST_REQUIRE(batch->Read(DBKeys::MINVERSION, persisted_min_version));
+    BOOST_CHECK_EQUAL(persisted_min_version, FEATURE_V24);
+    BOOST_CHECK(!batch->Read(std::make_pair(DBKeys::TX, old_wtx_hash), reread));
+    BOOST_REQUIRE(batch->Read(std::make_pair(DBKeys::TX, new_wtx_hash), reread));
+    BOOST_REQUIRE(reread.mweb_wtx_info.has_value());
+    BOOST_CHECK(!reread.mweb_wtx_info->legacy_received_coin.has_value());
+
+    mw::WalletCoin persisted_coin;
+    BOOST_REQUIRE(batch->Read(std::make_pair(DBKeys::COIN, coin.output_id), persisted_coin));
+    BOOST_CHECK(persisted_coin == coin);
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBLegacyWalletCoinMigrationFailuresAreAtomic, TestingSetup)
+{
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+    const uint256 old_wtx_hash{coin.output_id.vec()};
+    const uint256 new_wtx_hash = MWEB::WalletTxInfo::Received(coin.output_id).GetHash();
+
+    for (const FaultPoint fault : {
+        FaultPoint::WRITE_MINVERSION,
+        FaultPoint::WRITE_COIN,
+        FaultPoint::WRITE_TX,
+        FaultPoint::ERASE_TX,
+        FaultPoint::COMMIT,
+    }) {
+        auto state = std::make_shared<FaultDatabaseState>();
+        {
+            CWalletTx legacy_wtx(MakeTransactionRef(), TxStateInactive{}, std::nullopt);
+            SetV0215PartialMWEBInfo(legacy_wtx);
+            FaultDatabase database(state);
+            BOOST_REQUIRE(database.MakeBatch()->Write(
+                std::make_pair(DBKeys::TX, old_wtx_hash),
+                legacy_wtx
+            ));
+        }
+
+        state->fault = fault;
+        {
+            CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+            BOOST_CHECK(wallet.LoadWallet() == DBErrors::NONCRITICAL_ERROR);
+
+            LOCK(wallet.cs_wallet);
+            const CWalletTx* wtx = wallet.GetWalletTx(new_wtx_hash);
+            BOOST_REQUIRE(wtx != nullptr);
+            BOOST_REQUIRE(wtx->mweb_wtx_info);
+            BOOST_CHECK(wtx->mweb_wtx_info->legacy_received_coin.has_value());
+
+            mw::WalletCoin loaded_coin;
+            BOOST_REQUIRE(wallet.GetMWEBWalletCoin(coin.output_id, loaded_coin));
+            BOOST_CHECK(loaded_coin == coin);
+        }
+
+        {
+            FaultDatabase database(state);
+            std::unique_ptr<DatabaseBatch> batch = database.MakeBatch();
+            CWalletTx persisted_wtx(nullptr, TxStateInactive{}, std::nullopt);
+            mw::WalletCoin persisted_coin;
+            BOOST_CHECK(batch->Read(std::make_pair(DBKeys::TX, old_wtx_hash), persisted_wtx));
+            BOOST_CHECK(!batch->Read(std::make_pair(DBKeys::TX, new_wtx_hash), persisted_wtx));
+            BOOST_CHECK(!batch->Read(std::make_pair(DBKeys::COIN, coin.output_id), persisted_coin));
+        }
+
+        {
+            CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+            BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+
+            LOCK(wallet.cs_wallet);
+            mw::WalletCoin loaded_coin;
+            BOOST_REQUIRE(wallet.GetMWEBWalletCoin(coin.output_id, loaded_coin));
+            BOOST_CHECK(loaded_coin == coin);
+        }
+
+        FaultDatabase database(state);
+        std::unique_ptr<DatabaseBatch> batch = database.MakeBatch();
+        CWalletTx persisted_wtx(nullptr, TxStateInactive{}, std::nullopt);
+        mw::WalletCoin persisted_coin;
+        BOOST_CHECK(!batch->Read(std::make_pair(DBKeys::TX, old_wtx_hash), persisted_wtx));
+        BOOST_CHECK(batch->Read(std::make_pair(DBKeys::TX, new_wtx_hash), persisted_wtx));
+        BOOST_CHECK(batch->Read(std::make_pair(DBKeys::COIN, coin.output_id), persisted_coin));
+    }
 }
 
 BOOST_AUTO_TEST_SUITE_END()

@@ -932,7 +932,7 @@ BOOST_AUTO_TEST_CASE(PSBTPeginFillSignFinalize)
         BOOST_REQUIRE(output_id.has_value());
         output_ids.insert(*output_id);
     }
-    MWEBWallet().SaveStagedCoinsToWallet(output_ids);
+    BOOST_REQUIRE(MWEBWallet().SaveStagedCoinsToWallet(output_ids));
     for (const mw::MutableOutput& output : final_tx->mweb_tx.outputs) {
         const mw::WalletCoin coin = GetMWEBWalletCoin(*output.CalcOutputID());
         BOOST_CHECK_EQUAL(coin.amount, *output.amount);

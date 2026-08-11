@@ -65,19 +65,17 @@ void Wallet::UpgradeCoins(const mw::Keychain::Ptr& keychain)
         wallet::CWalletTx* wtx = &entry.second;
         RewindOutputs(*wtx->tx);
 
-        if (wtx->mweb_wtx_info && wtx->mweb_wtx_info->received_wallet_coin) {
-            mw::WalletCoin& coin = *wtx->mweb_wtx_info->received_wallet_coin;
-            if (!coin.HasSpendKey()) {
+        // Partial MWEB wtxs reference a received output by ID; the coin
+        // itself lives in m_coins. Try filling in its spend key there.
+        if (wtx->mweb_wtx_info && wtx->mweb_wtx_info->received_output_id) {
+            auto coin_iter = m_coins.find(*wtx->mweb_wtx_info->received_output_id);
+            if (coin_iter != m_coins.end() && !coin_iter->second.HasSpendKey()) {
+                mw::WalletCoin coin = coin_iter->second;
                 coin.spend_key = keychain->CalculateOutputSpendKey(coin);
 
                 // If spend key was populated, update the database and m_coins map.
                 if (coin.HasSpendKey()) {
-                    m_coins[coin.output_id] = coin;
-
-                    wallet::WalletBatch batch(m_pWallet->GetDatabase());
-                    batch.WriteMWEBWalletCoin(coin);
-                    batch.WriteTx(*wtx);
-                    m_pWallet->MarkDirty();
+                    (void)SaveCoin(coin);
                 }
             }
         }
@@ -125,16 +123,11 @@ bool Wallet::RewindOutput(const mw::Output& output, mw::WalletCoin& coin)
 
         if (coin.IsMine()) {
             UpgradeWalletCoinSpendKey(coin);
-            m_coins[coin.output_id] = coin;
-            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
-            m_pWallet->MarkDirty();
-            return true;
+            return SaveCoin(coin);
         }
 
         if (sent_by_me) {
-            m_coins[coin.output_id] = coin;
-            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
-            m_pWallet->MarkDirty();
+            (void)SaveCoin(coin);
             return false;
         }
     }
@@ -145,28 +138,42 @@ bool Wallet::RewindOutput(const mw::Output& output, mw::WalletCoin& coin)
                 MergeSenderMetadata(coin, sent_coin);
                 UpgradeWalletCoinSpendKey(coin);
             }
-            m_coins[coin.output_id] = coin;
-            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
-            m_pWallet->MarkDirty();
-            return true;
+            return SaveCoin(coin);
         }
     }
 
     if (sent_by_me) {
         coin = sent_coin;
         if (RecoverOwnedOutputFromSenderData(output, coin)) {
-            m_coins[coin.output_id] = coin;
-            wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
-            m_pWallet->MarkDirty();
-            return true;
+            return SaveCoin(coin);
         }
 
-        m_coins[coin.output_id] = coin;
-        wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBWalletCoin(coin);
-        m_pWallet->MarkDirty();
+        (void)SaveCoin(coin);
     }
 
     return false;
+}
+
+bool Wallet::SaveCoin(const mw::WalletCoin& coin)
+{
+    AssertLockHeld(m_pWallet->cs_wallet);
+    wallet::WalletBatch batch(m_pWallet->GetDatabase());
+
+    // v24 MWEB wallet state is not readable by older releases; make the
+    // wallet fail hard in them before the first such record is persisted.
+    if (!m_pWallet->SetMinVersion(wallet::FEATURE_V24, &batch)) {
+        m_pWallet->WalletLogPrintf("Failed to write wallet minimum version before saving MWEB coin %s\n", coin.output_id.ToHex());
+        return false;
+    }
+
+    if (!batch.WriteMWEBWalletCoin(coin)) {
+        m_pWallet->WalletLogPrintf("Failed to write MWEB coin %s\n", coin.output_id.ToHex());
+        return false;
+    }
+
+    m_coins[coin.output_id] = coin;
+    m_pWallet->MarkDirty();
+    return true;
 }
 
 bool Wallet::IsChange(const StealthAddress& address) const
@@ -227,14 +234,15 @@ void Wallet::LoadToWallet(const mw::WalletCoin& coin)
     m_coins[coin.output_id] = coin;
 }
 
-void Wallet::SaveToWallet(const std::vector<mw::WalletCoin>& coins)
+bool Wallet::SaveToWallet(const std::vector<mw::WalletCoin>& coins)
 {
     AssertLockHeld(m_pWallet->cs_wallet);
-    wallet::WalletBatch batch(m_pWallet->GetDatabase());
     for (const mw::WalletCoin& coin : coins) {
-        m_coins[coin.output_id] = coin;
-        batch.WriteMWEBWalletCoin(coin);
+        if (!SaveCoin(coin)) {
+            return false;
+        }
     }
+    return true;
 }
 
 void Wallet::StageWalletCoins(const std::map<mw::Hash, mw::WalletCoin>& wallet_coins_by_output_id)
@@ -280,21 +288,21 @@ void Wallet::StageOutputAddresses(const std::map<mw::Hash, StealthAddress>& addr
     }
 }
 
-void Wallet::SaveStagedCoinsToWallet(const std::set<mw::Hash>& output_ids)
+bool Wallet::SaveStagedCoinsToWallet(const std::set<mw::Hash>& output_ids)
 {
     AssertLockHeld(m_pWallet->cs_wallet);
-    wallet::WalletBatch batch(m_pWallet->GetDatabase());
     for (const mw::Hash& output_id : output_ids) {
         auto iter = m_staged_coins.find(output_id);
         if (iter == m_staged_coins.end()) {
             continue;
         }
 
-        m_coins[output_id] = iter->second;
-        batch.WriteMWEBWalletCoin(iter->second);
-        m_pWallet->MarkDirty();
+        if (!SaveCoin(iter->second)) {
+            return false;
+        }
         m_staged_coins.erase(iter);
     }
+    return true;
 }
 
 bool Wallet::GetWalletCoin(const mw::Hash& output_id, mw::WalletCoin& coin) const
@@ -369,7 +377,11 @@ util::Result<SecretKey> Wallet::GenerateSenderKey()
 
     const SecretKey sender_key = keychain->GetSenderSigningKey(next_index);
     const uint64_t next_index_to_write = next_index + 1;
-    if (!wallet::WalletBatch(m_pWallet->GetDatabase()).WriteMWEBNextSenderKeyIndex(master_scan_keyid, next_index_to_write)) {
+    wallet::WalletBatch batch(m_pWallet->GetDatabase());
+    if (!m_pWallet->SetMinVersion(wallet::FEATURE_V24, &batch)) {
+        return util::Error{Untranslated("Failed to write wallet minimum version")};
+    }
+    if (!batch.WriteMWEBNextSenderKeyIndex(master_scan_keyid, next_index_to_write)) {
         return util::Error{Untranslated("Failed to write MWEB sender key index")};
     }
 

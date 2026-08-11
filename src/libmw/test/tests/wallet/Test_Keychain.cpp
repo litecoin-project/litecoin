@@ -85,7 +85,7 @@ public:
     bool IsWalletFlagSet(uint64_t) const override { return false; }
     void UnsetBlankWalletFlag(wallet::WalletBatch&) override {}
     bool CanSupportFeature(enum wallet::WalletFeature) const override { return true; }
-    void SetMinVersion(enum wallet::WalletFeature, wallet::WalletBatch* = nullptr) override {}
+    bool SetMinVersion(enum wallet::WalletFeature, wallet::WalletBatch* = nullptr) override { return true; }
     const wallet::CKeyingMaterial& GetEncryptionKey() const override { return m_encryption_key; }
     bool HasEncryptionKeys() const override { return false; }
     bool IsLocked() const override { return false; }

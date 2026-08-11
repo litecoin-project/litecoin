@@ -361,10 +361,10 @@ public:
         }
 
         if (mode == OutputIdMode::WALLET_OUTPUTS) {
-            std::optional<mw::WalletCoin> mweb_coin = GetMWEBReceivedCoin();
-            if (mweb_coin) {
-                if (!tx->HasOutput(AnyOutputID{mweb_coin->output_id})) {
-                    output_ids.push_back(mweb_coin->output_id);
+            std::optional<mw::Hash> mweb_output_id = GetMWEBReceivedOutputID();
+            if (mweb_output_id) {
+                if (!tx->HasOutput(AnyOutputID{*mweb_output_id})) {
+                    output_ids.push_back(*mweb_output_id);
                 }
             }
         }
@@ -397,9 +397,9 @@ public:
         return tx->IsNull() && mweb_wtx_info;
     }
 
-    std::optional<mw::WalletCoin> GetMWEBReceivedCoin() const noexcept
+    std::optional<mw::Hash> GetMWEBReceivedOutputID() const noexcept
     {
-        return mweb_wtx_info ? mweb_wtx_info->received_wallet_coin : std::nullopt;
+        return mweb_wtx_info ? mweb_wtx_info->received_output_id : std::nullopt;
     }
 
     // Disable copying of CWalletTx objects to prevent bugs where instances get

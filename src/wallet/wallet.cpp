@@ -591,21 +591,29 @@ void CWallet::chainStateFlushed(const CBlockLocator& loc)
     batch.WriteBestBlock(loc);
 }
 
-void CWallet::SetMinVersion(enum WalletFeature nVersion, WalletBatch* batch_in)
+bool CWallet::SetMinVersion(enum WalletFeature nVersion, WalletBatch* batch_in)
 {
     LOCK(cs_wallet);
-    if (nWalletVersion >= nVersion)
-        return;
-    WalletLogPrintf("Setting minversion to %d\n", nVersion);
-    nWalletVersion = nVersion;
+    if (nWalletVersion >= nVersion) {
+        return true;
+    }
 
     {
+        bool success = true;
         WalletBatch* batch = batch_in ? batch_in : new WalletBatch(GetDatabase());
-        if (nWalletVersion > 40000)
-            batch->WriteMinVersion(nWalletVersion);
+        if (nVersion > 40000)
+            success = batch->WriteMinVersion(nVersion);
         if (!batch_in)
             delete batch;
+        if (!success) {
+            WalletLogPrintf("Failed to write minversion to database\n");
+            return false;
+        }
     }
+
+    WalletLogPrintf("Setting minversion to %d\n", nVersion);
+    nWalletVersion = nVersion;
+    return true;
 }
 
 std::set<uint256> CWallet::GetConflicts(const uint256& txid) const
@@ -747,9 +755,8 @@ void CWallet::AddMWEBOrigins(const CWalletTx& wtx)
         mapOutputsMWEB[output_id] = wtx.GetHash();
     }
 
-    if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_wallet_coin) {
-        const mw::Hash& output_id = wtx.mweb_wtx_info->received_wallet_coin->output_id;
-        mapOutputsMWEB[output_id] = wtx.GetHash();
+    if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_output_id) {
+        mapOutputsMWEB[*wtx.mweb_wtx_info->received_output_id] = wtx.GetHash();
     }
 
     for (const mw::Hash& kernel_id : wtx.tx->mweb_tx.GetKernelIDs()) {
@@ -1076,17 +1083,16 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
                 continue;
             }
 
-            std::optional<mw::WalletCoin> mweb_coin = partial_wtx.GetMWEBReceivedCoin();
-            if (mweb_coin == std::nullopt) {
+            std::optional<mw::Hash> mweb_output_id = partial_wtx.GetMWEBReceivedOutputID();
+            if (mweb_output_id == std::nullopt) {
                 continue;
             }
 
-            const mw::Hash& output_id = mweb_coin->output_id;
-            if (!tx->HasOutput(AnyOutputID(output_id))) {
+            if (!tx->HasOutput(AnyOutputID(*mweb_output_id))) {
                 continue;
             }
 
-            partial_matches.push_back({wallet_tx_hash, output_id, partial_wtx.nOrderPos});
+            partial_matches.push_back({wallet_tx_hash, *mweb_output_id, partial_wtx.nOrderPos});
         }
 
         if (!partial_matches.empty()) {
@@ -1179,9 +1185,17 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
     WalletLogPrintf("AddToWallet %s  %s%s\n", hash.ToString(), (fInsertedNew ? "new" : ""), (fUpdated ? "update" : ""));
 
     // Write to disk
-    if (fInsertedNew || fUpdated)
+    if (fInsertedNew || fUpdated) {
+        // ID-only MWEB receive records are silently mis-read (not rejected)
+        // by pre-v24 releases, so gate the wallet before persisting one.
+        if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->received_output_id) {
+            if (!SetMinVersion(FEATURE_V24, &batch)) {
+                return nullptr;
+            }
+        }
         if (!batch.WriteTx(wtx))
             return nullptr;
+    }
 
     for (const uint256& removed_hash : removed_partial_mweb_hashes) {
         if (!batch.EraseTx(removed_hash)) {
@@ -1636,7 +1650,7 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
             if (GetMWEBWalletCoin(spent_id, coin) && coin.IsMine() && !IsSpent(spent_id)) {
                 AddToWallet(
                     MakeTransactionRef(),
-                    std::make_optional<MWEB::WalletTxInfo>(spent_id),
+                    std::make_optional(MWEB::WalletTxInfo::Spent(spent_id)),
                     TxStateConfirmed{block.hash, block.height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
                 );
             }
@@ -1689,7 +1703,7 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
                 } else {
                     AddToWallet(
                         MakeTransactionRef(),
-                        std::make_optional<MWEB::WalletTxInfo>(mweb_coin),
+                        std::make_optional(MWEB::WalletTxInfo::Received(mweb_coin.output_id)),
                         TxStateConfirmed{block.hash, block.height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
                     );
                 }
@@ -1859,8 +1873,9 @@ bool CWallet::IsMine(const CTransaction& tx, const std::optional<MWEB::WalletTxI
         }
     }
 
-    if (mweb_wtx_info && mweb_wtx_info->received_wallet_coin) {
-        if (mweb_wtx_info->received_wallet_coin->IsMine()) {
+    if (mweb_wtx_info && mweb_wtx_info->received_output_id) {
+        mw::WalletCoin coin;
+        if (GetMWEBWalletCoin(*mweb_wtx_info->received_output_id, coin) && coin.IsMine()) {
             return true;
         }
     }
@@ -2275,7 +2290,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                         } else {
                             AddToWallet(
                                 MakeTransactionRef(),
-                                std::make_optional<MWEB::WalletTxInfo>(mweb_coin),
+                                std::make_optional(MWEB::WalletTxInfo::Received(mweb_coin.output_id)),
                                 TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
                                 nullptr,
                                 false
@@ -2300,7 +2315,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                         } else {
                             AddToWallet(
                                 MakeTransactionRef(),
-                                std::make_optional<MWEB::WalletTxInfo>(spent_id),
+                                std::make_optional(MWEB::WalletTxInfo::Spent(spent_id)),
                                 TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
                                 nullptr,
                                 false
@@ -2799,7 +2814,9 @@ void CWallet::CommitTransaction(CTransactionRef tx, mapValue_t mapValue, std::ve
     LOCK(cs_wallet);
     WalletLogPrintf("CommitTransaction:\n%s", tx->ToString()); /* Continued */
 
-    mweb_wallet->SaveStagedCoinsToWallet(tx->mweb_tx.GetOutputIDs());
+    if (!mweb_wallet->SaveStagedCoinsToWallet(tx->mweb_tx.GetOutputIDs())) {
+        throw std::runtime_error(std::string(__func__) + ": Wallet db error, transaction commit failed");
+    }
     mweb_wallet->RewindOutputs(*tx);
 
     // Add tx to wallet, because if it has change it's also ours,
@@ -4775,20 +4792,7 @@ util::Result<MigrationResult> MigrateLegacyToDescriptor(std::shared_ptr<CWallet>
 bool CWallet::GetMWEBWalletCoin(const mw::Hash& output_id, mw::WalletCoin& coin) const
 {
     AssertLockHeld(cs_wallet);
-    if (mweb_wallet->GetWalletCoin(output_id, coin)) {
-        return true;
-    }
-
-    const CWalletTx* wtx = FindWalletTx(AnyOutputID{output_id});
-    if (wtx != nullptr) {
-        std::optional<mw::WalletCoin> mweb_coin = wtx->GetMWEBReceivedCoin();
-        if (mweb_coin != std::nullopt && mweb_coin->output_id == output_id) {
-            coin = *mweb_coin;
-            return true;
-        }
-    }
-
-    return false;
+    return mweb_wallet->GetWalletCoin(output_id, coin);
 }
 
 CAmount CWallet::GetValue(const CWalletTx& wtx, const AnyOutputID& output_id) const

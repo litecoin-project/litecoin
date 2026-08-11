@@ -30,7 +30,14 @@ enum WalletFeature
 
     FEATURE_MWEB = 210000, // Wallet with MWEB keys and coins
 
-    FEATURE_LATEST = FEATURE_MWEB
+    // v24 wallet format (MWEB wallet tx records reference coins by output ID
+    // instead of embedding them). Older releases would silently mis-read
+    // v24-format records rather than reject them, so the minversion is raised
+    // to this whenever v24-format MWEB state is written into a wallet (record
+    // migration at load, and the MWEB coin persistence sites).
+    FEATURE_V24 = 240000,
+
+    FEATURE_LATEST = FEATURE_V24
 };
 
 bool IsFeatureSupported(int wallet_version, int feature_version);

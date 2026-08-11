@@ -170,7 +170,8 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
 
         if not self.options.descriptors:
             # Descriptor wallets break compatibility, only run this test for legacy wallet
-            # Load modern wallet with older nodes
+            # v24-created wallets carry minversion FEATURE_V24 so that every older
+            # release fails hard instead of silently mis-reading v24 wallet records.
             for node in legacy_nodes:
                 for wallet_name in ["w1", "w2", "w3"]:
                     if node.version < 170000:
@@ -180,27 +181,10 @@ class BackwardsCompatibilityTest(BitcoinTestFramework):
                         # Blank wallets were introduced in v0.18.0. We test the loading error below.
                         continue
                     if node.version < 210202:
-                        # MWEB wallet records make v24-created wallets too new for pre-v0.21.2.2 nodes.
+                        # Pre-v0.21.2.2 nodes exit on loadwallet failure; the
+                        # version error is asserted via startup below instead.
                         continue
-                    node.loadwallet(wallet_name)
-                    wallet = node.get_wallet_rpc(wallet_name)
-                    info = wallet.getwalletinfo()
-                    if wallet_name == "w1":
-                        assert info['private_keys_enabled'] == True
-                        assert info['keypoolsize'] > 0
-                        txs = wallet.listtransactions()
-                        assert_equal(len(txs), 3)
-                        assert_equal(txs[1]["txid"], tx1_id)
-                        assert_equal(txs[2]["walletconflicts"], [tx1_id])
-                        assert_equal(txs[1]["replaced_by_txid"], tx2_id)
-                        assert not(txs[1]["abandoned"])
-                        assert_equal(txs[1]["confirmations"], 1)
-                    elif wallet_name == "w2":
-                        assert(info['private_keys_enabled'] == False)
-                        assert info['keypoolsize'] == 0
-                    else:
-                        assert(info['private_keys_enabled'] == True)
-                        assert info['keypoolsize'] == 0
+                    assert_raises_rpc_error(-4, "Wallet requires newer version", node.loadwallet, wallet_name)
         else:
             for node in legacy_nodes:
                 # Descriptor wallets appear to be corrupted wallets to old software
