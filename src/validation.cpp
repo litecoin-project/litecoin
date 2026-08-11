@@ -26,6 +26,7 @@
 #include <logging/timer.h>
 #include <mw/node/CoinsView.h>
 #include <mweb/mweb_node.h>
+#include <mweb/mweb_policy.h>
 #include <node/blockstorage.h>
 #include <node/interface_ui.h>
 #include <node/utxo_snapshot.h>
@@ -769,6 +770,14 @@ bool MemPoolAccept::PreChecks(ATMPArgs& args, Workspace& ws)
 
     if (!CheckTransaction(tx, state)) {
         return false; // state filled in by CheckTransaction
+    }
+
+    // Bound unpaid MWEB verification work before checking signatures and rangeproofs.
+    if (m_pool.m_require_standard && tx.HasMWEBTx()) {
+        std::string mweb_reason;
+        if (!MWEB::Policy::CheckWeight(tx, mweb_reason)) {
+            return state.Invalid(TxValidationResult::TX_NOT_STANDARD, mweb_reason);
+        }
     }
 
     // MWEB: Check MWEB tx

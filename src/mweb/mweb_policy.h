@@ -17,6 +17,10 @@ public:
     /// <param name="reason">The reason it's non-standard, if any.</param>
     /// <returns>True if the transaction is standard.</returns>
     static bool IsStandardTx(const CTransaction& tx, std::string& reason);
+
+    /// Cheaply checks MWEB relay weight and input limits before expensive
+    /// signature and rangeproof verification.
+    static bool CheckWeight(const CTransaction& tx, std::string& reason);
 };
 
 }

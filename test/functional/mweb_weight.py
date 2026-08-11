@@ -21,7 +21,7 @@ class MWEBWeightTest(BitcoinTestFramework):
 
     def run_test(self):
         self.log.info("Create some blocks")
-        self.generate(self.nodes[0], 101)
+        self.generate(self.nodes[0], 431)
 
         self.log.info("Pegin some coins - activate MWEB")
         addr = self.nodes[0].getnewaddress(address_type='mweb')
