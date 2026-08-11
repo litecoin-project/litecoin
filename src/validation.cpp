@@ -1759,20 +1759,26 @@ void Chainstate::InvalidBlockFound(CBlockIndex* pindex, const BlockValidationSta
     }
 }
 
-void Chainstate::EraseBlockData(CBlockIndex* index)
+void Chainstate::EraseBlockData(CBlockIndex* index, bool preserve_tx_metadata)
 {
     AssertLockHeld(cs_main);
     assert(!m_chain.Contains(index));
 
-    index->nStatus = std::min<unsigned int>(index->nStatus & BLOCK_VALID_MASK, BLOCK_VALID_TREE)
-        | (index->nStatus & ~BLOCK_VALID_MASK);
+    if (preserve_tx_metadata) {
+        // Keep descendants linked; only the mutable serialization must be replaced.
+        index->nStatus |= BLOCK_DISCARDED_MUTATED_DATA;
+    } else {
+        index->nStatus = std::min<unsigned int>(index->nStatus & BLOCK_VALID_MASK, BLOCK_VALID_TREE)
+            | (index->nStatus & ~BLOCK_VALID_MASK);
+        index->nStatus &= ~BLOCK_DISCARDED_MUTATED_DATA;
+        index->nTx = 0;
+        index->nChainTx = 0;
+        index->nSequenceId = 0;
+    }
     index->nStatus &= ~(BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO);
     index->nFile = 0;
     index->nDataPos = 0;
     index->nUndoPos = 0;
-    index->nTx = 0;
-    index->nChainTx = 0;
-    index->nSequenceId = 0;
 
     m_blockman.m_dirty_blockindex.insert(index);
     setBlockIndexCandidates.erase(index);
@@ -2951,7 +2957,7 @@ bool Chainstate::ConnectTip(BlockValidationState& state, CBlockIndex* pindexNew,
                 if (state.GetResult() == BlockValidationResult::BLOCK_MUTATED) {
                     // The same block hash may be valid with different
                     // non-committed data, so do not retain these bytes.
-                    EraseBlockData(pindexNew);
+                    EraseBlockData(pindexNew, /*preserve_tx_metadata=*/true);
                 }
             }
             return error("%s: ConnectBlock %s failed, %s", __func__, pindexNew->GetBlockHash().ToString(), state.ToString());
@@ -3566,6 +3572,7 @@ void Chainstate::ReceivedBlockTransactions(const CBlock& block, CBlockIndex* pin
     pindexNew->nFile = pos.nFile;
     pindexNew->nDataPos = pos.nPos;
     pindexNew->nUndoPos = 0;
+    pindexNew->nStatus &= ~BLOCK_DISCARDED_MUTATED_DATA;
     pindexNew->nStatus |= BLOCK_HAVE_DATA;
     if (DeploymentActiveAt(*pindexNew, m_chainman, Consensus::DEPLOYMENT_SEGWIT)) {
         pindexNew->nStatus |= BLOCK_OPT_WITNESS;
@@ -4880,12 +4887,19 @@ void Chainstate::CheckBlockIndex()
         // Unless these indexes are assumed valid and pending block download on a
         // background chainstate.
         if (!m_blockman.m_have_pruned && !pindex->IsAssumedValid()) {
-            // If we've never pruned, then HAVE_DATA should be equivalent to nTx > 0
-            assert(!(pindex->nStatus & BLOCK_HAVE_DATA) == (pindex->nTx == 0));
-            assert(pindexFirstMissing == pindexFirstNeverProcessed);
+            // Transaction metadata implies either available data or an
+            // explicitly discarded mutated serialization.
+            assert(((pindex->nStatus & BLOCK_HAVE_DATA) != 0 ||
+                    (pindex->nStatus & BLOCK_DISCARDED_MUTATED_DATA) != 0) == (pindex->nTx > 0));
+            assert(pindexFirstMissing == pindexFirstNeverProcessed ||
+                   (pindexFirstMissing && (pindexFirstMissing->nStatus & BLOCK_DISCARDED_MUTATED_DATA)));
         } else {
             // If we have pruned, then we can only say that HAVE_DATA implies nTx > 0
             if (pindex->nStatus & BLOCK_HAVE_DATA) assert(pindex->nTx > 0);
+        }
+        if (pindex->nStatus & BLOCK_DISCARDED_MUTATED_DATA) {
+            assert(!(pindex->nStatus & BLOCK_HAVE_DATA));
+            assert(pindex->nTx > 0);
         }
         if (pindex->nStatus & BLOCK_HAVE_UNDO) assert(pindex->nStatus & BLOCK_HAVE_DATA);
         if (pindex->IsAssumedValid()) {
@@ -4953,7 +4967,7 @@ void Chainstate::CheckBlockIndex()
         if (pindexFirstMissing == nullptr) assert(!foundInUnlinked); // We aren't missing data for any parent -- cannot be in m_blocks_unlinked.
         if (pindex->pprev && (pindex->nStatus & BLOCK_HAVE_DATA) && pindexFirstNeverProcessed == nullptr && pindexFirstMissing != nullptr) {
             // We HAVE_DATA for this block, have received data for all parents at some point, but we're currently missing data for some parent.
-            assert(m_blockman.m_have_pruned); // We must have pruned.
+            assert(m_blockman.m_have_pruned || (pindexFirstMissing->nStatus & BLOCK_DISCARDED_MUTATED_DATA));
             // This block may have entered m_blocks_unlinked if:
             //  - it has a descendant that at some point had more work than the
             //    tip, and

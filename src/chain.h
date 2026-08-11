@@ -129,6 +129,9 @@ enum BlockStatus : uint32_t {
     BLOCK_HAVE_MWEB         =   (1 << 28), //! BlockIndex contains MWEB block info (mweb_header, hogex hash, and hogex amount)
     BLOCK_HAVE_MASK          =   BLOCK_HAVE_DATA | BLOCK_HAVE_UNDO | BLOCK_HAVE_MWEB,
 
+    //! A mutated serialization was discarded, but validated transaction metadata is retained.
+    BLOCK_DISCARDED_MUTATED_DATA = (1 << 29),
+
     BLOCK_FAILED_VALID       =   32, //!< stage after last reached validness failed
     BLOCK_FAILED_CHILD       =   64, //!< descends from failed block
     BLOCK_FAILED_MASK        =   BLOCK_FAILED_VALID | BLOCK_FAILED_CHILD,

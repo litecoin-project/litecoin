@@ -7,7 +7,7 @@
 import copy
 
 from test_framework.ltc_util import setup_mweb_chain
-from test_framework.messages import CBlock, FromHex, msg_block
+from test_framework.messages import CBlock, CBlockHeader, CInv, FromHex, MSG_BLOCK, msg_block, msg_headers, msg_inv
 from test_framework.p2p import P2PDataStore
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import assert_equal
@@ -115,15 +115,26 @@ class MWEBP2PMutatedBlockSubmitBlockTest(BitcoinTestFramework):
         mutated_parent.rehash()
         assert_equal(mutated_parent.sha256, valid_parent.sha256)
 
-        self.log.info("Send the mutated parent and its child to node0 over P2P")
+        self.log.info("Send the child first, then the mutated parent to node0 over P2P")
         peer = node0.add_p2p_connection(P2PDataStore())
+        peer.send_and_ping(msg_headers([CBlockHeader(valid_parent), CBlockHeader(valid_child)]))
+        peer.send_and_ping(msg_block(valid_child))
         with node0.assert_debug_log(expected_msgs=['mweb-connect-failed'], timeout=10):
-            peer.send_message(msg_block(mutated_parent))
-            peer.send_message(msg_block(valid_child))
-        peer.sync_with_ping()
+            peer.send_and_ping(msg_block(mutated_parent))
 
-        self.log.info("Submit the valid body for the same PoW block hash")
-        peer.send_and_ping(msg_block(valid_parent))
+        self.log.info("Restart with the discarded parent and downloaded child in the block index")
+        self.restart_node(0)
+
+        self.log.info("Ignore an unsolicited replay from a fresh peer")
+        replay_peer = node0.add_p2p_connection(P2PDataStore())
+        with node0.assert_debug_log([], unexpected_msgs=['mweb-connect-failed'], timeout=2):
+            replay_peer.send_and_ping(msg_block(copy.deepcopy(mutated_parent)))
+
+        self.log.info("Request the honest same-hash parent and connect its downloaded child")
+        recovery_peer = node0.add_p2p_connection(P2PDataStore())
+        recovery_peer.block_store[valid_parent.sha256] = valid_parent
+        recovery_peer.send_message(msg_inv([CInv(MSG_BLOCK, valid_parent.sha256)]))
+        recovery_peer.wait_until(lambda: valid_parent.sha256 in recovery_peer.getdata_requests)
         self.wait_until(lambda: node0.getbestblockhash() == valid_child_hash)
         assert_equal(node0.getblockcount(), original_height + 2)
 
