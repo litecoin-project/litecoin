@@ -17,15 +17,17 @@
 /** Formatter for undo information for a CTxIn
  *
  *  Contains the prevout's CTxOut being spent, and its metadata as well
- *  (coinbase or not, height). The serialization contains a dummy value of
- *  zero. This is compatible with older versions which expect to see
- *  the transaction version there.
+ *  (coinbase or not, height, pegout status). The serialization contains a
+ *  dummy value of zero. This is compatible with older versions which expect
+ *  to see the transaction version there.
  */
 struct TxInUndoFormatter
 {
     template<typename Stream>
     void Ser(Stream &s, const Coin& txout) {
-        ::Serialize(s, VARINT(txout.nHeight * uint32_t{2} + txout.fCoinBase ));
+        const uint32_t code = txout.nHeight * uint32_t{2} + txout.fCoinBase +
+            (txout.fPegout ? (uint32_t{1} << 31) : uint32_t{0});
+        ::Serialize(s, VARINT(code));
         if (txout.nHeight > 0) {
             // Required to maintain compatibility with older undo format.
             ::Serialize(s, (unsigned char)0);
@@ -37,13 +39,14 @@ struct TxInUndoFormatter
     void Unser(Stream &s, Coin& txout) {
         uint32_t nCode = 0;
         ::Unserialize(s, VARINT(nCode));
-        txout.nHeight = nCode >> 1;
+        txout.fPegout = nCode >> 31;
+        txout.nHeight = (nCode & ~(uint32_t{1} << 31)) >> 1;
         txout.fCoinBase = nCode & 1;
         if (txout.nHeight > 0) {
             // Old versions stored the version number for the last spend of
             // a transaction's outputs. Non-final spends were indicated with
             // height = 0.
-            unsigned int nVersionDummy;
+            unsigned int nVersionDummy = 0;
             ::Unserialize(s, VARINT(nVersionDummy));
         }
         ::Unserialize(s, Using<TxOutCompression>(txout.out));

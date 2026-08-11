@@ -284,6 +284,7 @@ BASE_SCRIPTS = [
     'mweb_mempool.py',
     'mweb_mining.py',
     'mweb_reorg.py',
+    'mweb_undo.py',
     'mweb_rewind_activation.py',
     'mweb_consensus.py',
     'mweb_dbcrash.py',
