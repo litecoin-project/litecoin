@@ -90,7 +90,20 @@ public:
     const Signature& GetSignature() const noexcept { return m_signature; }
     const std::vector<uint8_t>& GetExtraData() const noexcept { return m_extraData; }
 
-    bool IsStandard() const noexcept { return m_features < EXTRA_DATA_FEATURE_BIT; }
+    bool IsStandard() const noexcept
+    {
+        return m_features < EXTRA_DATA_FEATURE_BIT && HasCanonicalPegOutFeature();
+    }
+
+    bool HasCanonicalPegOutFeature() const noexcept
+    {
+        return !(m_features & PEGOUT_FEATURE_BIT) || !m_pegouts.empty();
+    }
+
+    bool HasCanonicalExtraDataFeature() const noexcept
+    {
+        return !(m_features & EXTRA_DATA_FEATURE_BIT) || !m_extraData.empty();
+    }
 
     SignedMessage BuildSignedMsg() const;
     static mw::Hash GetSignatureMessage(

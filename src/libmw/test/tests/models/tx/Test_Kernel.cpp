@@ -5,11 +5,27 @@
 #include <mw/crypto/Schnorr.h>
 #include <mw/models/tx/Kernel.h>
 
+#include <chainparams.h>
 #include <test_framework/TestMWEB.h>
 
 #include <limits>
 
 BOOST_FIXTURE_TEST_SUITE(TestKernel, MWEBTestingSetup)
+
+BOOST_AUTO_TEST_CASE(FeatureActivationHeights_Test)
+{
+    const auto main_params = CreateChainParams(*m_node.args, CBaseChainParams::MAIN);
+    BOOST_REQUIRE_EQUAL(main_params->GetConsensus().mweb_pegout_feature_activation_height, 3'154'440);
+    BOOST_REQUIRE_EQUAL(main_params->GetConsensus().mweb_extradata_feature_activation_height, 3'200'000);
+
+    const auto testnet_params = CreateChainParams(*m_node.args, CBaseChainParams::TESTNET);
+    BOOST_REQUIRE_EQUAL(testnet_params->GetConsensus().mweb_pegout_feature_activation_height, 0);
+    BOOST_REQUIRE_EQUAL(testnet_params->GetConsensus().mweb_extradata_feature_activation_height, 0);
+
+    const auto regtest_params = CreateChainParams(*m_node.args, CBaseChainParams::REGTEST);
+    BOOST_REQUIRE_EQUAL(regtest_params->GetConsensus().mweb_pegout_feature_activation_height, 0);
+    BOOST_REQUIRE_EQUAL(regtest_params->GetConsensus().mweb_extradata_feature_activation_height, 0);
+}
 
 BOOST_AUTO_TEST_CASE(PlainKernel_Test)
 {
@@ -99,9 +115,25 @@ BOOST_AUTO_TEST_CASE(NonStandardKernel_Test)
         standard_kernel.GetSignature()
     );
 
+    mw::Kernel nonstandard_kernel3(
+        mw::Kernel::PEGOUT_FEATURE_BIT,
+        std::nullopt,
+        std::nullopt,
+        {},
+        std::nullopt,
+        std::nullopt,
+        {},
+        standard_kernel.GetCommitment(),
+        standard_kernel.GetSignature()
+    );
+
     BOOST_REQUIRE(standard_kernel.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel1.IsStandard());
     BOOST_REQUIRE(!nonstandard_kernel2.IsStandard());
+    BOOST_REQUIRE(!nonstandard_kernel3.IsStandard());
+    BOOST_REQUIRE(nonstandard_kernel1.HasCanonicalExtraDataFeature());
+    BOOST_REQUIRE(!nonstandard_kernel2.HasCanonicalExtraDataFeature());
+    BOOST_REQUIRE(!nonstandard_kernel3.HasCanonicalPegOutFeature());
 }
 
 BOOST_AUTO_TEST_CASE(PegOutAmountOutOfRange_Test)

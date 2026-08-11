@@ -7,7 +7,7 @@
 from decimal import Decimal
 
 from test_framework.blocktools import create_coinbase, NORMAL_GBT_REQUEST_PARAMS
-from test_framework.messages import CBlock, MWEBBlock
+from test_framework.messages import CBlock, CTransaction, FromHex, MWEBBlock
 from test_framework.test_framework import LitecoinTestFramework
 from test_framework.util import assert_equal, assert_raises_rpc_error
 from test_framework.ltc_util import (
@@ -53,6 +53,8 @@ class MWEBMiningTest(LitecoinTestFramework):
         assert_equal(first_hogex.vin[0].prevout.hash, int(first_pegin_txid, 16))
         self.sync_all()
 
+        self.test_noncanonical_kernel_features_rejected(node)
+
         node.generatetoaddress(1, node.get_deterministic_priv_key().address, invalid_call=False)
         gbt = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
         next_height = int(gbt["height"])
@@ -93,6 +95,56 @@ class MWEBMiningTest(LitecoinTestFramework):
 
         self.log.info("Mine after MWEB mempool spend becomes stale across a reorg")
         self.mine_after_stale_mweb_spend_reorg()
+
+    def test_noncanonical_kernel_features_rejected(self, node):
+        self.log.info("Reject a block with an empty pegout feature")
+        node.sendtoaddress(node.getnewaddress(address_type='mweb'), Decimal("0.1"))
+
+        gbt = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
+        mweb_block = FromHex(MWEBBlock(), gbt["mweb"])
+        kernel = next(kernel for kernel in mweb_block.body.mweb_kernels if not kernel.features & 4)
+
+        template_txs = [FromHex(CTransaction(), tx["data"]) for tx in gbt["transactions"]]
+        block = CBlock()
+        block.nVersion = gbt["version"]
+        block.hashPrevBlock = int(gbt["previousblockhash"], 16)
+        block.nTime = gbt["curtime"]
+        block.nBits = int(gbt["bits"], 16)
+        block.nNonce = 0
+        block.vtx = [create_coinbase(height=int(gbt["height"])), *template_txs]
+        block.mweb_block = mweb_block
+        block.hashMerkleRoot = block.calc_merkle_root()
+
+        assert_equal(node.getblocktemplate(template_request={
+            'data': block.serialize().hex(),
+            'mode': 'proposal',
+            'rules': ['mweb', 'segwit'],
+        }), None)
+
+        kernel.features |= 4
+        kernel.pegouts = []
+        kernel.rehash()
+
+        assert_equal(node.getblocktemplate(template_request={
+            'data': block.serialize().hex(),
+            'mode': 'proposal',
+            'rules': ['mweb', 'segwit'],
+        }), 'bad-mweb-empty-pegout')
+
+        kernel.features &= ~4
+        kernel.pegouts = None
+        kernel.features |= 32
+        kernel.extradata = b""
+        kernel.rehash()
+
+        self.log.info("Reject a block with an empty extra data feature")
+        assert_equal(node.getblocktemplate(template_request={
+            'data': block.serialize().hex(),
+            'mode': 'proposal',
+            'rules': ['mweb', 'segwit'],
+        }), 'bad-mweb-empty-extradata')
+
+        node.generate(1, invalid_call=False)
 
     def mine_many_pegins(self):
         miner = self.nodes[1]

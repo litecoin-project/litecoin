@@ -102,6 +102,24 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "mweb-height-mismatch", "Invalid MWEB block height");
     }
 
+    // Verify that pegout features are canonical once the pegout rule is active.
+    if (pindexPrev->nHeight + 1 >= consensus_params.mweb_pegout_feature_activation_height) {
+        for (const mw::Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
+            if (!kernel.HasCanonicalPegOutFeature()) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-pegout", "Pegout feature set without pegouts");
+            }
+        }
+    }
+
+    // Verify that extra data features are canonical once the extra data rule is active.
+    if (pindexPrev->nHeight + 1 >= consensus_params.mweb_extradata_feature_activation_height) {
+        for (const mw::Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
+            if (!kernel.HasCanonicalExtraDataFeature()) {
+                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-extradata", "Extra data feature set without extra data");
+            }
+        }
+    }
+
     // For the very first HogEx transaction, all inputs are pegins, so start at index of 0.
     // For all other HogEx transaction, the first input is not a pegin, so start looking for pegins at index 1.
     const bool is_first_hogex = !DeploymentActiveAt(*pindexPrev, chainman, Consensus::DEPLOYMENT_MWEB);
