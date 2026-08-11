@@ -242,6 +242,25 @@ mw::Output WithoutStandardFields(const mw::Output& output)
     );
 }
 
+PublicKey MalformedPublicKey(const uint8_t prefix, const uint8_t fill)
+{
+    std::array<uint8_t, 33> bytes;
+    bytes.fill(fill);
+    bytes[0] = prefix;
+    return PublicKey(bytes.data());
+}
+
+mw::Output WithReceiverPublicKey(const mw::Output& output, PublicKey receiver_pubkey)
+{
+    return mw::Output(
+        output.GetCommitment(),
+        output.GetSenderPubKey(),
+        std::move(receiver_pubkey),
+        output.GetOutputMessage(),
+        output.GetRangeProof(),
+        output.GetSignature());
+}
+
 } // namespace
 
 BOOST_FIXTURE_TEST_SUITE(TestKeychain, MWEBTestingSetup)
@@ -387,6 +406,20 @@ BOOST_AUTO_TEST_CASE(RewindOutput_Rejections)
     CheckNotRewound(wrong_scan_keychain, output);
 
     CheckNotRewound(keychain, WithoutStandardFields(output));
+
+    CheckNotRewound(
+        keychain,
+        WithStandardFields(
+            output,
+            mw::OutputStandardFields(
+                MalformedPublicKey(0x04, 0x00),
+                output.GetViewTag(),
+                output.GetMaskedValue(),
+                output.GetMaskedNonce())
+        )
+    );
+
+    CheckNotRewound(keychain, WithReceiverPublicKey(output, MalformedPublicKey(0x02, 0xff)));
 
     TestWalletStorage unknown_storage;
     TestScriptPubKeyMan unknown_spk_man(unknown_storage);

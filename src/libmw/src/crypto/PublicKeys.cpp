@@ -32,6 +32,21 @@ PublicKey PublicKeys::Convert(const Commitment& commitment)
     return ConversionUtil::ToPublicKey(commitment);
 }
 
+bool PublicKeys::IsValid(const PublicKey& publicKey) noexcept
+{
+    try {
+        secp256k1_pubkey parsedPubkey;
+        return secp256k1_ec_pubkey_parse(
+            PUBKEY_CONTEXT.Read()->Get(),
+            &parsedPubkey,
+            publicKey.data(),
+            publicKey.size()
+        ) == 1;
+    } catch (...) {
+        return false;
+    }
+}
+
 PublicKey PublicKeys::Add(const std::vector<PublicKey>& publicKeys, const std::vector<PublicKey>& subtract)
 {
     std::vector<secp256k1_pubkey> pubkeys = ConversionUtil::ToSecp256k1(publicKeys);

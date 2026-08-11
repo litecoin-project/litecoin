@@ -15,6 +15,38 @@
 #include <test_framework/Deserializer.h>
 #include <test_framework/TestMWEB.h>
 
+#include <array>
+
+namespace {
+
+PublicKey MalformedPublicKey(const uint8_t prefix, const uint8_t fill)
+{
+    std::array<uint8_t, 33> bytes;
+    bytes.fill(fill);
+    bytes[0] = prefix;
+    return PublicKey(bytes.data());
+}
+
+mw::Output WithPublicKeys(const mw::Output& output, PublicKey key_exchange_pubkey, PublicKey receiver_pubkey)
+{
+    const mw::OutputStandardFields& fields = *output.GetOutputMessage().standard_fields;
+    return mw::Output(
+        output.GetCommitment(),
+        output.GetSenderPubKey(),
+        std::move(receiver_pubkey),
+        mw::OutputMessage(
+            mw::OutputMessage::STANDARD_FIELDS_FEATURE_BIT,
+            mw::OutputStandardFields(
+                std::move(key_exchange_pubkey),
+                fields.view_tag,
+                fields.masked_value,
+                fields.masked_nonce)),
+        output.GetRangeProof(),
+        output.GetSignature());
+}
+
+} // namespace
+
 BOOST_FIXTURE_TEST_SUITE(TestOutput, MWEBTestingSetup)
 
 BOOST_AUTO_TEST_CASE(OutputSerialization)
@@ -112,6 +144,32 @@ BOOST_AUTO_TEST_CASE(Create)
         SecretKey spend_key = mw::DeriveOutputSpendKey(b_i, t);
         BOOST_REQUIRE(output.GetReceiverPubKey() == PublicKey::From(spend_key));
     }
+}
+
+BOOST_AUTO_TEST_CASE(MalformedPublicKeysAreNonstandard)
+{
+    const SecretKey scan_secret = SecretKey::Random();
+    const SecretKey spend_secret = SecretKey::Random();
+    const StealthAddress address(
+        PublicKey::From(spend_secret).Mul(scan_secret),
+        PublicKey::From(spend_secret));
+    const mw::Output output = mw::Output::Create(
+        nullptr,
+        SecretKey::Random(),
+        scan_secret,
+        address,
+        1'234'567,
+        {});
+
+    BOOST_REQUIRE(output.IsStandard());
+
+    const PublicKey malformed_ke = MalformedPublicKey(0x04, 0x00);
+    BOOST_REQUIRE(!malformed_ke.IsValid());
+    BOOST_REQUIRE(!WithPublicKeys(output, malformed_ke, output.Ko()).IsStandard());
+
+    const PublicKey malformed_ko = MalformedPublicKey(0x02, 0xff);
+    BOOST_REQUIRE(!malformed_ko.IsValid());
+    BOOST_REQUIRE(!WithPublicKeys(output, output.Ke(), malformed_ko).IsStandard());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

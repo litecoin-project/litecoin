@@ -1,4 +1,5 @@
 #include <mw/wallet/Keychain.h>
+#include <mw/exceptions/CryptoException.h>
 #include <mw/models/tx/OutputMask.h>
 #include <wallet/scriptpubkeyman.h>
 #include <key_io.h>
@@ -13,46 +14,55 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::WalletCoin& coin) cons
     if (!output.HasStandardFields()) {
         return false;
     }
-
-    assert(!GetScanSecret().IsNull());
-    if (RecoverViewTag(output.Ke(), GetScanSecret()) != output.GetViewTag()) {
+    if (!output.Ko().IsValid() || !output.Ke().IsValid()) {
         return false;
     }
 
-    SecretKey shared_secret = RecoverSharedSecret(output.Ke(), GetScanSecret());
+    try {
+        assert(!GetScanSecret().IsNull());
+        if (RecoverViewTag(output.Ke(), GetScanSecret()) != output.GetViewTag()) {
+            return false;
+        }
 
-    // Check if B_i belongs to wallet
-    StealthAddress address = RecoverSubaddress(output.Ko(), shared_secret, m_scanSecret);
-    const std::optional<uint32_t> address_index = LookupAddressIndex(address);
-    if (!address_index) {
+        SecretKey shared_secret = RecoverSharedSecret(output.Ke(), GetScanSecret());
+
+        // Check if B_i belongs to wallet
+        StealthAddress address = RecoverSubaddress(output.Ko(), shared_secret, m_scanSecret);
+        const std::optional<uint32_t> address_index = LookupAddressIndex(address);
+        if (!address_index) {
+            return false;
+        }
+
+        // Calc blinding factor and unmask nonce and amount.
+        OutputMask mask = OutputMask::FromShared(shared_secret);
+        uint64_t value = mask.MaskValue(output.GetMaskedValue());
+        BigInt<16> n = mask.MaskNonce(output.GetMaskedNonce());
+
+        if (mask.SwitchCommit(value) != output.GetCommitment()) {
+            return false;
+        }
+
+        // Calculate Carol's sending key 's' and check that s*B ?= Ke
+        SecretKey s = DeriveOutputSendKey(address, value, n);
+        if (output.Ke() != DeriveOutputKeyExchangePubKey(address, s)) {
+            return false;
+        }
+
+        mw::WalletCoin rewound_coin;
+        rewound_coin.address_index = *address_index;
+        rewound_coin.blind = std::make_optional(mask.GetRawBlind());
+        rewound_coin.amount = value;
+        rewound_coin.output_id = output.GetOutputID();
+        rewound_coin.address = address;
+        rewound_coin.shared_secret = std::make_optional(std::move(shared_secret));
+        rewound_coin.spend_key = CalculateOutputSpendKey(rewound_coin);
+        rewound_coin.master_scan_key_id = PublicKey::From(m_scanSecret).GetID();
+
+        coin = std::move(rewound_coin);
+        return true;
+    } catch (const CryptoException&) {
         return false;
     }
-
-    // Calc blinding factor and unmask nonce and amount.
-    OutputMask mask = OutputMask::FromShared(shared_secret);
-    uint64_t value = mask.MaskValue(output.GetMaskedValue());
-    BigInt<16> n = mask.MaskNonce(output.GetMaskedNonce());
-
-    if (mask.SwitchCommit(value) != output.GetCommitment()) {
-        return false;
-    }
-
-    // Calculate Carol's sending key 's' and check that s*B ?= Ke
-    SecretKey s = DeriveOutputSendKey(address, value, n);
-    if (output.Ke() != DeriveOutputKeyExchangePubKey(address, s)) {
-        return false;
-    }
-
-    coin.address_index = *address_index;
-    coin.blind = std::make_optional(mask.GetRawBlind());
-    coin.amount = value;
-    coin.output_id = output.GetOutputID();
-    coin.address = address;
-    coin.shared_secret = std::make_optional(std::move(shared_secret));
-    coin.spend_key = CalculateOutputSpendKey(coin);
-    coin.master_scan_key_id = PublicKey::From(m_scanSecret).GetID();
-
-    return true;
 }
 
 std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::WalletCoin& coin) const
