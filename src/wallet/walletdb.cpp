@@ -388,6 +388,7 @@ public:
     bool fAnyUnordered{false};
     std::vector<uint256> vWalletUpgrade;
     std::vector<uint256> vWalletRemove;
+    std::map<uint256, uint256> m_legacy_mweb_tx_rekeys;
     std::map<OutputType, uint256> m_active_external_spks;
     std::map<OutputType, uint256> m_active_internal_spks;
     std::map<uint256, DescriptorCache> m_descriptor_caches;
@@ -430,11 +431,22 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssValue >> wtx;
 
             if (wtx.GetHash() != hash) {
+                bool is_legacy_mweb_tx_hash = false;
+                if (wtx.tx->IsMWEBOnly()) {
+                    const std::vector<mw::Kernel>& kernels = wtx.tx->mweb_tx.GetKernels();
+                    is_legacy_mweb_tx_hash = !kernels.empty() && hash == uint256{kernels.front().GetHash().vec()};
+                }
+
                 // We previously calculated hash for mweb_wtx_info in an impractical way.
                 // We changed to just using the output ID as hash, so need to upgrade any existing txs.
                 if (wtx.mweb_wtx_info) {
                     wss.vWalletRemove.push_back(hash);
                     wss.vWalletUpgrade.push_back(wtx.GetHash());
+                } else if (is_legacy_mweb_tx_hash) {
+                    // v0.21 identified pure-MWEB transactions by their first
+                    // kernel hash. Rekey released wallet records using the
+                    // whole-MWEB-transaction hash used by v24.
+                    wss.m_legacy_mweb_tx_rekeys.emplace(wtx.GetHash(), hash);
                 } else {
                     return false;
                 }
@@ -1113,13 +1125,29 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         }
     }
 
+    struct MWEBTxRekey
+    {
+        CWalletTx* wtx;
+        uint256 old_wtx_hash;
+    };
+
+    std::vector<MWEBTxRekey> mweb_tx_rekeys;
+    for (const auto& [new_wtx_hash, old_wtx_hash] : wss.m_legacy_mweb_tx_rekeys) {
+        mweb_tx_rekeys.push_back(MWEBTxRekey{
+            &pwallet->mapWallet.at(new_wtx_hash),
+            old_wtx_hash,
+        });
+    }
+
+    const bool has_mweb_migrations = !mweb_migrations.empty() || !mweb_tx_rekeys.empty();
+
     bool mweb_migration_write_failed = false;
-    if (!mweb_migrations.empty() && !pwallet->SetMinVersion(FEATURE_V24, this)) {
+    if (has_mweb_migrations && !pwallet->SetMinVersion(FEATURE_V24, this)) {
         pwallet->WalletLogPrintf("Failed to write wallet minimum version before migrating MWEB records\n");
         mweb_migration_write_failed = true;
     }
 
-    if (!mweb_migration_write_failed && !mweb_migrations.empty()) {
+    if (!mweb_migration_write_failed && has_mweb_migrations) {
         const bool transaction_started = TxnBegin();
         bool transaction_ok = transaction_started;
         if (!transaction_ok) {
@@ -1140,9 +1168,23 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
             }
         }
 
+        for (const MWEBTxRekey& rekey : mweb_tx_rekeys) {
+            if (transaction_ok && !WriteTx(*rekey.wtx)) {
+                pwallet->WalletLogPrintf("Failed to rekey MWEB wallet transaction %s during migration\n", rekey.wtx->GetHash().ToString());
+                transaction_ok = false;
+            }
+        }
+
         for (const MWEBMigration& migration : mweb_migrations) {
             if (transaction_ok && migration.old_wtx_hash && !EraseTx(*migration.old_wtx_hash)) {
                 pwallet->WalletLogPrintf("Failed to erase old MWEB wallet transaction %s during migration\n", migration.old_wtx_hash->ToString());
+                transaction_ok = false;
+            }
+        }
+
+        for (const MWEBTxRekey& rekey : mweb_tx_rekeys) {
+            if (transaction_ok && !EraseTx(rekey.old_wtx_hash)) {
+                pwallet->WalletLogPrintf("Failed to erase old MWEB wallet transaction %s during migration\n", rekey.old_wtx_hash.ToString());
                 transaction_ok = false;
             }
         }

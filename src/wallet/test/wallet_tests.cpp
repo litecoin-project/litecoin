@@ -1689,6 +1689,61 @@ BOOST_AUTO_TEST_CASE(MWEBWalletTxInfoSerialization)
     BOOST_CHECK(spent_rt.GetHash() == spent.GetHash());
 }
 
+BOOST_FIXTURE_TEST_CASE(MWEBLegacyWalletTxHashMigration, TestingSetup)
+{
+    test::Tx mweb_tx = test::TxBuilder()
+        .AddPeginKernel(1'000'000, 0)
+        .AddOutput(1'000'000)
+        .Build();
+
+    CMutableTransaction tx;
+    tx.mweb_tx = mw::MutableTx::From(*mweb_tx.GetTransaction());
+    const CTransactionRef tx_ref = MakeTransactionRef(tx);
+    BOOST_REQUIRE(tx_ref->IsMWEBOnly());
+    BOOST_REQUIRE(!tx_ref->mweb_tx.GetKernels().empty());
+
+    // v0.21 identified pure-MWEB transactions by their first kernel hash.
+    const uint256 old_wtx_hash{tx_ref->mweb_tx.GetKernels().front().GetHash().vec()};
+    const uint256 new_wtx_hash = tx_ref->GetHash();
+    BOOST_REQUIRE(old_wtx_hash != new_wtx_hash);
+
+    auto database = CreateMockWalletDatabase();
+    {
+        CWalletTx legacy_wtx(tx_ref, TxStateInactive{}, std::nullopt);
+        BOOST_REQUIRE(database->MakeBatch()->Write(
+            std::make_pair(DBKeys::TX, old_wtx_hash),
+            legacy_wtx
+        ));
+    }
+
+    CWallet wallet(m_node.chain.get(), "", m_args, std::move(database));
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+
+    {
+        LOCK(wallet.cs_wallet);
+        BOOST_CHECK_EQUAL(wallet.GetVersion(), FEATURE_V24);
+        BOOST_CHECK(wallet.GetWalletTx(old_wtx_hash) == nullptr);
+        BOOST_REQUIRE(wallet.GetWalletTx(new_wtx_hash) != nullptr);
+    }
+
+    CWalletTx persisted_wtx(nullptr, TxStateInactive{}, std::nullopt);
+    std::unique_ptr<DatabaseBatch> batch = wallet.GetDatabase().MakeBatch();
+    BOOST_CHECK(!batch->Read(std::make_pair(DBKeys::TX, old_wtx_hash), persisted_wtx));
+    BOOST_REQUIRE(batch->Read(std::make_pair(DBKeys::TX, new_wtx_hash), persisted_wtx));
+    BOOST_CHECK(persisted_wtx.GetHash() == new_wtx_hash);
+
+    // An unrelated key mismatch is still treated as damaged transaction data.
+    auto corrupt_database = CreateMockWalletDatabase();
+    const uint256 corrupt_hash = uint256::ONE;
+    BOOST_REQUIRE(corrupt_hash != old_wtx_hash);
+    BOOST_REQUIRE(corrupt_database->MakeBatch()->Write(
+        std::make_pair(DBKeys::TX, corrupt_hash),
+        persisted_wtx
+    ));
+    CWallet corrupt_wallet(m_node.chain.get(), "", m_args, std::move(corrupt_database));
+    BOOST_CHECK(corrupt_wallet.LoadWallet() == DBErrors::NEED_RESCAN);
+}
+
 BOOST_FIXTURE_TEST_CASE(MWEBLegacyWalletCoinMigration, TestingSetup)
 {
     const mw::WalletCoin coin = V0215MWEBWalletCoin();
