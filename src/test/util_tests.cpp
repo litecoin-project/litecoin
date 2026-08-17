@@ -891,10 +891,14 @@ BOOST_AUTO_TEST_CASE(util_GetArg)
 BOOST_AUTO_TEST_CASE(util_GetChainName)
 {
     TestArgsManager test_args;
+    const auto chain = std::make_pair("-chain=<chain>", ArgsManager::ALLOW_ANY);
     const auto testnet = std::make_pair("-testnet", ArgsManager::ALLOW_ANY);
     const auto regtest = std::make_pair("-regtest", ArgsManager::ALLOW_ANY);
-    test_args.SetupArgs({testnet, regtest});
+    test_args.SetupArgs({chain, testnet, regtest});
 
+    const char* argv_main[] = {"cmd", "-chain=main"};
+    const char* argv_chain_test[] = {"cmd", "-chain=test"};
+    const char* argv_no_testnet[] = {"cmd", "-notestnet"};
     const char* argv_testnet[] = {"cmd", "-testnet"};
     const char* argv_regtest[] = {"cmd", "-regtest"};
     const char* argv_test_no_reg[] = {"cmd", "-testnet", "-noregtest"};
@@ -906,7 +910,18 @@ BOOST_AUTO_TEST_CASE(util_GetChainName)
     std::string error;
 
     BOOST_CHECK(test_args.ParseParameters(0, (char**)argv_testnet, error));
-    BOOST_CHECK_EQUAL(test_args.GetChainName(), "main");
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
+
+    BOOST_CHECK(test_args.ParseParameters(2, (char**)argv_main, error));
+    BOOST_CHECK_THROW(test_args.GetChainName(), std::runtime_error);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(/* allow_mainnet= */ true), "main");
+
+    BOOST_CHECK(test_args.ParseParameters(2, (char**)argv_chain_test, error));
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
+
+    BOOST_CHECK(test_args.ParseParameters(2, (char**)argv_no_testnet, error));
+    BOOST_CHECK_THROW(test_args.GetChainName(), std::runtime_error);
+    BOOST_CHECK_EQUAL(test_args.GetChainName(/* allow_mainnet= */ true), "main");
 
     BOOST_CHECK(test_args.ParseParameters(2, (char**)argv_testnet, error));
     BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
@@ -1264,7 +1279,7 @@ BOOST_FIXTURE_TEST_CASE(util_ChainMerge, ChainMergeTestingSetup)
     // Results file is formatted like:
     //
     //   <input> || <output>
-    BOOST_CHECK_EQUAL(out_sha_hex, "f263493e300023b6509963887444c41386f44b63bc30047eb8402e8c1144854c");
+    BOOST_CHECK_EQUAL(out_sha_hex, "33e4b289b9c7121142568013714b14ec684e232a71b48d193647d44cef363943");
 }
 
 BOOST_AUTO_TEST_CASE(util_ReadWriteSettings)

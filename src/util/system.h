@@ -398,9 +398,10 @@ protected:
 
     /**
      * Returns the appropriate chain name from the program arguments.
-     * @return CBaseChainParams::MAIN by default; raises runtime error if an invalid combination is given.
+     * @param allow_mainnet Allow config file parsing to resolve mainnet sections before final chain validation.
+     * @return CBaseChainParams::TESTNET by default; raises runtime error if an invalid combination is given.
      */
-    std::string GetChainName() const;
+    std::string GetChainName(bool allow_mainnet = false) const;
 
     /**
      * Add argument

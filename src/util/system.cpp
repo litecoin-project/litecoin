@@ -996,7 +996,7 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
             }
         }
         if (use_conf_file) {
-            std::string chain_id = GetChainName();
+            std::string chain_id = GetChainName(/* allow_mainnet= */ true);
             std::vector<std::string> conf_file_names;
 
             auto add_includes = [&](const std::string& network, size_t skip = 0) {
@@ -1035,7 +1035,7 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
             conf_file_names.clear();
             add_includes(chain_id, /* skip= */ chain_includes);
             add_includes({}, /* skip= */ default_includes);
-            std::string chain_id_final = GetChainName();
+            std::string chain_id_final = GetChainName(/* allow_mainnet= */ true);
             if (chain_id_final != chain_id) {
                 // Also warn about recursive includeconf for the chain that was specified in one of the includeconfs
                 add_includes(chain_id_final);
@@ -1055,7 +1055,7 @@ bool ArgsManager::ReadConfigFiles(std::string& error, bool ignore_invalid_keys)
     return true;
 }
 
-std::string ArgsManager::GetChainName() const
+std::string ArgsManager::GetChainName(bool allow_mainnet) const
 {
     auto get_net = [&](const std::string& arg) {
         LOCK(cs_args);
@@ -1070,6 +1070,7 @@ std::string ArgsManager::GetChainName() const
     const bool fSigNet  = get_net("-signet");
     const bool fTestNet = get_net("-testnet");
     const bool is_chain_arg_set = IsArgSet("-chain");
+    const bool is_testnet_arg_set = IsArgSet("-testnet");
 
     if ((int)is_chain_arg_set + (int)fRegTest + (int)fSigNet + (int)fTestNet > 1) {
         throw std::runtime_error("Invalid combination of -regtest, -signet, -testnet and -chain. Can use at most one.");
@@ -1082,7 +1083,20 @@ std::string ArgsManager::GetChainName() const
     if (fTestNet)
         return CBaseChainParams::TESTNET;
 
-    return GetArg("-chain", CBaseChainParams::MAIN);
+    if (is_chain_arg_set) {
+        const std::string chain = GetArg("-chain", CBaseChainParams::TESTNET);
+        if (chain == CBaseChainParams::MAIN && !allow_mainnet) {
+            throw std::runtime_error("Mainnet is disabled in this testnet preview build.");
+        }
+        return chain;
+    }
+    if (is_testnet_arg_set) {
+        if (!allow_mainnet) {
+            throw std::runtime_error("Mainnet is disabled in this testnet preview build.");
+        }
+        return CBaseChainParams::MAIN;
+    }
+    return CBaseChainParams::TESTNET;
 }
 
 bool ArgsManager::UseDefaultSection(const std::string& arg) const
