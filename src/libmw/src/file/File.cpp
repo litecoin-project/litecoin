@@ -16,7 +16,7 @@ namespace
 void CommitParentDirectory(const FilePath& path)
 {
 #if defined(_WIN32)
-    const fs::path directory_path{path.ToString()};
+    const fs::path directory_path{fs::u8path(path.ToString())};
     HANDLE hDirectory = CreateFileW(
         directory_path.wstring().c_str(),
         FILE_READ_ATTRIBUTES,
