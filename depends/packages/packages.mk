@@ -1,4 +1,4 @@
-packages:=boost libevent
+packages:=boost openssl libevent libfmt
 
 qrencode_linux_packages = qrencode
 qrencode_android_packages = qrencode
