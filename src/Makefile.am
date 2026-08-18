@@ -626,7 +626,7 @@ crypto_libbitcoin_crypto_arm_shani_la_SOURCES = crypto/sha256_arm_shani.cpp
 # consensus: shared between all executables that validate any consensus rules.
 libbitcoin_consensus_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
 libbitcoin_consensus_a_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
-libbitcoin_consensus_a_SOURCES = \
+LIBBITCOIN_CONSENSUS_BASE_SOURCES = \
   arith_uint256.cpp \
   arith_uint256.h \
   consensus/amount.h \
@@ -637,22 +637,6 @@ libbitcoin_consensus_a_SOURCES = \
   consensus/validation.h \
   hash.cpp \
   hash.h \
-  libmw/src/crypto/Bulletproofs.cpp \
-  libmw/src/crypto/ConversionUtil.cpp \
-  libmw/src/crypto/KeyDerivation.cpp \
-  libmw/src/crypto/MuSig.cpp \
-  libmw/src/crypto/Pedersen.cpp \
-  libmw/src/crypto/PublicKeys.cpp \
-  libmw/src/crypto/Schnorr.cpp \
-  libmw/src/crypto/SecretKeys.cpp \
-  libmw/src/models/crypto/Commitment.cpp \
-  libmw/src/models/crypto/PublicKey.cpp \
-  libmw/src/models/block/Block.cpp \
-  libmw/src/models/tx/Input.cpp \
-  libmw/src/models/tx/Kernel.cpp \
-  libmw/src/models/tx/Output.cpp \
-  libmw/src/models/tx/Transaction.cpp \
-  libmw/src/models/tx/TxBody.cpp \
   prevector.h \
   primitives/block.cpp \
   primitives/block.h \
@@ -675,6 +659,26 @@ libbitcoin_consensus_a_SOURCES = \
   util/strencodings.cpp \
   util/strencodings.h \
   version.h
+
+libbitcoin_consensus_a_SOURCES = \
+  $(LIBBITCOIN_CONSENSUS_BASE_SOURCES) \
+  libmw/src/crypto/Bulletproofs.cpp \
+  libmw/src/crypto/ConversionUtil.cpp \
+  libmw/src/crypto/KeyDerivation.cpp \
+  libmw/src/crypto/MuSig.cpp \
+  libmw/src/crypto/Pedersen.cpp \
+  libmw/src/crypto/PublicKeys.cpp \
+  libmw/src/crypto/Schnorr.cpp \
+  libmw/src/crypto/SecretKeys.cpp \
+  libmw/src/models/crypto/Commitment.cpp \
+  libmw/src/models/crypto/PublicKey.cpp \
+  libmw/src/models/block/Block.cpp \
+  libmw/src/models/tx/Input.cpp \
+  libmw/src/models/tx/Kernel.cpp \
+  libmw/src/models/tx/Output.cpp \
+  libmw/src/models/tx/Transaction.cpp \
+  libmw/src/models/tx/TransactionValidation.cpp \
+  libmw/src/models/tx/TxBody.cpp
 
 # common: shared between litecoind, and litecoin-qt and non-server tools
 libbitcoin_common_a_CPPFLAGS = $(AM_CPPFLAGS) $(BITCOIN_INCLUDES)
@@ -1040,11 +1044,15 @@ if BUILD_BITCOIN_LIBS
 lib_LTLIBRARIES += $(LIBBITCOINCONSENSUS)
 
 include_HEADERS = script/bitcoinconsensus.h
-libbitcoinconsensus_la_SOURCES = support/cleanse.cpp $(crypto_libbitcoin_crypto_base_la_SOURCES) $(libbitcoin_consensus_a_SOURCES)
+libbitcoinconsensus_la_SOURCES = \
+  support/cleanse.cpp \
+  $(crypto_libbitcoin_crypto_base_la_SOURCES) \
+  $(LIBBITCOIN_CONSENSUS_BASE_SOURCES) \
+  libmw/src/models/tx/Transaction.cpp
 
 libbitcoinconsensus_la_LDFLAGS = $(AM_LDFLAGS) -no-undefined $(RELDFLAGS)
 libbitcoinconsensus_la_LIBADD = $(LIBSECP256K1) $(CRYPTO_LIBS)
-libbitcoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj $(SECP256K1_INCLUDES) -DBUILD_BITCOIN_INTERNAL $(SSL_CFLAGS) $(UNIVALUE_INCLUDES) $(LEVELDB_CPPFLAGS) $(LIBMW_INCLUDES)
+libbitcoinconsensus_la_CPPFLAGS = $(AM_CPPFLAGS) -I$(builddir)/obj $(SECP256K1_INCLUDES) -DBUILD_BITCOIN_INTERNAL $(SSL_CFLAGS) $(UNIVALUE_INCLUDES) $(LIBMW_INCLUDES)
 libbitcoinconsensus_la_CXXFLAGS = $(AM_CXXFLAGS) $(PIE_FLAGS)
 
 endif
