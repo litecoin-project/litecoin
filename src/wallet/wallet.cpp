@@ -1773,37 +1773,6 @@ void CWallet::BlockUntilSyncedToCurrentChain() const {
     chain().waitForNotificationsIfTipChanged(last_block_hash);
 }
 
-static bool MWEBHaveSpendSecret(const CWallet& wallet, const mw::WalletCoin& coin) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
-{
-    if (!coin.HasAddress()) {
-        return false;
-    }
-
-    const GenericAddress address{*coin.address};
-    for (const auto* spk_man : wallet.GetScriptPubKeyMans(address)) {
-        const auto* desc_spk_man = dynamic_cast<const DescriptorScriptPubKeyMan*>(spk_man);
-        if (desc_spk_man && desc_spk_man->HaveMWEBSpendSecret(*coin.address)) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-static isminetype MWEBIsMine(const CWallet& wallet, const mw::WalletCoin& coin) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
-{
-    if (!coin.IsMine()) {
-        return ISMINE_NO;
-    }
-    if (coin.HasSpendKey()) {
-        return ISMINE_SPENDABLE;
-    }
-    if (MWEBHaveSpendSecret(wallet, coin)) {
-        return ISMINE_SPENDABLE;
-    }
-    return ISMINE_WATCH_ONLY;
-}
-
 // Note that this function doesn't distinguish between a 0-valued input,
 // and a not-"is mine" (according to the filter) input.
 CAmount CWallet::GetDebit(const AnyInput& input, const isminefilter& filter) const
@@ -1812,7 +1781,7 @@ CAmount CWallet::GetDebit(const AnyInput& input, const isminefilter& filter) con
         LOCK(cs_wallet);
         if (input.IsMWEB()) {
             mw::WalletCoin coin;
-            if (GetMWEBWalletCoin(input.ToMWEB(), coin) && (MWEBIsMine(*this, coin) & filter)) {
+            if (GetMWEBWalletCoin(input.ToMWEB(), coin) && coin.IsMine() && (filter & ISMINE_SPENDABLE)) {
                 return coin.amount;
             }
 
@@ -1838,7 +1807,7 @@ isminetype CWallet::IsMine(const AnyOutput& output) const
     AssertLockHeld(cs_wallet);
     if (output.IsMWEB()) {
         mw::WalletCoin coin;
-        return GetMWEBWalletCoin(output.ToMWEBOutputID(), coin) ? MWEBIsMine(*this, coin) : ISMINE_NO;
+        return GetMWEBWalletCoin(output.ToMWEBOutputID(), coin) && coin.IsMine() ? ISMINE_SPENDABLE : ISMINE_NO;
     }
 
     return IsMine(GenericAddress(output.GetScriptPubKey()));
@@ -1893,7 +1862,7 @@ isminetype CWallet::IsMine(const AnyOutputID& output_id) const
 
     if (output_id.IsMWEB()) {
         mw::WalletCoin coin;
-        return GetMWEBWalletCoin(output_id.ToMWEB(), coin) ? MWEBIsMine(*this, coin) : ISMINE_NO;
+        return GetMWEBWalletCoin(output_id.ToMWEB(), coin) && coin.IsMine() ? ISMINE_SPENDABLE : ISMINE_NO;
     }
 
     return IsMine(GenericAddress(wtx->tx->vout[output_id.ToOutPoint().n].scriptPubKey));

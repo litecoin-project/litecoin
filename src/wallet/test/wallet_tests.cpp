@@ -1103,8 +1103,9 @@ BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Se
         mw::WalletCoin wallet_coin;
         BOOST_REQUIRE(wallet->GetMWEBWalletCoin(received_wallet_coin.output_id, wallet_coin));
         BOOST_CHECK(wallet_coin == received_wallet_coin);
+        BOOST_CHECK(!wallet_coin.HasSpendKey());
         BOOST_CHECK_EQUAL(wallet->GetValue(*wtx, AnyOutputID{received_wallet_coin.output_id}), received_wallet_coin.amount);
-        BOOST_CHECK(wallet->IsMine(AnyOutputID{received_wallet_coin.output_id}) != ISMINE_NO);
+        BOOST_CHECK_EQUAL(wallet->IsMine(AnyOutputID{received_wallet_coin.output_id}), ISMINE_SPENDABLE);
         BOOST_CHECK(OutputIsChange(*wallet, *wtx, AnyOutputID{received_wallet_coin.output_id}));
 
         GenericAddress extracted_address;

@@ -39,7 +39,10 @@ class MwebWatchOnlyTest(LitecoinTestFramework):
         print(res)
         assert all(item.get('success') for item in res)
 
-        print(watch_wallet.getaddressinfo(watch_mweb_addr))
+        address_info = watch_wallet.getaddressinfo(watch_mweb_addr)
+        print(address_info)
+        assert address_info['ismine']
+        assert not address_info['iswatchonly']
         self.log.info('Imported MWEB watch-only descriptor should not match sibling MWEB outputs')
         assert_equal(watch_wallet.getbalance(), 0)
         assert_equal(len(watch_wallet.listtransactions()), 0)
@@ -49,10 +52,14 @@ class MwebWatchOnlyTest(LitecoinTestFramework):
         self.generate(node, 1)
 
         # getbalance
-        self.log.info('include_watchonly should default to true for watch-only wallets')
-        self.log.info('Testing getbalance watch-only defaults')
+        self.log.info('Descriptor watch wallets account owned outputs in the mine balance')
         assert_equal(watch_wallet.getbalance(), 1)
-        assert_equal(len(watch_wallet.listtransactions()), 1)
+        balances = watch_wallet.getbalances()
+        assert_equal(balances['mine']['trusted'], 1)
+        assert 'watchonly' not in balances
+        transactions = watch_wallet.listtransactions()
+        assert_equal(len(transactions), 1)
+        assert not transactions[0].get('involvesWatchonly', False)
 
 
 if __name__ == '__main__':

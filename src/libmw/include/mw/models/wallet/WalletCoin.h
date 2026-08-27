@@ -80,6 +80,8 @@ struct WalletCoin : public Traits::ISerializable {
 
     bool IsChange() const noexcept { return address_index == CHANGE_INDEX; }
     bool IsPegIn() const noexcept { return address_index == PEGIN_INDEX; }
+    // A known address index means this is a wallet-owned output. Whether the
+    // wallet can currently produce its spend key is tracked separately.
     bool IsMine() const noexcept { return address_index != UNKNOWN_INDEX; }
     bool HasAddress() const noexcept { return !!address; }
     bool HasSpendKey() const noexcept { return !!spend_key; }

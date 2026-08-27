@@ -116,6 +116,10 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
         u2 = w2.listunspent(minconf=0, addresses=[a0, a1])
         assert_equal(len(u2), 2)
         assert_equal(sum(utxo['amount'] for utxo in u2), Decimal('7.70000000'))
+        assert all(utxo['spendable'] for utxo in u2)
+        balances2 = w2.getbalances()
+        assert_equal(balances2['mine']['trusted'], Decimal('7.70000000'))
+        assert 'watchonly' not in balances2
 
         # Verify watch-only can derive the next address (index 2) deterministically
         self.log.info("Verifying watch-only wallet can derive MWEB addresses (scan priv + spend pub)")
@@ -182,7 +186,7 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
         # Node4 should now see (at least) the two original UTXOs; balances may differ if additional sends occurred
         bal4_mine = w4.getbalances()['mine']['trusted']
         assert_greater_than(bal4_mine, Decimal('0.0'))
-        bal2_watch = w2.getbalances()['watchonly']['trusted']
+        bal2_mine = w2.getbalances()['mine']['trusted']
 
         # Spend (pegout) from MWEB to a base-layer bech32 address on miner
         pegout_addr = n0.getnewaddress(address_type='bech32')
@@ -205,8 +209,8 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
 
         # Ensure watch-only wallet (w2) sees the corresponding spentness for the inputs it tracks
         # (Balance should go down by at least 'spend_amt' once change confirms; we avoid exact change math.)
-        bal2_post = w2.getbalances()['watchonly']['trusted']
-        assert_greater_than(bal2_watch, bal2_post)
+        bal2_post = w2.getbalances()['mine']['trusted']
+        assert_greater_than(bal2_mine, bal2_post)
 
         # Watch-only can't send (no spend secret). Try a pegout and expect an RPC error.
         self.log.info("Verify watch-only wallet cannot spend MWEB coins")

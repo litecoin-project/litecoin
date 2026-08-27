@@ -691,8 +691,6 @@ public:
 
     bool HavePrivateKeys() const override;
 
-    bool HaveMWEBSpendSecret(const StealthAddress& address) const;
-
     bool GetKey(const CKeyID& address, CKey& keyOut) const override;
     bool GetMWEBSpendKey(const StealthAddress& address, CKey& keyOut) const;
     bool GetMWEBSpendKey(const uint32_t address_index, CKey& keyOut) const;

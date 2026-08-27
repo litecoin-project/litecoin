@@ -2421,27 +2421,6 @@ isminetype DescriptorScriptPubKeyMan::IsMine(const GenericAddress& address) cons
     return ISMINE_NO;
 }
 
-bool DescriptorScriptPubKeyMan::HaveMWEBSpendSecret(const StealthAddress& address) const
-{
-    LOCK(cs_desc_man);
-    const auto& out_type = m_wallet_descriptor.descriptor->GetOutputType();
-    if (!out_type || *out_type != OutputType::MWEB) {
-        return false;
-    }
-
-    if (m_mwebKeychain && m_mwebKeychain->HasSpendSecret()) {
-        return true;
-    }
-
-    const CKeyID subaddress_spend_keyid = address.GetSpendPubKey().GetID();
-    if (m_map_keys.count(subaddress_spend_keyid) > 0 || m_map_crypted_keys.count(subaddress_spend_keyid) > 0) {
-        return true;
-    }
-
-    CKey key;
-    return GetMWEBSpendKey(address, key);
-}
-
 bool DescriptorScriptPubKeyMan::CheckDecryptionKey(const CKeyingMaterial& master_key, bool accept_no_keys)
 {
     LOCK(cs_desc_man);
