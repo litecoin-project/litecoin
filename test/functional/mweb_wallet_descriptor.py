@@ -9,6 +9,7 @@ Test MWEB wallet descriptors:
   - import ranged descriptors and rescan -> discover owned outputs
   - verify watch-only can derive new MWEB addresses (scan priv + spend pub)
   - import fixed-index descriptor mweb(...,i) -> only that index is accepted
+  - reload a direct-subaddress descriptor without a master spend pubkey and discover new outputs
   - import full (scan xprv + spend xprv) descriptor -> spend via pegout, when private export is available
 """
 
@@ -154,6 +155,31 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
         u3_after = w3.listunspent(minconf=0, addresses=[a0, a1])
         assert_equal(sum(utxo['amount'] for utxo in u3_after), Decimal('3.50000000'))
 
+        # --- Direct-subaddress watcher (node3): no master spend pubkey is available ---
+        self.log.info("Importing and reloading a direct-subaddress descriptor without a master spend pubkey")
+        n3.createwallet("watch_direct", disable_private_keys=True, descriptors=True)
+        w3_direct = n3.get_wallet_rpc("watch_direct")
+
+        direct_desc = w3_direct.getdescriptorinfo(_single_subaddress_desc(a0_info['desc'], a0_info['spend_pubkey']))['descriptor']
+        direct_result = w3_direct.importdescriptors([{"desc": direct_desc, "timestamp": 0}])
+        assert direct_result[0].get('success')
+
+        direct_utxos = w3_direct.listunspent(minconf=0, addresses=[a0, a1])
+        assert_equal({utxo['address'] for utxo in direct_utxos}, {a0})
+        assert_equal(sum(utxo['amount'] for utxo in direct_utxos), Decimal('3.50000000'))
+
+        w3_direct.unloadwallet()
+        n3.loadwallet("watch_direct")
+        w3_direct = n3.get_wallet_rpc("watch_direct")
+
+        n0.sendtoaddress(a0, Decimal('0.75000000'))
+        self.sync_mempools()
+        self.generate(n0, 1, sync_fun=self.sync_all)
+
+        direct_utxos = w3_direct.listunspent(minconf=0, addresses=[a0, a1])
+        assert_equal({utxo['address'] for utxo in direct_utxos}, {a0})
+        assert_equal(sum(utxo['amount'] for utxo in direct_utxos), Decimal('4.25000000'))
+
         # --- Full import spender (node4): import scan xprv + spend xprv, then peg-out spend ---
         if not exp_full:
             return
@@ -263,6 +289,12 @@ def _force_fixed_index(desc: str, index: int) -> str:
     """Convert any ranged/unsuffixed mweb(...) to a fixed index form."""
     kscan, kspend, _ = _split_mweb_params(desc)
     return f"mweb({kscan},{kspend},{index})"
+
+
+def _single_subaddress_desc(desc: str, subaddress_spend_pubkey: str) -> str:
+    """Build direct-subaddress form from a descriptor's scan key and an address's spend pubkey."""
+    kscan, _, _ = _split_mweb_params(desc)
+    return f"mweb({kscan},{subaddress_spend_pubkey})"
 
 
 def _mweb_index_from_hdkeypath(hdkeypath: str) -> int:

@@ -3293,12 +3293,11 @@ void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
         m_wallet_descriptor.descriptor->Expand(-2, provider, addresses_temp, out_keys_spend, &temp_cache);
     }
 
+    std::optional<PublicKey> master_spend_pubkey;
     CPubKey master_spend_pk;
-    if (!out_keys_spend.GetMWEBMasterSpendPubKey(master_spend_pk)) {
-        return;
+    if (out_keys_spend.GetMWEBMasterSpendPubKey(master_spend_pk)) {
+        master_spend_pubkey = PublicKey(master_spend_pk.begin());
     }
-
-    PublicKey master_spend_pubkey(master_spend_pk.begin());
 
     if (!m_storage.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
         m_wallet_descriptor.descriptor->ExpandPrivate(-2, provider, out_keys_spend);
@@ -3307,7 +3306,7 @@ void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
     m_storage.SetMinVersion(FEATURE_MWEB);
 
     CKey spend_key;
-    if (!out_keys_spend.GetKey(master_spend_pubkey.GetID(), spend_key)) {
+    if (!master_spend_pubkey || !out_keys_spend.GetKey(master_spend_pubkey->GetID(), spend_key)) {
         m_mwebKeychain = std::make_shared<mw::Keychain>(
             this,
             master_scan_secret,
