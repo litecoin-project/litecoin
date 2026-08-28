@@ -48,3 +48,5 @@ Going Further
 To monitor Litecoin Core performance more in depth (like reindex or IBD): https://github.com/chaincodelabs/bitcoinperf
 
 To generate Flame Graphs for Litecoin Core: https://github.com/eklitzke/bitcoin/blob/flamegraphs/doc/flamegraphs.md
+
+To compare latency of free public Litecoin RPC endpoints (Tatum, BlockCypher, LitecoinSpace) measured every 60s from multiple regions: OpenChainBench free Litecoin RPC benchmark — https://openchainbench.com/bench/litecoin-rpc
