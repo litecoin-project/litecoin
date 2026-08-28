@@ -128,6 +128,10 @@ or the state of the mempool by an RPC that returned before this RPC. For
 example, a wallet transaction that was BIP-125-replaced in the mempool prior to
 this RPC may not yet be reflected as such in this RPC response.
 
+## Public RPC endpoint benchmarks
+
+[OpenChainBench](https://openchainbench.com/benchmarks/litecoin-rpc) continuously measures the latency of free, keyless Litecoin RPC endpoints (Tatum, BlockCypher, LitecoinSpace) from multiple regions with 60-second sampling. Useful for choosing a provider or monitoring availability.
+
 ## Limitations
 
 There is a known issue in the JSON-RPC interface that can cause a node to crash if
