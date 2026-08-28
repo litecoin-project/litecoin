@@ -54,8 +54,8 @@ private:
     void AddInputs(const std::vector<AnyWalletUTXO>& shuffled_inputs);
     std::optional<util::Error> AddOutputs(const SelectionResult& selection_result) EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
     std::optional<util::Error> AddChangeOutput(const SelectionResult& selection_result);
-    std::optional<util::Error> AddPeginOutput(const SelectionResult& selection_result) EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
-    std::optional<util::Error> UpdatePeginOutput(const SelectionResult& selection_result) EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
+    std::optional<util::Error> AddPeginOutput() EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
+    std::optional<util::Error> UpdatePeginOutput() EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
     void GrowChangeBy(const CAmount growth_amount);
     std::optional<util::Error> SubtractFeeFromOutputs(const CAmount fee_to_distribute);
     std::optional<util::Error> SignMWEBTx() EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);

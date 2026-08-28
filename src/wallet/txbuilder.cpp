@@ -98,6 +98,49 @@ bool SelectionHasMWEBInput(const SelectionResult& result)
     });
 }
 
+struct TransactionAmounts {
+    CAmount ltc_inputs{0};
+    CAmount ltc_outputs{0};
+    CAmount mweb_inputs{0};
+    CAmount mweb_outputs{0};
+    CAmount pegin{0};
+    CAmount pegouts{0};
+
+    CAmount GetFeePaid() const
+    {
+        return (ltc_inputs - ltc_outputs) + (mweb_inputs + pegin - mweb_outputs - pegouts);
+    }
+
+    CAmount GetRequiredPegin(const CAmount mweb_fee) const
+    {
+        return mweb_outputs + pegouts + mweb_fee - mweb_inputs;
+    }
+};
+
+TransactionAmounts GetTransactionAmounts(const std::vector<AnyWalletUTXO>& inputs, const CMutableTransaction& tx)
+{
+    TransactionAmounts amounts;
+    for (const AnyWalletUTXO& input : inputs) {
+        if (input.IsMWEB()) {
+            amounts.mweb_inputs += input.GetValue();
+        } else {
+            amounts.ltc_inputs += input.GetValue();
+        }
+    }
+
+    for (const CTxOut& output : tx.vout) {
+        amounts.ltc_outputs += output.nValue;
+    }
+
+    for (const mw::MutableOutput& output : tx.mweb_tx.outputs) {
+        amounts.mweb_outputs += output.amount.value_or(0);
+    }
+
+    amounts.pegin = tx.mweb_tx.GetPeginAmount().value_or(0);
+    amounts.pegouts = tx.mweb_tx.GetTotalPegoutAmount();
+    return amounts;
+}
+
 } // namespace
 
 TxBuilder::Ptr TxBuilder::New(const CWallet& wallet, const CCoinControl& coin_control, const std::vector<CRecipient>& recipients, const std::optional<int>& change_position)
@@ -398,7 +441,7 @@ std::optional<util::Error> TxBuilder::AddOutputs(const SelectionResult& selectio
 
     // Add peg-in output for PEGIN and PEGIN_PEGOUT transactions
     if (tx_type == TxType::PEGIN || tx_type == TxType::PEGIN_PEGOUT) {
-        const std::optional<util::Error> error = AddPeginOutput(selection_result);
+        const std::optional<util::Error> error = AddPeginOutput();
         if (error.has_value()) {
             return error;
         }
@@ -418,10 +461,6 @@ std::optional<util::Error> TxBuilder::AddOutputs(const SelectionResult& selectio
         GrowChangeBy(have_fee - need_fee);
         have_fee = need_fee;
     }
-    
-    // The only time that need_fee should be less than the amount available for fees is when
-    // we are subtracting the fee from the outputs. If this occurs at any other time, it is a bug.
-    assert(m_selection_params.m_subtract_fee_outputs || need_fee <= have_fee);
 
     // If we’re under-paying or over-paying fees and user asked to subtract from outputs
     if (have_fee != need_fee && m_selection_params.m_subtract_fee_outputs) {
@@ -434,7 +473,7 @@ std::optional<util::Error> TxBuilder::AddOutputs(const SelectionResult& selectio
         have_fee += missing_fee;
 
         if ((tx_type == TxType::PEGIN || tx_type == TxType::PEGIN_PEGOUT) && !m_change.change_position.IsMWEB()) {
-            error = UpdatePeginOutput(selection_result);
+            error = UpdatePeginOutput();
             if (error) {
                 return error;
             }
@@ -442,16 +481,14 @@ std::optional<util::Error> TxBuilder::AddOutputs(const SelectionResult& selectio
         }
     }
 
-    
-    if (!m_change.GetPosition().IsNull()) {
-        // We have a change output.
-        // We deliberately tuned it so that every litoshi maps to either recipient, change, or _exactly_ the target fee.
-        assert(have_fee == need_fee);
-    } else {
-        // No change output (it was never viable, or was dust and got dropped).
-        // Any excess automatically turns into additional fee.
-        // We only need to guarantee we didn’t end up *under‑paying*.
-        assert(have_fee >= need_fee);
+    if (have_fee < need_fee) {
+        return util::Error{_("Insufficient funds")};
+    }
+
+    // A transaction with change should pay exactly the requested fee. Without
+    // change, any excess selected value becomes additional fee.
+    if (!m_change.GetPosition().IsNull() && have_fee != need_fee) {
+        return util::Error{_("Failed to calculate transaction fee")};
     }
 
     return std::nullopt;
@@ -513,63 +550,41 @@ std::optional<util::Error> TxBuilder::AddChangeOutput(const SelectionResult& sel
     return std::nullopt;
 }
 
-std::optional<util::Error> TxBuilder::AddPeginOutput(const SelectionResult& selection_result)
+std::optional<util::Error> TxBuilder::AddPeginOutput()
 {
     m_tx.vout.push_back(CTxOut{0, GetScriptForPegin(mw::Hash())});
 
-    return UpdatePeginOutput(selection_result);
+    return UpdatePeginOutput();
 }
 
-std::optional<util::Error> TxBuilder::UpdatePeginOutput(const SelectionResult& selection_result)
+std::optional<util::Error> TxBuilder::UpdatePeginOutput()
 {
     if (m_tx.vout.empty()) {
         return util::Error{_("Transaction is missing peg-in output")};
     }
 
+    const TransactionAmounts amounts = GetTransactionAmounts(m_selected_coins, m_tx);
     CTxOut& pegin_output = m_tx.vout.back();
+    CAmount pegin_amount{0};
     if (!m_change.change_position.IsMWEB() && !m_change.change_position.IsPegout()) {
-        // Pegin amount needed when no MWEB change = (MWEB fee + MWEB output values) - (MWEB input values + Pegout values).
-        CAmount pegin_amount = CalcMWEBFee();
-        for (const mw::MutableOutput& mweb_output : m_tx.mweb_tx.outputs) {
-            pegin_amount += mweb_output.amount.value_or(0);
-        }
-
-        for (const AnyWalletUTXO& input : selection_result.GetInputSet()) {
-            if (input.IsMWEB()) {
-                pegin_amount -= input.GetValue();
-            }
-        }
-
-        pegin_amount -= m_tx.mweb_tx.GetTotalPegoutAmount();
-
-        pegin_output.nValue = pegin_amount;
-        m_tx.mweb_tx.SetPeginAmount(pegin_amount);
+        // Balance the MWEB side when there is no change output to absorb the difference.
+        pegin_amount = amounts.GetRequiredPegin(CalcMWEBFee());
     } else {
-        CAmount pegin_amount{0};
-        for (const AnyWalletUTXO& input : selection_result.GetInputSet()) {
-            if (!input.IsMWEB()) {
-                pegin_amount += input.GetValue();
-            }
-        }
-
-        pegin_output.nValue = pegin_amount;
-        m_tx.mweb_tx.SetPeginAmount(pegin_amount);
-
-        // Reduce the pegin amount by ltc_fee
+        // All selected LTC value is pegged in, less the fee paid on the LTC side.
         const util::Result<CAmount> ltc_fee_result = CalcLTCFee();
         if (!ltc_fee_result) {
             return util::Error{ErrorString(ltc_fee_result)};
         }
+        pegin_amount = amounts.ltc_inputs - *ltc_fee_result;
+    }
 
-        pegin_output.nValue -= ltc_fee_result.value();
-        m_tx.mweb_tx.SetPeginAmount(pegin_output.nValue);
+    pegin_output.nValue = pegin_amount;
+    m_tx.mweb_tx.SetPeginAmount(pegin_amount);
 
-        // Error if the pegin output is reduced to be below dust
-        if (pegin_output.nValue < 0) {
-            return util::Error{_("The transaction amount is too small to pay the fee")};
-        } else if (IsDust(pegin_output, m_wallet.chain().relayDustFee())) {
-            return util::Error{_("The transaction amount is too small to send after the fee has been deducted")};
-        }
+    if (pegin_amount < 0) {
+        return util::Error{_("The transaction amount is too small to pay the fee")};
+    } else if (IsDust(pegin_output, m_wallet.chain().relayDustFee())) {
+        return util::Error{_("The transaction amount is too small to send after the fee has been deducted")};
     }
 
     return std::nullopt;
@@ -744,45 +759,47 @@ std::optional<util::Error> TxBuilder::SignMWEBTx()
 
 CAmount TxBuilder::CalcSelectionTarget(const TxType& tx_type) const
 {
-
     const CAmount recipients_sum = m_recipients.Sum();
     if (m_selection_params.m_subtract_fee_outputs) {
         return recipients_sum;
     }
 
-    std::vector<CRecipient> ltc_recipients = m_recipients.LTC();
-    std::vector<CRecipient> mweb_recipients = m_recipients.MWEB();
-    
-    // Static vsize overhead + outputs vsize. 4 nVersion, 4 nLocktime, 1 input count, 1 witness overhead (dummy, flag, stack size), and bytes for output count
-    size_t num_ltc_recipients = ltc_recipients.size();
-    if (tx_type == TxType::PEGIN || tx_type == TxType::PEGIN_PEGOUT) {
-        ++num_ltc_recipients;
-    }
-    const size_t base_ltc_bytes = 10 + GetSizeOfCompactSize(num_ltc_recipients);
+    const std::vector<CRecipient> ltc_recipients = m_recipients.LTC();
+    const std::vector<CRecipient> mweb_recipients = m_recipients.MWEB();
+
+    // Fee rounding happens independently on the LTC and MWEB sides, so keep
+    // those byte counts separate just as the final fee calculation does.
+    const auto get_layered_fee = [this](size_t ltc_bytes, size_t mweb_bytes, size_t mweb_weight) {
+        return GetFeeRate().GetFee(ltc_bytes, 0) + GetFeeRate().GetFee(mweb_bytes, mweb_weight);
+    };
+
+    // Static vsize overhead: version, locktime, input count, witness overhead,
+    // and the compact-size encoded output count.
+    const auto get_ltc_tx_overhead = [](size_t num_outputs) {
+        return 10 + GetSizeOfCompactSize(num_outputs);
+    };
 
     size_t ltc_recipient_bytes{0};
-    for (const auto& recipient : ltc_recipients) {
+    for (const CRecipient& recipient : ltc_recipients) {
         ltc_recipient_bytes += ::GetSerializeSize(CTxOut(recipient.nAmount, recipient.GetScript()), PROTOCOL_VERSION);
     }
     const size_t mweb_recipient_weight = mw::STANDARD_OUTPUT_WEIGHT * mweb_recipients.size();
+    const size_t standard_mweb_weight = mw::KERNEL_WITH_STEALTH_WEIGHT + mweb_recipient_weight;
 
     // Maximum size of a pegin output (in bytes)
-    const size_t pegin_output_bytes = ::GetSerializeSize(CTxOut{MAX_MONEY, GetScriptForPegin(mw::Hash())}, PROTOCOL_VERSION);
+    const size_t pegin_output_bytes = ::GetSerializeSize(
+        CTxOut{MAX_MONEY, GetScriptForPegin(mw::Hash())}, PROTOCOL_VERSION);
 
     // Size (in bytes) of a hogex input - Equivalent to ::GetSerializeSize(CTxIn(), PROTOCOL_VERSION)
     const size_t hogex_input_bytes = 41;
+    const size_t pegin_ltc_bytes = get_ltc_tx_overhead(1) + pegin_output_bytes + hogex_input_bytes;
 
     switch (tx_type) {
     case TxType::MWEB_TO_MWEB: {
-        const size_t mweb_weight = mw::KERNEL_WITH_STEALTH_WEIGHT + (mw::STANDARD_OUTPUT_WEIGHT * mweb_recipients.size());
-        const CAmount non_change_mweb_fee = GetFeeRate().GetFee(0, mweb_weight);
-        return recipients_sum + non_change_mweb_fee;
+        return recipients_sum + get_layered_fee(0, 0, standard_mweb_weight);
     }
     case TxType::PEGIN: {
-        const size_t pegin_bytes = base_ltc_bytes + pegin_output_bytes + hogex_input_bytes;
-        const size_t pegin_mweb_weight = mw::KERNEL_WITH_STEALTH_WEIGHT + (mw::STANDARD_OUTPUT_WEIGHT * mweb_recipients.size());
-        const CAmount pegin_fee = GetFeeRate().GetFee(pegin_bytes, pegin_mweb_weight);
-        return recipients_sum + pegin_fee;
+        return recipients_sum + get_layered_fee(pegin_ltc_bytes, 0, standard_mweb_weight);
     }
     case TxType::PEGOUT: {
         // Include enough fee to pay for the kernel (with pegout script(s)), MWEB outputs, and the hogex pegout output(s).
@@ -793,8 +810,7 @@ CAmount TxBuilder::CalcSelectionTarget(const TxType& tx_type) const
         );
         const size_t pegout_mweb_weight = Weight::CalcKernelWeight(true, pegouts) + mweb_recipient_weight;
 
-        const CAmount basic_pegout_fee = GetFeeRate().GetFee(ltc_recipient_bytes, pegout_mweb_weight);
-        return recipients_sum + basic_pegout_fee;
+        return recipients_sum + get_layered_fee(0, ltc_recipient_bytes, pegout_mweb_weight);
     }
     case TxType::PEGIN_PEGOUT: {
         // Include enough fee to pay for:
@@ -810,13 +826,11 @@ CAmount TxBuilder::CalcSelectionTarget(const TxType& tx_type) const
         );
         const size_t pegout_mweb_weight = Weight::CalcKernelWeight(true, pegouts) + mweb_recipient_weight;
 
-        const size_t pegin_bytes = base_ltc_bytes + pegin_output_bytes + hogex_input_bytes + ltc_recipient_bytes;
-        const CAmount complex_pegout_fee = GetFeeRate().GetFee(pegin_bytes, pegout_mweb_weight);
-        return recipients_sum + complex_pegout_fee;
+        return recipients_sum + get_layered_fee(pegin_ltc_bytes, ltc_recipient_bytes, pegout_mweb_weight);
     }
     case TxType::LTC_TO_LTC: {
-        const CAmount ltc_to_ltc_fee = GetFeeRate().GetFee(base_ltc_bytes + ltc_recipient_bytes, 0);
-        return recipients_sum + ltc_to_ltc_fee;
+        const size_t ltc_bytes = get_ltc_tx_overhead(ltc_recipients.size()) + ltc_recipient_bytes;
+        return recipients_sum + get_layered_fee(ltc_bytes, 0, 0);
     }
     }
 
@@ -825,37 +839,7 @@ CAmount TxBuilder::CalcSelectionTarget(const TxType& tx_type) const
 
 CAmount TxBuilder::GetFeePaid() const
 {
-    const CAmount ltc_input_sum = std::accumulate(
-        m_selected_coins.cbegin(), m_selected_coins.cend(), CAmount{0},
-        [](CAmount sum, const AnyWalletUTXO& coin) { return coin.IsMWEB() ? sum : (sum + coin.GetValue()); }
-    );
-    const CAmount ltc_output_sum = std::accumulate(
-        m_tx.vout.cbegin(), m_tx.vout.cend(), CAmount{0},
-        [](CAmount sum, const CTxOut& txout) { return sum += txout.nValue; }
-    );
-    const CAmount ltc_fee = ltc_input_sum - ltc_output_sum;
-    // Peg-ins that subtract fees from MWEB outputs can temporarily place more
-    // value on the LTC side than the selected LTC inputs provide. The MWEB side
-    // carries the offset until fees are redistributed across the marked outputs.
-
-    const CAmount mweb_input_sum = std::accumulate(
-        m_selected_coins.cbegin(), m_selected_coins.cend(), CAmount{0},
-        [](CAmount sum, const AnyWalletUTXO& coin) { return coin.IsMWEB() ? (sum + coin.GetValue()) : sum; }
-    );
-    const CAmount mweb_pegin = m_tx.mweb_tx.GetPeginAmount().value_or(0);
-    const CAmount mweb_output_sum = std::accumulate(
-        m_tx.mweb_tx.outputs.cbegin(), m_tx.mweb_tx.outputs.cend(), CAmount{0},
-        [](CAmount sum, const mw::MutableOutput& output) { return sum += output.amount.value_or(0); }
-    );
-    std::vector<mw::PegOutRecipient> pegouts = m_tx.mweb_tx.GetPegouts();
-    const CAmount mweb_pegout_sum = std::accumulate(
-        pegouts.cbegin(), pegouts.cend(), CAmount{0},
-        [](CAmount sum, const mw::PegOutRecipient& recipient) { return sum += recipient.nAmount; }
-    );
-    const CAmount mweb_fee = (mweb_input_sum + mweb_pegin) - (mweb_output_sum + mweb_pegout_sum);
-    // if mweb_fee is negative then this reduces the current fee paid so that later we will reduce output values by an additional |mweb_fee|. This happens for peg-ins when m_subtract_fee_outputs is true.
-
-    return ltc_fee + mweb_fee;
+    return GetTransactionAmounts(m_selected_coins, m_tx).GetFeePaid();
 }
 
 // Calculate the portion of the fee that should be paid on the LTC side.
@@ -874,7 +858,7 @@ util::Result<CAmount> TxBuilder::CalcLTCFee() const
     }
 
     size_t tx_bytes = tx_size_result->vsize;
-    if (m_tx.mweb_tx.GetPeginAmount().has_value()) {
+    if (tx_type == TxType::PEGIN || tx_type == TxType::PEGIN_PEGOUT) {
         // Add hogex input bytes
         tx_bytes += ::GetSerializeSize(CTxIn(), PROTOCOL_VERSION);
     }
