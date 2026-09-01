@@ -6,6 +6,7 @@
 
 #include <fs.h>
 #include <test/util/setup_common.h>
+#include <util/translation.h>
 #include <wallet/bdb.h>
 
 #include <fstream>
@@ -76,6 +77,52 @@ BOOST_AUTO_TEST_CASE(getwalletenv_g_dbenvs_free_instance)
 
     BOOST_CHECK(env_1_a != env_1_b);
     BOOST_CHECK(env_2_a == env_2_b);
+}
+
+BOOST_AUTO_TEST_CASE(rewrite_replaces_database_atomically)
+{
+    const fs::path wallet_path = m_args.GetDataDirNet() / "rewrite_wallet";
+    DatabaseOptions options;
+    options.verify = false;
+    DatabaseStatus status;
+    bilingual_str error;
+    std::unique_ptr<BerkeleyDatabase> database = MakeBerkeleyDatabase(wallet_path, options, status, error);
+    BOOST_REQUIRE(database);
+    BOOST_REQUIRE(status == DatabaseStatus::SUCCESS);
+
+    {
+        std::unique_ptr<DatabaseBatch> batch = database->MakeBatch();
+        BOOST_REQUIRE(batch->Write(std::string{"keep"}, uint32_t{1}));
+        BOOST_REQUIRE(batch->Write(std::string{"skip"}, uint32_t{2}));
+    }
+
+    // A failed earlier attempt can leave a partial replacement behind. It
+    // must not contribute records when the rewrite is retried.
+    {
+        Db stale(database->env->dbenv.get(), 0);
+        BOOST_REQUIRE_EQUAL(stale.open(nullptr, "wallet.dat.rewrite", "main", DB_BTREE, DB_CREATE, 0), 0);
+        CDataStream key(SER_DISK, CLIENT_VERSION);
+        CDataStream value(SER_DISK, CLIENT_VERSION);
+        key << std::string{"stale"};
+        value << uint32_t{3};
+        Dbt db_key(key.data(), key.size());
+        Dbt db_value(value.data(), value.size());
+        BOOST_REQUIRE_EQUAL(stale.put(nullptr, &db_key, &db_value, 0), 0);
+        BOOST_REQUIRE_EQUAL(stale.close(0), 0);
+    }
+
+    BOOST_REQUIRE(database->Rewrite("\x04skip"));
+    database->ReloadDbEnv();
+
+    {
+        std::unique_ptr<DatabaseBatch> batch = database->MakeBatch();
+        uint32_t value{0};
+        BOOST_CHECK(batch->Read(std::string{"keep"}, value));
+        BOOST_CHECK_EQUAL(value, 1U);
+        BOOST_CHECK(!batch->Read(std::string{"skip"}, value));
+        BOOST_CHECK(!batch->Read(std::string{"stale"}, value));
+    }
+    BOOST_CHECK(!fs::exists(wallet_path / "wallet.dat.rewrite"));
 }
 
 BOOST_AUTO_TEST_SUITE_END()

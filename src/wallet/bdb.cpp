@@ -461,6 +461,13 @@ bool BerkeleyDatabase::Rewrite(const char* pszSkip)
                 bool fSuccess = true;
                 LogPrintf("BerkeleyBatch::Rewrite: Rewriting %s...\n", strFile);
                 std::string strFileRes = strFile + ".rewrite";
+                if (!env->IsMock() && fs::exists(env->Directory() / fs::PathFromString(strFileRes))) {
+                    Db stale_db(env->dbenv.get(), 0);
+                    if (stale_db.remove(strFileRes.c_str(), nullptr, 0) != 0) {
+                        LogPrintf("BerkeleyBatch::Rewrite: Can't remove stale database file %s\n", strFileRes);
+                        fSuccess = false;
+                    }
+                }
                 { // surround usage of db with extra {}
                     BerkeleyBatch db(*this, true);
                     std::unique_ptr<Db> pdbCopy = std::make_unique<Db>(env->dbenv.get(), 0);
@@ -471,7 +478,7 @@ bool BerkeleyDatabase::Rewrite(const char* pszSkip)
                                             DB_BTREE,           // Database type
                                             DB_CREATE,          // Flags
                                             0);
-                    if (ret > 0) {
+                    if (ret != 0) {
                         LogPrintf("BerkeleyBatch::Rewrite: Can't create database file %s\n", strFileRes);
                         fSuccess = false;
                     }
@@ -499,10 +506,12 @@ bool BerkeleyDatabase::Rewrite(const char* pszSkip)
                             Dbt datKey(ssKey.data(), ssKey.size());
                             Dbt datValue(ssValue.data(), ssValue.size());
                             int ret2 = pdbCopy->put(nullptr, &datKey, &datValue, DB_NOOVERWRITE);
-                            if (ret2 > 0)
+                            if (ret2 != 0)
                                 fSuccess = false;
                         }
                         db.CloseCursor();
+                    } else {
+                        fSuccess = false;
                     }
                     if (fSuccess) {
                         db.Close();
@@ -514,12 +523,16 @@ bool BerkeleyDatabase::Rewrite(const char* pszSkip)
                     }
                 }
                 if (fSuccess) {
-                    Db dbA(env->dbenv.get(), 0);
-                    if (dbA.remove(strFile.c_str(), nullptr, 0))
+                    DbTxn* txn = env->TxnBegin();
+                    if (!txn) {
                         fSuccess = false;
-                    Db dbB(env->dbenv.get(), 0);
-                    if (dbB.rename(strFileRes.c_str(), nullptr, strFile.c_str(), 0))
+                    } else if (env->dbenv->dbremove(txn, strFile.c_str(), nullptr, 0) != 0 ||
+                               env->dbenv->dbrename(txn, strFileRes.c_str(), nullptr, strFile.c_str(), 0) != 0) {
+                        txn->abort();
                         fSuccess = false;
+                    } else if (txn->commit(0) != 0) {
+                        fSuccess = false;
+                    }
                 }
                 if (!fSuccess)
                     LogPrintf("BerkeleyBatch::Rewrite: Failed to rewrite database file %s\n", strFileRes);

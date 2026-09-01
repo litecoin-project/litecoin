@@ -106,6 +106,9 @@ struct WalletTxInfo
 
         WalletTxInfo wtx_info;
         stream >> wtx_info;
+        if (!stream.empty()) {
+            throw std::ios_base::failure("Trailing data in MWEB WalletTxInfo");
+        }
         return wtx_info;
     }
 

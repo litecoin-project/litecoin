@@ -47,6 +47,7 @@ const std::string LOCKED_UTXO{"lockedutxo"};
 const std::string MASTER_KEY{"mkey"};
 const std::string MINVERSION{"minversion"};
 const std::string MWEB_SENDER_KEY_INDEX{"mweb_sender_key_index"};
+const std::string MWEB_SPEND_KEY_SCRUB{"mweb_spend_key_scrub"};
 const std::string NAME{"name"};
 const std::string OLD_KEY{"wkey"};
 const std::string ORDERPOSNEXT{"orderposnext"};
@@ -76,6 +77,18 @@ const int CHDChain::CURRENT_VERSION;
 namespace {
 static constexpr uint32_t WALLETDB_BIP32_HARDENED_KEY_LIMIT{0x80000000};
 static constexpr uint32_t WALLETDB_MWEB_PURPOSE{100};
+
+bool ContainsSerializedMWEBTxInfo(const CDataStream& value)
+{
+    // mapValue serializes each string key with its compact-size length. A
+    // failed CWalletTx deserialization can otherwise hide a legacy embedded
+    // WalletCoin (and its spend key) from the migration scanner.
+    static constexpr unsigned char serialized_key[]{9, 'm', 'w', 'e', 'b', '_', 'i', 'n', 'f', 'o'};
+    return std::search(
+        value.begin(), value.end(), std::begin(serialized_key), std::end(serialized_key),
+        [](std::byte lhs, unsigned char rhs) { return std::to_integer<unsigned char>(lhs) == rhs; }
+    ) != value.end();
+}
 } // namespace
 
 //
@@ -173,6 +186,16 @@ bool WalletBatch::WriteCScript(const uint160& hash, const CScript& redeemScript)
 bool WalletBatch::WriteMWEBWalletCoin(const mw::WalletCoin& coin)
 {
     return WriteIC(std::make_pair(DBKeys::COIN, coin.output_id), coin, true);
+}
+
+bool WalletBatch::WriteMWEBSpendKeyScrubFlag()
+{
+    return WriteIC(DBKeys::MWEB_SPEND_KEY_SCRUB, uint8_t{1}, true);
+}
+
+bool WalletBatch::EraseMWEBSpendKeyScrubFlag()
+{
+    return EraseIC(DBKeys::MWEB_SPEND_KEY_SCRUB);
 }
 
 bool WalletBatch::WriteWatchOnly(const CScript &dest, const CKeyMetadata& keyMeta)
@@ -389,6 +412,9 @@ public:
     std::vector<uint256> vWalletUpgrade;
     std::vector<uint256> vWalletRemove;
     std::map<uint256, uint256> m_legacy_mweb_tx_rekeys;
+    std::map<mw::Hash, mw::WalletCoin> m_mweb_coin_upgrades;
+    bool m_mweb_spend_key_scrub_required{false};
+    bool m_mweb_persisted_spend_key_loaded{false};
     std::map<OutputType, uint256> m_active_external_spks;
     std::map<OutputType, uint256> m_active_internal_spks;
     std::map<uint256, DescriptorCache> m_descriptor_caches;
@@ -429,6 +455,10 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
             ssKey >> hash;
             CWalletTx wtx(nullptr, TxStateInactive{}, std::nullopt);
             ssValue >> wtx;
+            if (wtx.mweb_wtx_info && wtx.mweb_wtx_info->legacy_received_coin &&
+                wtx.mweb_wtx_info->legacy_received_coin->HadPersistedSpendKey()) {
+                wss.m_mweb_persisted_spend_key_loaded = true;
+            }
 
             if (wtx.GetHash() != hash) {
                 bool is_legacy_mweb_tx_hash = false;
@@ -481,9 +511,31 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
                 return false;
             }
         } else if (strType == DBKeys::COIN) {
+            mw::Hash output_id;
+            ssKey >> output_id;
             mw::WalletCoin coin;
             ssValue >> coin;
+            if (!ssValue.empty()) {
+                throw std::ios_base::failure("Trailing data in MWEB coin record");
+            }
+            if (output_id != coin.output_id) {
+                throw std::ios_base::failure("MWEB coin database key does not match its output ID");
+            }
+            if (coin.HadPersistedSpendKey()) {
+                wss.m_mweb_persisted_spend_key_loaded = true;
+            }
+            if (coin.NeedsPersistenceUpgrade()) {
+                wss.m_mweb_coin_upgrades.emplace(coin.output_id, coin);
+            }
             pwallet->GetMWWallet()->LoadToWallet(coin);
+            return true;
+        } else if (strType == DBKeys::MWEB_SPEND_KEY_SCRUB) {
+            uint8_t flag{0};
+            ssValue >> flag;
+            if (flag != 1) {
+                throw std::ios_base::failure("Invalid MWEB spend-key scrub marker");
+            }
+            wss.m_mweb_spend_key_scrub_required = true;
             return true;
         } else if (strType == DBKeys::WATCHS) {
             wss.nWatchKeys++;
@@ -915,7 +967,9 @@ bool ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue, st
 bool WalletBatch::IsKeyType(const std::string& strType)
 {
     return (strType == DBKeys::KEY ||
-            strType == DBKeys::MASTER_KEY || strType == DBKeys::CRYPTED_KEY);
+            strType == DBKeys::MASTER_KEY || strType == DBKeys::CRYPTED_KEY ||
+            strType == DBKeys::COIN ||
+            strType == DBKeys::MWEB_SPEND_KEY_SCRUB);
 }
 
 DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
@@ -983,12 +1037,14 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
 
             // Try to be tolerant of single corrupt records:
             std::string strType, strErr;
+            const bool contains_mweb_tx_info = ContainsSerializedMWEBTxInfo(ssValue);
             if (!ReadKeyValue(pwallet, ssKey, ssValue, wss, strType, strErr))
             {
 
                 // losing keys is considered a catastrophic error, anything else
                 // we assume the user can live with:
-                if (IsKeyType(strType) || strType == DBKeys::DEFAULTKEY) {
+                if (IsKeyType(strType) || strType == DBKeys::DEFAULTKEY ||
+                    (strType == DBKeys::TX && contains_mweb_tx_info)) {
                     result = DBErrors::CORRUPT;
                 } else if (strType == DBKeys::FLAGS) {
                     // reading the wallet flags can only fail if unknown flags are present
@@ -1052,10 +1108,18 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         result = DBErrors::NONCRITICAL_ERROR;
     }
 
-    // Any wallet corruption at all: skip any rewriting or
-    // upgrading, we don't want to make it worse.
-    if (result != DBErrors::LOAD_OK)
+    // Any wallet corruption at all: skip any rewriting or upgrading, we don't
+    // want to make it worse. However, the normally tolerated error results
+    // must not allow a wallet with an outstanding MWEB spend-key scrub to
+    // open: a later ordinary coin write could otherwise replace the legacy
+    // record and permanently lose the scrub signal.
+    if ((result == DBErrors::NONCRITICAL_ERROR || result == DBErrors::NEED_RESCAN) &&
+        (wss.m_mweb_spend_key_scrub_required || wss.m_mweb_persisted_spend_key_loaded)) {
+        return DBErrors::LOAD_FAIL;
+    }
+    if (result != DBErrors::LOAD_OK) {
         return result;
+    }
 
     pwallet->WalletLogPrintf("Keys: %u plaintext, %u encrypted, %u w/ metadata, %u total. Unknown wallet records: %u\n",
            wss.nKeys, wss.nCKeys, wss.nKeyMeta, wss.nKeys + wss.nCKeys, wss.m_unknown_records);
@@ -1074,6 +1138,15 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         spk_man->LoadMWEBKeychain();
     }
 
+    // Released pre-v24 coins did not identify their MWEB keychain. Those
+    // wallets had one active MWEB keychain, so bind legacy standalone coin
+    // records to it after verifying the stored address against its scan key.
+    for (auto& [output_id, coin] : wss.m_mweb_coin_upgrades) {
+        if (pwallet->GetMWWallet()->SetActiveMasterScanKeyId(coin)) {
+            pwallet->GetMWWallet()->LoadToWallet(coin);
+        }
+    }
+
     // Migrate released MWEB wtx records, which embedded the full received coin.
     // Promote the coin into the wallet's coin map unless a mweb_coin record
     // already exists (the coin map copy is at least as fresh as the embedded
@@ -1081,11 +1154,10 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
     // is committed with its old-key removal so a failed write cannot remove
     // the only complete copy of a received coin.
     //
-    // The minversion is only raised when v24-format records are actually
-    // written (here and at the MWEB coin persistence sites), not on every
-    // open: a blanket bump at load would erase the feature-version transitions
-    // CWallet::UpgradeWallet needs, and a wallet that has not written v24 MWEB
-    // state contains nothing that older releases would misread.
+    // The minversion is only raised when upgraded records are actually
+    // written (here and at the MWEB persistence sites), not on every open: a
+    // blanket bump would erase feature-version transitions CWallet::UpgradeWallet
+    // needs, and a wallet with no upgraded MWEB state remains backwards compatible.
     struct MWEBMigration
     {
         CWalletTx* wtx;
@@ -1100,7 +1172,8 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
             continue;
         }
 
-        const mw::WalletCoin legacy_coin = *wtx.mweb_wtx_info->legacy_received_coin;
+        mw::WalletCoin legacy_coin = *wtx.mweb_wtx_info->legacy_received_coin;
+        pwallet->GetMWWallet()->SetActiveMasterScanKeyId(legacy_coin);
         mw::WalletCoin existing_coin;
         const bool promote_coin = !pwallet->GetMWEBWalletCoin(legacy_coin.output_id, existing_coin);
         if (promote_coin) {
@@ -1139,7 +1212,16 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         });
     }
 
-    const bool has_mweb_migrations = !mweb_migrations.empty() || !mweb_tx_rekeys.empty();
+    const bool migrated_persisted_spend_key = std::any_of(
+        wss.m_mweb_coin_upgrades.begin(),
+        wss.m_mweb_coin_upgrades.end(),
+        [](const auto& entry) { return entry.second.HadPersistedSpendKey(); }
+    ) || std::any_of(
+        mweb_migrations.begin(),
+        mweb_migrations.end(),
+        [](const MWEBMigration& migration) { return migration.coin.HadPersistedSpendKey(); }
+    );
+    const bool has_mweb_migrations = !mweb_migrations.empty() || !mweb_tx_rekeys.empty() || !wss.m_mweb_coin_upgrades.empty();
 
     bool mweb_migration_write_failed = false;
     if (has_mweb_migrations && !pwallet->SetMinVersion(FEATURE_V24, this)) {
@@ -1152,6 +1234,18 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
         bool transaction_ok = transaction_started;
         if (!transaction_ok) {
             pwallet->WalletLogPrintf("Failed to begin MWEB record migration transaction\n");
+        }
+
+        if (transaction_ok && migrated_persisted_spend_key && !WriteMWEBSpendKeyScrubFlag()) {
+            pwallet->WalletLogPrintf("Failed to mark the wallet for removal of persisted MWEB spend keys\n");
+            transaction_ok = false;
+        }
+
+        for (const auto& [output_id, coin] : wss.m_mweb_coin_upgrades) {
+            if (transaction_ok && !WriteMWEBWalletCoin(coin)) {
+                pwallet->WalletLogPrintf("Failed to upgrade MWEB coin %s\n", output_id.ToHex());
+                transaction_ok = false;
+            }
         }
 
         for (const MWEBMigration& migration : mweb_migrations) {
@@ -1210,7 +1304,10 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
     // particular, ReorderTransactions() would serialize an unordered legacy
     // transaction under its new ID-only key, defeating the rollback above.
     if (mweb_migration_write_failed) {
-        return DBErrors::NONCRITICAL_ERROR;
+        // Do not open a wallet after failing to remove a persisted output
+        // spend key. Otherwise a later ordinary coin write could overwrite
+        // the legacy record and lose the signal that a full scrub is needed.
+        return migrated_persisted_spend_key ? DBErrors::LOAD_FAIL : DBErrors::NONCRITICAL_ERROR;
     }
 
     for (const uint256& hash : wss.vWalletUpgrade)
@@ -1219,10 +1316,6 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
     for (const uint256& hash : wss.vWalletRemove) {
         EraseTx(hash);
     }
-
-    // Rewrite encrypted wallets of versions 0.4.0 and 0.5.0rc:
-    if (wss.fIsEncrypted && (last_client == 40000 || last_client == 50000))
-        return DBErrors::NEED_REWRITE;
 
     if (!has_last_client || last_client != CLIENT_VERSION) // Update
         m_batch->Write(DBKeys::VERSION, CLIENT_VERSION);
@@ -1258,6 +1351,10 @@ DBErrors WalletBatch::LoadWallet(CWallet* pwallet)
                 pwallet->GetLegacyScriptPubKeyMan()->AddInactiveHDChain(chain_pair.second);
             }
         }
+    }
+
+    if (result == DBErrors::LOAD_OK && (wss.m_mweb_spend_key_scrub_required || migrated_persisted_spend_key)) {
+        return DBErrors::NEED_REWRITE;
     }
 
     return result;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include <mw/crypto/KeyDerivation.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/wallet/WalletCoin.h>
 #include <mw/models/wallet/StealthAddress.h>
@@ -54,10 +55,9 @@ struct MutableInput {
         }
         if (coin.HasSharedSecret()) {
             input.shared_secret = coin.shared_secret;
-        }
-        input.spend_key = coin.spend_key;
-        if (input.spend_key.has_value()) {
-            input.output_pubkey = PublicKey::From(*input.spend_key);
+            if (coin.HasAddress()) {
+                input.output_pubkey = mw::DeriveOutputPubKey(*coin.address, *coin.shared_secret);
+            }
         }
         return input;
     }

@@ -32,6 +32,7 @@ class MWEBSigningKeyStore
 public:
     virtual ~MWEBSigningKeyStore() = default;
     virtual std::optional<mw::WalletCoin> GetWalletCoin(const mw::Hash& output_id) const = 0;
+    virtual mw::Keychain::Ptr GetActiveKeychain() const = 0;
     virtual mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_key_id) const = 0;
     virtual std::optional<std::string> InferAddressDescriptor(const mw::WalletCoin& coin) const = 0;
 };

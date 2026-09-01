@@ -240,9 +240,6 @@ public:
 
     virtual bool GetKey(const CKeyID& address, CKey& keyOut) const { return false; }
 
-    //! The action to do when the DB needs rewrite
-    virtual void RewriteDB() {}
-
     virtual std::optional<int64_t> GetOldestKeyPoolTime() const { return GetTime(); }
 
     virtual unsigned int GetKeyPoolSize() const { return 0; }
@@ -431,8 +428,6 @@ public:
     bool Upgrade(int prev_version, int new_version, bilingual_str& error) override;
 
     bool HavePrivateKeys() const override;
-
-    void RewriteDB() override;
 
     std::optional<int64_t> GetOldestKeyPoolTime() const override;
     size_t KeypoolCountExternalKeys() const;

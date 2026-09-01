@@ -34,7 +34,7 @@ public:
     // this will still identify outputs belonging to the wallet, but
     // will not be able to calculate the coin's output key.
     // It will still calculate the shared_secret though, which can be
-    // used to calculate the spend key when the wallet becomes unlocked.
+    // used to calculate the spend key at signing time after the wallet is unlocked.
     bool RewindOutput(const mw::Output& output, mw::WalletCoin& coin) const;
 
     // Calculates the output secret key for the given coin.

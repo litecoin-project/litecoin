@@ -12,6 +12,7 @@
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/walletdb.h>
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <map>
@@ -186,8 +187,7 @@ void CheckRewoundCoin(
     const mw::Output& output,
     const uint32_t address_index,
     const uint64_t amount,
-    const StealthAddress& address,
-    const bool expect_spend_key)
+    const StealthAddress& address)
 {
     BOOST_CHECK_EQUAL(coin.address_index, address_index);
     BOOST_CHECK_EQUAL(coin.amount, static_cast<CAmount>(amount));
@@ -198,13 +198,6 @@ void CheckRewoundCoin(
     BOOST_CHECK(coin.shared_secret.has_value());
     BOOST_REQUIRE(coin.master_scan_key_id.has_value());
     BOOST_CHECK(*coin.master_scan_key_id == PublicKey::From(ScanSecret()).GetID());
-
-    if (expect_spend_key) {
-        BOOST_REQUIRE(coin.spend_key.has_value());
-        BOOST_CHECK(PublicKey::From(*coin.spend_key) == output.GetReceiverPubKey());
-    } else {
-        BOOST_CHECK(!coin.spend_key.has_value());
-    }
 }
 
 void CheckNotRewound(const mw::Keychain& keychain, const mw::Output& output)
@@ -344,7 +337,10 @@ BOOST_AUTO_TEST_CASE(RewindOutput_OwnedKeychainOutputs)
         mw::WalletCoin coin;
         coin.Reset();
         BOOST_REQUIRE(full_keychain.RewindOutput(output, coin));
-        CheckRewoundCoin(coin, output, TEST_ADDRESS_INDEX, amount, address, /*expect_spend_key=*/true);
+        CheckRewoundCoin(coin, output, TEST_ADDRESS_INDEX, amount, address);
+        const std::optional<SecretKey> spend_key = full_keychain.CalculateOutputSpendKey(coin);
+        BOOST_REQUIRE(spend_key);
+        BOOST_CHECK(PublicKey::From(*spend_key) == output.GetReceiverPubKey());
     }
 
     const mw::Output output = CreateOutput(address, AMOUNT_LARGE);
@@ -352,13 +348,15 @@ BOOST_AUTO_TEST_CASE(RewindOutput_OwnedKeychainOutputs)
     mw::WalletCoin watch_only_coin;
     watch_only_coin.Reset();
     BOOST_REQUIRE(spend_pubkey_only.RewindOutput(output, watch_only_coin));
-    CheckRewoundCoin(watch_only_coin, output, TEST_ADDRESS_INDEX, AMOUNT_LARGE, address, /*expect_spend_key=*/false);
+    CheckRewoundCoin(watch_only_coin, output, TEST_ADDRESS_INDEX, AMOUNT_LARGE, address);
+    BOOST_CHECK(!spend_pubkey_only.CalculateOutputSpendKey(watch_only_coin));
 
     mw::Keychain scan_only(&spk_man, ScanSecret(), std::optional<PublicKey>{std::nullopt});
     mw::WalletCoin scan_only_coin;
     scan_only_coin.Reset();
     BOOST_REQUIRE(scan_only.RewindOutput(output, scan_only_coin));
-    CheckRewoundCoin(scan_only_coin, output, TEST_ADDRESS_INDEX, AMOUNT_LARGE, address, /*expect_spend_key=*/false);
+    CheckRewoundCoin(scan_only_coin, output, TEST_ADDRESS_INDEX, AMOUNT_LARGE, address);
+    BOOST_CHECK(!scan_only.CalculateOutputSpendKey(scan_only_coin));
 }
 
 BOOST_AUTO_TEST_CASE(RewindOutput_CustomKeyOutputs)
@@ -375,7 +373,8 @@ BOOST_AUTO_TEST_CASE(RewindOutput_CustomKeyOutputs)
         mw::WalletCoin coin;
         coin.Reset();
         BOOST_REQUIRE(keychain.RewindOutput(output, coin));
-        CheckRewoundCoin(coin, output, mw::CUSTOM_KEY, AMOUNT_ONE, custom_address, /*expect_spend_key=*/false);
+        CheckRewoundCoin(coin, output, mw::CUSTOM_KEY, AMOUNT_ONE, custom_address);
+        BOOST_CHECK(!keychain.CalculateOutputSpendKey(coin));
     }
 
     {
@@ -388,7 +387,58 @@ BOOST_AUTO_TEST_CASE(RewindOutput_CustomKeyOutputs)
         mw::WalletCoin coin;
         coin.Reset();
         BOOST_REQUIRE(keychain.RewindOutput(output, coin));
-        CheckRewoundCoin(coin, output, mw::CUSTOM_KEY, AMOUNT_ONE, custom_address, /*expect_spend_key=*/true);
+        CheckRewoundCoin(coin, output, mw::CUSTOM_KEY, AMOUNT_ONE, custom_address);
+        const std::optional<SecretKey> spend_key = keychain.CalculateOutputSpendKey(coin);
+        BOOST_REQUIRE(spend_key);
+        BOOST_CHECK(PublicKey::From(*spend_key) == output.GetReceiverPubKey());
+    }
+}
+
+BOOST_AUTO_TEST_CASE(WalletCoinLegacySpendKeysAreDiscarded)
+{
+    const uint32_t address_index{TEST_ADDRESS_INDEX};
+    const std::optional<SecretKey> spend_key{SpendSecret()};
+    const std::optional<BlindingFactor> blind{BlindingFactor::Random()};
+    const CAmount amount{12345};
+    const mw::Hash output_id{mw::Hash::ValueOf(42)};
+    const std::optional<SecretKey> sender_key{SenderSecret()};
+    const std::optional<StealthAddress> address{mw::DeriveSubaddress(PublicKey::From(SpendSecret()), ScanSecret(), address_index)};
+    const std::optional<SecretKey> shared_secret{SecretKey::Random()};
+    const std::optional<CKeyID> master_scan_key_id{PublicKey::From(ScanSecret()).GetID()};
+
+    for (uint8_t version{0}; version <= 3; ++version) {
+        CDataStream legacy(SER_DISK, PROTOCOL_VERSION);
+        legacy << version << VARINT(address_index) << spend_key << blind
+               << VARINT_MODE(amount, VarIntMode::NONNEGATIVE_SIGNED) << output_id;
+        if (version >= 1) {
+            legacy << sender_key << address;
+        }
+        if (version >= 2) {
+            legacy << shared_secret;
+        }
+        if (version >= 3) {
+            legacy << master_scan_key_id;
+        }
+
+        std::vector<uint8_t> legacy_bytes(legacy.size());
+        std::transform(legacy.begin(), legacy.end(), legacy_bytes.begin(), [](std::byte value) {
+            return std::to_integer<uint8_t>(value);
+        });
+        const mw::WalletCoin migrated = mw::WalletCoin::Deserialize(legacy_bytes);
+        BOOST_CHECK(migrated.NeedsPersistenceUpgrade());
+        BOOST_CHECK(migrated.HadPersistedSpendKey());
+        BOOST_CHECK_EQUAL(migrated.address_index, address_index);
+        BOOST_CHECK(migrated.output_id == output_id);
+
+        const std::vector<uint8_t> upgraded_bytes = migrated.Serialized();
+        BOOST_REQUIRE(!upgraded_bytes.empty());
+        BOOST_CHECK_EQUAL(upgraded_bytes.front(), mw::WalletCoin::LATEST_VERSION);
+        BOOST_CHECK(std::search(upgraded_bytes.begin(), upgraded_bytes.end(), spend_key->vec().begin(), spend_key->vec().end()) == upgraded_bytes.end());
+
+        const mw::WalletCoin upgraded = mw::WalletCoin::Deserialize(upgraded_bytes);
+        BOOST_CHECK(!upgraded.NeedsPersistenceUpgrade());
+        BOOST_CHECK(!upgraded.HadPersistedSpendKey());
+        BOOST_CHECK(upgraded == migrated);
     }
 }
 

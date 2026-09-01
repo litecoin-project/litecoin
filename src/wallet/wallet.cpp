@@ -1049,6 +1049,13 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
 
     WalletBatch batch(GetDatabase(), fFlushOnClose);
 
+    // Gate ID-only MWEB receives before changing in-memory wallet state. If
+    // this write fails, a later unrelated update must not be able to persist
+    // the v24-only record without the minversion.
+    if (mweb_wtx_info && mweb_wtx_info->received_output_id && !SetMinVersion(FEATURE_V24, &batch)) {
+        return nullptr;
+    }
+
     CWalletTx tmp_wtx(tx, state, mweb_wtx_info);
     uint256 hash = CWalletTx(tx, state, mweb_wtx_info).GetHash();
     std::vector<uint256> removed_partial_mweb_hashes;
@@ -1693,9 +1700,8 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
             }
         }
 
-        mw::WalletCoin mweb_coin;
         for (const mw::Output& output : block.data->mweb_block.m_block->GetOutputs()) {
-            if (mweb_wallet->RewindOutput(output, mweb_coin)) {
+            if (mweb_wallet->RewindOutput(output)) {
                 auto wtx = FindWalletTx(output.GetOutputID());
                 if (wtx != nullptr) {
                     SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateConfirmed{block.hash, block.height, GetTxPositionInBlock(*wtx, block.data->vtx)});
@@ -1703,7 +1709,7 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
                 } else {
                     AddToWallet(
                         MakeTransactionRef(),
-                        std::make_optional(MWEB::WalletTxInfo::Received(mweb_coin.output_id)),
+                        std::make_optional(MWEB::WalletTxInfo::Received(output.GetOutputID())),
                         TxStateConfirmed{block.hash, block.height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
                     );
                 }
@@ -1748,7 +1754,7 @@ void CWallet::blockDisconnected(const interfaces::BlockInfo& block)
         }
 
         for (const mw::Output& output : block.data->mweb_block.m_block->GetOutputs()) {
-            if (mweb_wallet->RewindOutput(output, coin)) {
+            if (mweb_wallet->RewindOutput(output)) {
                 auto wtx = FindWalletTx(output.GetOutputID());
                 if (wtx != nullptr) {
                     SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateInactive{});
@@ -2245,10 +2251,9 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                     }
                 }
 
-                mw::WalletCoin mweb_coin;
                 for (const mw::Output& output : block.mweb_block.m_block->GetOutputs()) {
-                    if (mweb_wallet->RewindOutput(output, mweb_coin)) {
-                        const CWalletTx* wtx = FindWalletTx(mweb_coin.output_id);
+                    if (mweb_wallet->RewindOutput(output)) {
+                        const CWalletTx* wtx = FindWalletTx(output.GetOutputID());
                         if (wtx) {
                             SyncTransaction(
                                 wtx->tx,
@@ -2259,7 +2264,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
                         } else {
                             AddToWallet(
                                 MakeTransactionRef(),
-                                std::make_optional(MWEB::WalletTxInfo::Received(mweb_coin.output_id)),
+                                std::make_optional(MWEB::WalletTxInfo::Received(output.GetOutputID())),
                                 TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
                                 nullptr,
                                 false
@@ -2500,7 +2505,6 @@ static void MergeMissingMWEBInputData(mw::MutableInput& input, const mw::Mutable
     MergeMissingField(input.commitment, source.commitment);
     MergeMissingField(input.output_pubkey, source.output_pubkey);
     MergeMissingField(input.amount, source.amount);
-    MergeMissingField(input.spend_key, source.spend_key);
     MergeMissingField(input.raw_blind, source.raw_blind);
     MergeMissingField(input.key_exchange_pubkey, source.key_exchange_pubkey);
     MergeMissingField(input.shared_secret, source.shared_secret);
@@ -2508,34 +2512,44 @@ static void MergeMissingMWEBInputData(mw::MutableInput& input, const mw::Mutable
 
 static std::optional<SecretKey> DeriveMWEBSpendKey(const CWallet& wallet, const mw::WalletCoin& coin, const mw::MutableInput& input)
 {
-    if (coin.spend_key.has_value()) {
-        return coin.spend_key;
-    }
-    if (!coin.master_scan_key_id.has_value()) {
+    const std::shared_ptr<MWEB::Wallet>& mweb_wallet = wallet.GetMWWallet();
+    if (!mweb_wallet) {
         return std::nullopt;
     }
 
-    const mw::Keychain::Ptr keychain = wallet.GetMWWallet()->GetKeychain(coin.master_scan_key_id.value());
+    const mw::Keychain::Ptr keychain = coin.master_scan_key_id
+        ? mweb_wallet->GetKeychain(*coin.master_scan_key_id)
+        : mweb_wallet->GetActiveKeychain();
     if (!keychain) {
         return std::nullopt;
     }
 
     mw::WalletCoin spend_coin = coin;
-    if (!spend_coin.shared_secret.has_value() && input.shared_secret.has_value()) {
+    if (!spend_coin.shared_secret && input.shared_secret) {
         spend_coin.shared_secret = input.shared_secret;
     }
-    if (!spend_coin.shared_secret.has_value() && input.key_exchange_pubkey.has_value()) {
+    if (!spend_coin.shared_secret && input.key_exchange_pubkey) {
         spend_coin.shared_secret = mw::RecoverSharedSecret(*input.key_exchange_pubkey, keychain->GetScanSecret());
     }
-    if (spend_coin.address_index == mw::UNKNOWN_INDEX && input.output_pubkey.has_value() && spend_coin.shared_secret.has_value()) {
-        const StealthAddress address = mw::RecoverSubaddress(*input.output_pubkey, *spend_coin.shared_secret, keychain->GetScanSecret());
-        const std::optional<uint32_t> address_index = keychain->LookupAddressIndex(address);
-        if (address_index.has_value()) {
+
+    if (!spend_coin.address && spend_coin.shared_secret && input.output_pubkey) {
+        const StealthAddress recovered_address = mw::RecoverSubaddress(*input.output_pubkey, *spend_coin.shared_secret, keychain->GetScanSecret());
+        spend_coin.address = recovered_address;
+    }
+
+    if (spend_coin.address && spend_coin.address_index == mw::UNKNOWN_INDEX) {
+        const std::optional<uint32_t> address_index = keychain->LookupAddressIndex(*spend_coin.address);
+        if (address_index) {
             spend_coin.address_index = *address_index;
         }
     }
 
-    return keychain->CalculateOutputSpendKey(spend_coin);
+    const std::optional<SecretKey> spend_key = keychain->CalculateOutputSpendKey(spend_coin);
+    if (spend_key && (!input.output_pubkey || PublicKey::From(*spend_key) == *input.output_pubkey)) {
+        return spend_key;
+    }
+
+    return std::nullopt;
 }
 
 static std::map<mw::Hash, StealthAddress> GetMWEBOutputAddresses(const mw::MutableTx& tx)
@@ -2831,11 +2845,15 @@ DBErrors CWallet::LoadWallet()
     DBErrors nLoadWalletRet = WalletBatch(GetDatabase()).LoadWallet(this);
     if (nLoadWalletRet == DBErrors::NEED_REWRITE)
     {
-        if (GetDatabase().Rewrite("\x04pool"))
+        if (GetDatabase().Rewrite())
         {
-            for (const auto& spk_man_pair : m_spk_managers) {
-                spk_man_pair.second->RewriteDB();
+            // Replacing the active database removes stale record pages;
+            // reloading the environment also removes BDB log remnants.
+            GetDatabase().ReloadDbEnv();
+            if (!WalletBatch(GetDatabase()).EraseMWEBSpendKeyScrubFlag()) {
+                WalletLogPrintf("Failed to clear MWEB spend-key scrub marker\n");
             }
+            nLoadWalletRet = DBErrors::LOAD_OK;
         }
     }
 
@@ -2858,16 +2876,6 @@ DBErrors CWallet::ZapSelectTx(std::vector<uint256>& vHashIn, std::vector<uint256
             mapTxSpends.erase(txin.GetID());
         mapWallet.erase(it);
         NotifyTransactionChanged(hash, CT_DELETED);
-    }
-
-    if (nZapSelectTxRet == DBErrors::NEED_REWRITE)
-    {
-        if (GetDatabase().Rewrite("\x04pool"))
-        {
-            for (const auto& spk_man_pair : m_spk_managers) {
-                spk_man_pair.second->RewriteDB();
-            }
-        }
     }
 
     if (nZapSelectTxRet != DBErrors::LOAD_OK)

@@ -6,6 +6,8 @@
 #include <mw/models/wallet/StealthAddress.h>
 
 #include <consensus/amount.h>
+#include <support/cleanse.h>
+
 #include <optional>
 
 MW_NAMESPACE
@@ -36,15 +38,10 @@ static constexpr uint32_t UNKNOWN_INDEX{std::numeric_limits<uint32_t>::max()};
 /// Represents an output owned by the wallet, or one sent by the wallet.
 /// </summary>
 struct WalletCoin : public Traits::ISerializable {
-    static constexpr uint8_t LATEST_VERSION = 3;
+    static constexpr uint8_t LATEST_VERSION = 4;
 
     // Index of the subaddress this coin was received at.
     uint32_t address_index{UNKNOWN_INDEX};
-
-    // The private key needed in order to spend the coin.
-    // Will be empty for watch-only wallets.
-    // May be empty for locked wallets. Upon unlock, spend_key will get populated.
-    std::optional<SecretKey> spend_key;
 
     // The blinding factor of the coin's output.
     // May be empty for watch-only wallets.
@@ -74,23 +71,23 @@ struct WalletCoin : public Traits::ISerializable {
 
     bool operator==(const WalletCoin& rhs) const
     {
-        return std::tie(address_index, spend_key, blind, amount, output_id, sender_key, address, shared_secret, master_scan_key_id) ==
-            std::tie(rhs.address_index, rhs.spend_key, rhs.blind, rhs.amount, rhs.output_id, rhs.sender_key, rhs.address, rhs.shared_secret, rhs.master_scan_key_id);
+        return std::tie(address_index, blind, amount, output_id, sender_key, address, shared_secret, master_scan_key_id) ==
+            std::tie(rhs.address_index, rhs.blind, rhs.amount, rhs.output_id, rhs.sender_key, rhs.address, rhs.shared_secret, rhs.master_scan_key_id);
     }
 
     bool IsChange() const noexcept { return address_index == CHANGE_INDEX; }
     bool IsPegIn() const noexcept { return address_index == PEGIN_INDEX; }
-    // A known address index means this is a wallet-owned output. Whether the
-    // wallet can currently produce its spend key is tracked separately.
+    // A known address index means this is a wallet-owned output. Spend keys
+    // are derived only while signing and are never retained by WalletCoin.
     bool IsMine() const noexcept { return address_index != UNKNOWN_INDEX; }
     bool HasAddress() const noexcept { return !!address; }
-    bool HasSpendKey() const noexcept { return !!spend_key; }
     bool HasSharedSecret() const noexcept { return !!shared_secret; }
+    bool NeedsPersistenceUpgrade() const noexcept { return m_needs_persistence_upgrade; }
+    bool HadPersistedSpendKey() const noexcept { return m_had_persisted_spend_key; }
 
     void Reset()
     {
         address_index = UNKNOWN_INDEX;
-        spend_key = std::nullopt;
         blind = std::nullopt;
         amount = 0;
         output_id = mw::Hash();
@@ -98,6 +95,8 @@ struct WalletCoin : public Traits::ISerializable {
         address = std::nullopt;
         shared_secret = std::nullopt;
         master_scan_key_id = std::nullopt;
+        m_needs_persistence_upgrade = false;
+        m_had_persisted_spend_key = false;
     }
 
     //
@@ -126,6 +125,9 @@ struct WalletCoin : public Traits::ISerializable {
     //  - bool has_master_key_id
     //    * byte[20] master_scan_key_id - skip if has_master_key_id is false
     //
+    // Version 4 removes spend_key. Versions 0-3 are accepted for migration,
+    // but their spend key is consumed and discarded during deserialization.
+    //
     IMPL_SERIALIZABLE(WalletCoin, obj)
     {
         // Always serialize using the latest version
@@ -136,7 +138,10 @@ struct WalletCoin : public Traits::ISerializable {
         }
 
         READWRITE(VARINT(obj.address_index));
-        READWRITE(obj.spend_key);
+        std::optional<SecretKey> legacy_spend_key;
+        if (version < 4) {
+            READWRITE(legacy_spend_key);
+        }
         READWRITE(obj.blind);
         READWRITE(VARINT_MODE(obj.amount, VarIntMode::NONNEGATIVE_SIGNED));
         READWRITE(obj.output_id);
@@ -153,7 +158,20 @@ struct WalletCoin : public Traits::ISerializable {
         if (version >= 3) {
             READWRITE(obj.master_scan_key_id);
         }
+
+        SER_READ(obj, obj.m_needs_persistence_upgrade = version < LATEST_VERSION);
+        SER_READ(obj, obj.m_had_persisted_spend_key = legacy_spend_key.has_value());
+        if (ser_action.ForRead()) {
+            if (legacy_spend_key) {
+                memory_cleanse(legacy_spend_key->data(), legacy_spend_key->size());
+            }
+        }
     }
+
+private:
+    // Load-time migration state. These flags are never serialized.
+    bool m_needs_persistence_upgrade{false};
+    bool m_had_persisted_spend_key{false};
 };
 
 END_NAMESPACE

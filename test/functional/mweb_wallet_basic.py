@@ -74,7 +74,22 @@ class MWEBWalletBasicTest(LitecoinTestFramework):
         #
         self.log.info("Send (pegout) to node2 bech32 address")
         n2_addr = node2.getnewaddress(address_type='bech32')
-        tx2_id = node1.sendtoaddress(n2_addr, 15)
+        node1.encryptwallet("mweb-passphrase")
+        self.restart_node(1)
+        node1 = self.nodes[1]
+        self.connect_nodes(1, 0)
+        self.connect_nodes(1, 2)
+
+        self.log.info("Verify a locked wallet cannot sign with a persisted MWEB output key")
+        locked_send = node1.send(outputs=[{n2_addr: 15}])
+        assert_equal(locked_send["complete"], False)
+        assert "txid" not in locked_send
+        assert "psbt" in locked_send
+
+        node1.walletpassphrase("mweb-passphrase", 600)
+        unlocked_send = node1.send(outputs=[{n2_addr: 15}])
+        assert_equal(unlocked_send["complete"], True)
+        tx2_id = unlocked_send["txid"]
         self.sync_mempools()
 
         self.log.info("Verify node1's wallet lists the transactions as spent")

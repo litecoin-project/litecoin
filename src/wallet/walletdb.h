@@ -76,6 +76,7 @@ extern const std::string LOCKED_UTXO;
 extern const std::string MASTER_KEY;
 extern const std::string MINVERSION;
 extern const std::string MWEB_SENDER_KEY_INDEX;
+extern const std::string MWEB_SPEND_KEY_SCRUB;
 extern const std::string NAME;
 extern const std::string OLD_KEY;
 extern const std::string ORDERPOSNEXT;
@@ -277,6 +278,8 @@ public:
 
     bool WriteCScript(const uint160& hash, const CScript& redeemScript);
     bool WriteMWEBWalletCoin(const mw::WalletCoin& coin);
+    bool WriteMWEBSpendKeyScrubFlag();
+    bool EraseMWEBSpendKeyScrubFlag();
 
     bool WriteWatchOnly(const CScript &script, const CKeyMetadata &keymeta);
     bool EraseWatchOnly(const CScript &script);

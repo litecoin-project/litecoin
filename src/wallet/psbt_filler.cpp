@@ -58,6 +58,12 @@ public:
         return std::nullopt;
     }
 
+    mw::Keychain::Ptr GetActiveKeychain() const override
+    {
+        const std::shared_ptr<MWEB::Wallet>& mweb_wallet = m_wallet.GetMWWallet();
+        return mweb_wallet ? mweb_wallet->GetActiveKeychain() : nullptr;
+    }
+
     mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_key_id) const override
     {
         const std::shared_ptr<MWEB::Wallet>& mweb_wallet = m_wallet.GetMWWallet();
@@ -116,6 +122,15 @@ TransactionError PSBTFiller::Fill(PartiallySignedTransaction& psbtx, bool& compl
             });
         };
         const auto unsigned_mweb_before = count_unsigned_mweb();
+        const bool missing_mweb_spend_key = std::any_of(psbtx.inputs.begin(), psbtx.inputs.end(), [&mweb_spend_keys](const PSBTInput& input) {
+            return input.IsMWEB() && !input.mweb_sig && (!input.mweb_output_id || mweb_spend_keys->count(*input.mweb_output_id) == 0);
+        });
+        if (missing_mweb_spend_key) {
+            // Keep updater data in the PSBT, but do not sign script inputs
+            // against peg-in placeholders that MWEB signing may later rewrite.
+            complete = false;
+            return TransactionError::OK;
+        }
 
         util::Result<MWEBSignOutcome> outcome = SignMWEBAndStageCoins(psbtx, *mweb_spend_keys);
         if (!outcome) {

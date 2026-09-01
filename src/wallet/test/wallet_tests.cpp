@@ -1103,7 +1103,6 @@ BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Se
         mw::WalletCoin wallet_coin;
         BOOST_REQUIRE(wallet->GetMWEBWalletCoin(received_wallet_coin.output_id, wallet_coin));
         BOOST_CHECK(wallet_coin == received_wallet_coin);
-        BOOST_CHECK(!wallet_coin.HasSpendKey());
         BOOST_CHECK_EQUAL(wallet->GetValue(*wtx, AnyOutputID{received_wallet_coin.output_id}), received_wallet_coin.amount);
         BOOST_CHECK_EQUAL(wallet->IsMine(AnyOutputID{received_wallet_coin.output_id}), ISMINE_SPENDABLE);
         BOOST_CHECK(OutputIsChange(*wallet, *wtx, AnyOutputID{received_wallet_coin.output_id}));
@@ -1295,7 +1294,9 @@ enum class FaultPoint {
     WRITE_COIN,
     WRITE_TX,
     ERASE_TX,
+    ERASE_SCRUB,
     COMMIT,
+    REWRITE,
 };
 
 using TestDatabaseBytes = std::vector<std::byte>;
@@ -1306,6 +1307,9 @@ struct FaultDatabaseState
     TestDatabaseRecords records;
     std::optional<TestDatabaseRecords> transaction;
     FaultPoint fault{FaultPoint::NONE};
+    size_t rewrite_count{0};
+    size_t reload_count{0};
+    std::optional<std::string> rewrite_skip;
 };
 
 class FaultBatch : public DatabaseBatch
@@ -1375,7 +1379,9 @@ class FaultBatch : public DatabaseBatch
     bool EraseKey(CDataStream&& key) override
     {
         const TestDatabaseBytes key_bytes{key.begin(), key.end()};
-        if (KeyType(key_bytes) == DBKeys::TX && Fail(FaultPoint::ERASE_TX)) {
+        const std::string type = KeyType(key_bytes);
+        if ((type == DBKeys::TX && Fail(FaultPoint::ERASE_TX)) ||
+            (type == DBKeys::MWEB_SPEND_KEY_SCRUB && Fail(FaultPoint::ERASE_SCRUB))) {
             return false;
         }
 
@@ -1465,13 +1471,22 @@ public:
     void Open() override { }
     void AddRef() override { }
     void RemoveRef() override { }
-    bool Rewrite(const char* pszSkip = nullptr) override { return true; }
+    bool Rewrite(const char* pszSkip = nullptr) override
+    {
+        ++m_state->rewrite_count;
+        m_state->rewrite_skip = pszSkip ? std::make_optional<std::string>(pszSkip) : std::nullopt;
+        if (m_state->fault == FaultPoint::REWRITE) {
+            m_state->fault = FaultPoint::NONE;
+            return false;
+        }
+        return true;
+    }
     bool Backup(const std::string& strDest) const override { return true; }
     void Close() override { }
     void Flush() override { }
     bool PeriodicFlush() override { return true; }
     void IncrementUpdateCounter() override { ++nUpdateCounter; }
-    void ReloadDbEnv() override { }
+    void ReloadDbEnv() override { ++m_state->reload_count; }
     std::string Filename() override { return "faultdb"; }
     std::string Format() override { return "faultdb"; }
     std::unique_ptr<DatabaseBatch> MakeBatch(bool flush_on_close = true) override { return std::make_unique<FaultBatch>(m_state); }
@@ -1554,6 +1569,585 @@ static mw::WalletCoin V0215MWEBWalletCoin()
     return *info.legacy_received_coin;
 }
 
+static TestDatabaseBytes LegacyV3MWEBWalletCoinValue(const mw::WalletCoin& coin, const SecretKey& spend_key)
+{
+    CDataStream stream(SER_DISK, CLIENT_VERSION);
+    uint8_t version{3};
+    uint32_t address_index{coin.address_index};
+    CAmount amount{coin.amount};
+    const std::optional<SecretKey> persisted_spend_key{spend_key};
+    stream << version << VARINT(address_index) << persisted_spend_key << coin.blind
+           << VARINT_MODE(amount, VarIntMode::NONNEGATIVE_SIGNED) << coin.output_id
+           << coin.sender_key << coin.address << coin.shared_secret << coin.master_scan_key_id;
+    return {stream.begin(), stream.end()};
+}
+
+static TestDatabaseBytes LegacyV2MWEBWalletCoinValue(const mw::WalletCoin& coin, const SecretKey& spend_key)
+{
+    CDataStream stream(SER_DISK, CLIENT_VERSION);
+    uint8_t version{2};
+    uint32_t address_index{coin.address_index};
+    CAmount amount{coin.amount};
+    const std::optional<SecretKey> persisted_spend_key{spend_key};
+    stream << version << VARINT(address_index) << persisted_spend_key << coin.blind
+           << VARINT_MODE(amount, VarIntMode::NONNEGATIVE_SIGNED) << coin.output_id
+           << coin.sender_key << coin.address << coin.shared_secret;
+    return {stream.begin(), stream.end()};
+}
+
+static TestDatabaseBytes MWEBWalletCoinDatabaseKey(const mw::Hash& output_id)
+{
+    CDataStream stream(SER_DISK, CLIENT_VERSION);
+    stream << std::make_pair(DBKeys::COIN, output_id);
+    return {stream.begin(), stream.end()};
+}
+
+static TestDatabaseBytes WalletDatabaseKey(const std::string& type)
+{
+    CDataStream stream(SER_DISK, CLIENT_VERSION);
+    stream << type;
+    return {stream.begin(), stream.end()};
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBUpgradeCoinsRewindsWithScanOnlyKeychain, TestingSetup)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    wallet.SetupLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(wallet.SetMinVersion(FEATURE_MWEB));
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+    {
+        LOCK(spk_man->cs_KeyStore);
+        const CPubKey seed = spk_man->GenerateNewSeed();
+        spk_man->SetHDSeed(seed);
+    }
+
+    const util::Result<CTxDestination> destination = wallet.GetNewDestination(OutputType::MWEB, "");
+    BOOST_REQUIRE(destination);
+    BOOST_REQUIRE(std::holds_alternative<StealthAddress>(*destination));
+    const StealthAddress receive_address = std::get<StealthAddress>(*destination);
+
+    const test::Tx mweb_tx = test::TxBuilder()
+        .AddPeginKernel(900'000, 0)
+        .AddOutput(900'000, SecretKey::Random(), receive_address)
+        .Build();
+    const mw::Hash output_id = mweb_tx.GetOutputs().front().GetOutputID();
+    CMutableTransaction tx;
+    tx.mweb_tx = mw::MutableTx::From(*mweb_tx.GetTransaction());
+
+    SecureString passphrase{"test-passphrase"};
+    BOOST_REQUIRE(wallet.EncryptWallet(passphrase));
+    BOOST_REQUIRE(wallet.IsLocked());
+    {
+        LOCK(spk_man->cs_KeyStore);
+        CHDChain scan_only_chain = spk_man->GetHDChain();
+        BOOST_REQUIRE(scan_only_chain.mweb_scan_key.has_value());
+        scan_only_chain.nVersion = CHDChain::VERSION_HD_MWEB_WATCH;
+        scan_only_chain.mweb_spend_pubkey.reset();
+        spk_man->LoadHDChain(scan_only_chain);
+        spk_man->LoadMWEBKeychain();
+
+        const mw::Keychain::Ptr& keychain = spk_man->GetMWEBKeychain();
+        BOOST_REQUIRE(keychain);
+        BOOST_CHECK(!keychain->HasSpendPubKey());
+        BOOST_CHECK(!keychain->HasSpendSecret());
+    }
+
+    BOOST_REQUIRE(wallet.AddToWallet(MakeTransactionRef(tx), std::nullopt, TxStateInactive{}));
+    LOCK(wallet.cs_wallet);
+    mw::WalletCoin coin;
+    BOOST_CHECK(!wallet.GetMWEBWalletCoin(output_id, coin));
+    wallet.GetMWWallet()->UpgradeCoins();
+    BOOST_REQUIRE(wallet.GetMWEBWalletCoin(output_id, coin));
+    BOOST_CHECK(coin.IsMine());
+    BOOST_CHECK(!spk_man->GetMWEBKeychain()->CalculateOutputSpendKey(coin).has_value());
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBV21WatchKeychainUpgradesCoinsOnUnlock, TestingSetup)
+{
+    auto state = std::make_shared<FaultDatabaseState>();
+    SecureString passphrase{"test-passphrase"};
+    mw::Hash output_id;
+    PublicKey output_pubkey;
+    StealthAddress receive_address;
+
+    {
+        CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+        wallet.SetupLegacyScriptPubKeyMan();
+        BOOST_REQUIRE(wallet.SetMinVersion(FEATURE_MWEB));
+
+        LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+        BOOST_REQUIRE(spk_man);
+        {
+            LOCK(spk_man->cs_KeyStore);
+            const CPubKey seed = spk_man->GenerateNewSeed();
+            spk_man->SetHDSeed(seed);
+        }
+
+        const util::Result<CTxDestination> destination = wallet.GetNewDestination(OutputType::MWEB, "");
+        BOOST_REQUIRE(destination);
+        BOOST_REQUIRE(std::holds_alternative<StealthAddress>(*destination));
+        receive_address = std::get<StealthAddress>(*destination);
+
+        const test::Tx mweb_tx = test::TxBuilder()
+            .AddPeginKernel(1'000'000, 0)
+            .AddOutput(1'000'000, SecretKey::Random(), receive_address)
+            .Build();
+        const mw::Output& output = mweb_tx.GetOutputs().front().GetOutput();
+        output_id = output.GetOutputID();
+        output_pubkey = output.GetReceiverPubKey();
+
+        CMutableTransaction tx;
+        tx.mweb_tx = mw::MutableTx::From(*mweb_tx.GetTransaction());
+
+        // Encrypting leaves the wallet locked. Replace its HD-chain record
+        // with the latest released v21 layout: scan secret, but no master
+        // spend public key.
+        BOOST_REQUIRE(wallet.EncryptWallet(passphrase));
+        BOOST_REQUIRE(wallet.IsLocked());
+        {
+            LOCK(spk_man->cs_KeyStore);
+            CHDChain v21_chain = spk_man->GetHDChain();
+            BOOST_REQUIRE(v21_chain.mweb_scan_key.has_value());
+            v21_chain.nVersion = CHDChain::VERSION_HD_MWEB_WATCH;
+            v21_chain.mweb_spend_pubkey.reset();
+            BOOST_REQUIRE(WalletBatch(wallet.GetDatabase()).WriteHDChain(v21_chain));
+            spk_man->LoadHDChain(v21_chain);
+            spk_man->LoadMWEBKeychain();
+
+            const mw::Keychain::Ptr& locked_keychain = spk_man->GetMWEBKeychain();
+            BOOST_REQUIRE(locked_keychain);
+            BOOST_CHECK(!locked_keychain->HasSpendPubKey());
+            BOOST_CHECK(!locked_keychain->HasSpendSecret());
+        }
+
+        // Model a released full wallet transaction loaded without a separate
+        // mweb_coin record. The unlock-time retry must recover its output.
+        BOOST_REQUIRE(wallet.AddToWallet(MakeTransactionRef(tx), std::nullopt, TxStateInactive{}));
+        LOCK(wallet.cs_wallet);
+        mw::WalletCoin coin;
+        BOOST_CHECK(!wallet.GetMWEBWalletCoin(output_id, coin));
+    }
+
+    CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    BOOST_REQUIRE(wallet.IsLocked());
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+    {
+        LOCK(spk_man->cs_KeyStore);
+        const mw::Keychain::Ptr& locked_keychain = spk_man->GetMWEBKeychain();
+        BOOST_REQUIRE(locked_keychain);
+        BOOST_CHECK(!locked_keychain->HasSpendPubKey());
+        BOOST_CHECK(!locked_keychain->HasSpendSecret());
+    }
+    {
+        LOCK(wallet.cs_wallet);
+        mw::WalletCoin coin;
+        BOOST_CHECK(!wallet.GetMWEBWalletCoin(output_id, coin));
+    }
+
+    BOOST_REQUIRE(wallet.Unlock(passphrase));
+    const mw::Keychain::Ptr& unlocked_keychain = spk_man->GetMWEBKeychain();
+    BOOST_REQUIRE(unlocked_keychain);
+    BOOST_CHECK(unlocked_keychain->HasSpendPubKey());
+    BOOST_CHECK(unlocked_keychain->HasSpendSecret());
+
+    mw::WalletCoin coin;
+    {
+        LOCK(wallet.cs_wallet);
+        BOOST_REQUIRE(wallet.GetMWEBWalletCoin(output_id, coin));
+        BOOST_CHECK(coin.IsMine());
+        BOOST_REQUIRE(coin.address.has_value());
+        BOOST_CHECK(*coin.address == receive_address);
+        BOOST_REQUIRE(coin.shared_secret.has_value());
+        BOOST_REQUIRE(coin.master_scan_key_id.has_value());
+    }
+
+    const std::optional<SecretKey> spend_key = unlocked_keychain->CalculateOutputSpendKey(coin);
+    BOOST_REQUIRE(spend_key.has_value());
+    BOOST_CHECK(PublicKey::From(*spend_key) == output_pubkey);
+
+    mw::WalletCoin persisted_coin;
+    BOOST_REQUIRE(wallet.GetDatabase().MakeBatch()->Read(std::make_pair(DBKeys::COIN, output_id), persisted_coin));
+    BOOST_CHECK(!persisted_coin.NeedsPersistenceUpgrade());
+    BOOST_CHECK(!persisted_coin.HadPersistedSpendKey());
+    const TestDatabaseBytes& persisted_value = state->records.at(MWEBWalletCoinDatabaseKey(output_id));
+    BOOST_CHECK(std::search(
+        persisted_value.begin(),
+        persisted_value.end(),
+        spend_key->vec().begin(),
+        spend_key->vec().end(),
+        [](std::byte lhs, uint8_t rhs) { return std::to_integer<uint8_t>(lhs) == rhs; }
+    ) == persisted_value.end());
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBPersistedSpendKeyMigration, TestingSetup)
+{
+    auto state = std::make_shared<FaultDatabaseState>();
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+    const SecretKey persisted_spend_key = SecretKey::FromHex(std::string(64, 'a'));
+    const TestDatabaseBytes coin_key = MWEBWalletCoinDatabaseKey(coin.output_id);
+    state->records[coin_key] = LegacyV3MWEBWalletCoinValue(coin, persisted_spend_key);
+
+    {
+        CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+        BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+        BOOST_CHECK_EQUAL(state->rewrite_count, 1U);
+        BOOST_CHECK_EQUAL(state->reload_count, 1U);
+        BOOST_CHECK(!state->rewrite_skip);
+        BOOST_CHECK_EQUAL(wallet.GetVersion(), FEATURE_V24);
+
+        LOCK(wallet.cs_wallet);
+        mw::WalletCoin loaded_coin;
+        BOOST_REQUIRE(wallet.GetMWEBWalletCoin(coin.output_id, loaded_coin));
+        BOOST_CHECK(loaded_coin == coin);
+
+        std::unique_ptr<DatabaseBatch> batch = wallet.GetDatabase().MakeBatch();
+        mw::WalletCoin persisted_coin;
+        BOOST_REQUIRE(batch->Read(std::make_pair(DBKeys::COIN, coin.output_id), persisted_coin));
+        BOOST_CHECK(!persisted_coin.NeedsPersistenceUpgrade());
+        BOOST_CHECK(!persisted_coin.HadPersistedSpendKey());
+        uint8_t scrub_flag{0};
+        BOOST_CHECK(!batch->Read(DBKeys::MWEB_SPEND_KEY_SCRUB, scrub_flag));
+    }
+
+    const TestDatabaseBytes& upgraded_value = state->records.at(coin_key);
+    BOOST_CHECK(std::search(
+        upgraded_value.begin(),
+        upgraded_value.end(),
+        persisted_spend_key.vec().begin(),
+        persisted_spend_key.vec().end(),
+        [](std::byte lhs, uint8_t rhs) { return std::to_integer<uint8_t>(lhs) == rhs; }
+    ) == upgraded_value.end());
+
+    // A successful scrub clears the marker, so later loads do not rewrite.
+    CWallet reopened(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+    BOOST_REQUIRE(reopened.LoadWallet() == DBErrors::LOAD_OK);
+    BOOST_CHECK_EQUAL(state->rewrite_count, 1U);
+    BOOST_CHECK_EQUAL(state->reload_count, 1U);
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBPersistedSpendKeyScrubRetriesAfterRewriteFailure, TestingSetup)
+{
+    auto state = std::make_shared<FaultDatabaseState>();
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+    const SecretKey persisted_spend_key = SecretKey::FromHex(std::string(64, 'd'));
+    state->records[MWEBWalletCoinDatabaseKey(coin.output_id)] = LegacyV3MWEBWalletCoinValue(coin, persisted_spend_key);
+    state->fault = FaultPoint::REWRITE;
+
+    {
+        CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+        BOOST_CHECK(wallet.LoadWallet() == DBErrors::NEED_REWRITE);
+        BOOST_CHECK_EQUAL(state->rewrite_count, 1U);
+        BOOST_CHECK_EQUAL(state->reload_count, 0U);
+        BOOST_CHECK(!state->rewrite_skip);
+
+        std::unique_ptr<DatabaseBatch> batch = wallet.GetDatabase().MakeBatch();
+        mw::WalletCoin migrated_coin;
+        BOOST_REQUIRE(batch->Read(std::make_pair(DBKeys::COIN, coin.output_id), migrated_coin));
+        BOOST_CHECK(!migrated_coin.NeedsPersistenceUpgrade());
+        BOOST_CHECK(!migrated_coin.HadPersistedSpendKey());
+        uint8_t scrub_flag{0};
+        BOOST_REQUIRE(batch->Read(DBKeys::MWEB_SPEND_KEY_SCRUB, scrub_flag));
+        BOOST_CHECK_EQUAL(scrub_flag, 1);
+    }
+
+    // The durable marker retries the physical scrub even though the live coin
+    // record was already migrated before the first rewrite failed.
+    CWallet retry(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+    BOOST_REQUIRE(retry.LoadWallet() == DBErrors::LOAD_OK);
+    BOOST_CHECK_EQUAL(state->rewrite_count, 2U);
+    BOOST_CHECK_EQUAL(state->reload_count, 1U);
+    uint8_t scrub_flag{0};
+    BOOST_CHECK(!retry.GetDatabase().MakeBatch()->Read(DBKeys::MWEB_SPEND_KEY_SCRUB, scrub_flag));
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBPersistedSpendKeyScrubRetriesAfterMarkerEraseFailure, TestingSetup)
+{
+    auto state = std::make_shared<FaultDatabaseState>();
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+    const SecretKey persisted_spend_key = SecretKey::FromHex(std::string(64, 'e'));
+    state->records[MWEBWalletCoinDatabaseKey(coin.output_id)] = LegacyV3MWEBWalletCoinValue(coin, persisted_spend_key);
+    state->fault = FaultPoint::ERASE_SCRUB;
+
+    {
+        CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+        BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+        BOOST_CHECK_EQUAL(state->rewrite_count, 1U);
+        BOOST_CHECK_EQUAL(state->reload_count, 1U);
+        uint8_t scrub_flag{0};
+        BOOST_REQUIRE(wallet.GetDatabase().MakeBatch()->Read(DBKeys::MWEB_SPEND_KEY_SCRUB, scrub_flag));
+        BOOST_CHECK_EQUAL(scrub_flag, 1);
+    }
+
+    // Failure to erase the marker is safe: the next load repeats the scrub
+    // and clears the marker after the second successful rewrite.
+    CWallet retry(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+    BOOST_REQUIRE(retry.LoadWallet() == DBErrors::LOAD_OK);
+    BOOST_CHECK_EQUAL(state->rewrite_count, 2U);
+    BOOST_CHECK_EQUAL(state->reload_count, 2U);
+    uint8_t scrub_flag{0};
+    BOOST_CHECK(!retry.GetDatabase().MakeBatch()->Read(DBKeys::MWEB_SPEND_KEY_SCRUB, scrub_flag));
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBV21CoinMigrationUsesValidatedActiveKeychain, TestingSetup)
+{
+    auto state = std::make_shared<FaultDatabaseState>();
+    mw::WalletCoin standalone_coin;
+    mw::WalletCoin embedded_coin;
+    mw::WalletCoin mismatched_coin;
+    PublicKey standalone_output_pubkey;
+    PublicKey embedded_output_pubkey;
+    PublicKey mismatched_output_pubkey;
+    CKeyID active_master_scan_key_id;
+
+    {
+        CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+        wallet.SetupLegacyScriptPubKeyMan();
+        BOOST_REQUIRE(wallet.SetMinVersion(FEATURE_MWEB));
+
+        LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+        BOOST_REQUIRE(spk_man);
+        {
+            LOCK(spk_man->cs_KeyStore);
+            const CPubKey seed = spk_man->GenerateNewSeed();
+            spk_man->SetHDSeed(seed);
+        }
+
+        const util::Result<CTxDestination> destination = wallet.GetNewDestination(OutputType::MWEB, "");
+        BOOST_REQUIRE(destination);
+        BOOST_REQUIRE(std::holds_alternative<StealthAddress>(*destination));
+        const StealthAddress receive_address = std::get<StealthAddress>(*destination);
+        const mw::Keychain::Ptr& keychain = spk_man->GetMWEBKeychain();
+        BOOST_REQUIRE(keychain);
+        active_master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
+
+        const test::Tx standalone_tx = test::TxBuilder()
+            .AddPeginKernel(1'100'000, 0)
+            .AddOutput(1'100'000, SecretKey::Random(), receive_address)
+            .Build();
+        const mw::Output& standalone_output = standalone_tx.GetOutputs().front().GetOutput();
+        BOOST_REQUIRE(keychain->RewindOutput(standalone_output, standalone_coin));
+        const std::optional<SecretKey> standalone_spend_key = keychain->CalculateOutputSpendKey(standalone_coin);
+        BOOST_REQUIRE(standalone_spend_key);
+        standalone_output_pubkey = standalone_output.GetReceiverPubKey();
+        standalone_coin.master_scan_key_id.reset();
+        state->records[MWEBWalletCoinDatabaseKey(standalone_coin.output_id)] = LegacyV2MWEBWalletCoinValue(standalone_coin, *standalone_spend_key);
+
+        const test::Tx embedded_tx = test::TxBuilder()
+            .AddPeginKernel(1'200'000, 0)
+            .AddOutput(1'200'000, SecretKey::Random(), receive_address)
+            .Build();
+        const mw::Output& embedded_output = embedded_tx.GetOutputs().front().GetOutput();
+        BOOST_REQUIRE(keychain->RewindOutput(embedded_output, embedded_coin));
+        const std::optional<SecretKey> embedded_spend_key = keychain->CalculateOutputSpendKey(embedded_coin);
+        BOOST_REQUIRE(embedded_spend_key);
+        embedded_output_pubkey = embedded_output.GetReceiverPubKey();
+        embedded_coin.master_scan_key_id.reset();
+
+        CDataStream legacy_info(SER_DISK, CLIENT_VERSION);
+        legacy_info << true;
+        const TestDatabaseBytes embedded_value = LegacyV2MWEBWalletCoinValue(embedded_coin, *embedded_spend_key);
+        legacy_info.write(Span<const std::byte>{embedded_value.data(), embedded_value.size()});
+        CMutableTransaction embedded_mtx;
+        embedded_mtx.mweb_tx = mw::MutableTx::From(*embedded_tx.GetTransaction());
+        CWalletTx embedded_wtx(MakeTransactionRef(embedded_mtx), TxStateInactive{}, std::nullopt);
+        embedded_wtx.mapValue["mweb_info"] = HexStr(legacy_info);
+        BOOST_REQUIRE(wallet.GetDatabase().MakeBatch()->Write(std::make_pair(DBKeys::TX, embedded_wtx.GetHash()), embedded_wtx));
+
+        const SecretKey other_scan_secret = SecretKey::Random();
+        const SecretKey other_spend_secret = SecretKey::Random();
+        const uint32_t other_index{9};
+        const SecretKey other_subaddress_spend_key = mw::DeriveSubaddressSpendKey(other_spend_secret, other_scan_secret, other_index);
+        CKey other_subaddress_key;
+        other_subaddress_key.Set(other_subaddress_spend_key.vec().begin(), other_subaddress_spend_key.vec().end(), true);
+        BOOST_REQUIRE(spk_man->AddKeyPubKey(other_subaddress_key, other_subaddress_key.GetPubKey()));
+        mismatched_coin = standalone_coin;
+        mismatched_coin.output_id = mw::Hash::ValueOf(99);
+        mismatched_coin.address = mw::DeriveSubaddress(PublicKey::From(other_spend_secret), other_scan_secret, other_index);
+        mismatched_coin.address_index = mw::CUSTOM_KEY;
+        mismatched_coin.master_scan_key_id.reset();
+        const SecretKey mismatched_spend_key = mw::DeriveOutputSpendKey(
+            other_subaddress_spend_key,
+            *mismatched_coin.shared_secret
+        );
+        mismatched_output_pubkey = PublicKey::From(mismatched_spend_key);
+        state->records[MWEBWalletCoinDatabaseKey(mismatched_coin.output_id)] = LegacyV2MWEBWalletCoinValue(mismatched_coin, mismatched_spend_key);
+    }
+
+    CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    BOOST_CHECK_EQUAL(state->rewrite_count, 1U);
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+    const mw::Keychain::Ptr& keychain = spk_man->GetMWEBKeychain();
+    BOOST_REQUIRE(keychain);
+
+    LOCK(wallet.cs_wallet);
+    for (const auto& [expected_coin, output_pubkey] : std::vector<std::pair<mw::WalletCoin, PublicKey>>{
+             {standalone_coin, standalone_output_pubkey},
+             {embedded_coin, embedded_output_pubkey},
+         }) {
+        mw::WalletCoin migrated_coin;
+        BOOST_REQUIRE(wallet.GetMWEBWalletCoin(expected_coin.output_id, migrated_coin));
+        BOOST_REQUIRE(migrated_coin.master_scan_key_id);
+        BOOST_CHECK(*migrated_coin.master_scan_key_id == active_master_scan_key_id);
+        const std::optional<SecretKey> spend_key = keychain->CalculateOutputSpendKey(migrated_coin);
+        BOOST_REQUIRE(spend_key);
+        BOOST_CHECK(PublicKey::From(*spend_key) == output_pubkey);
+
+        mw::WalletCoin persisted_coin;
+        BOOST_REQUIRE(wallet.GetDatabase().MakeBatch()->Read(std::make_pair(DBKeys::COIN, expected_coin.output_id), persisted_coin));
+        BOOST_CHECK(persisted_coin.master_scan_key_id == migrated_coin.master_scan_key_id);
+        BOOST_CHECK(!persisted_coin.HadPersistedSpendKey());
+    }
+
+    mw::WalletCoin migrated_mismatch;
+    BOOST_REQUIRE(wallet.GetMWEBWalletCoin(mismatched_coin.output_id, migrated_mismatch));
+    BOOST_CHECK(!migrated_mismatch.master_scan_key_id);
+    mw::WalletCoin persisted_mismatch;
+    BOOST_REQUIRE(wallet.GetDatabase().MakeBatch()->Read(std::make_pair(DBKeys::COIN, mismatched_coin.output_id), persisted_mismatch));
+    BOOST_CHECK(!persisted_mismatch.master_scan_key_id);
+    BOOST_CHECK(!persisted_mismatch.HadPersistedSpendKey());
+    const std::optional<SecretKey> mismatched_spend_key = keychain->CalculateOutputSpendKey(migrated_mismatch);
+    BOOST_REQUIRE(mismatched_spend_key);
+    BOOST_CHECK(PublicKey::From(*mismatched_spend_key) == mismatched_output_pubkey);
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBPersistedSpendKeyMigrationFailureIsFatal, TestingSetup)
+{
+    auto state = std::make_shared<FaultDatabaseState>();
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+    const SecretKey persisted_spend_key = SecretKey::FromHex(std::string(64, 'b'));
+    const TestDatabaseBytes coin_key = MWEBWalletCoinDatabaseKey(coin.output_id);
+    const TestDatabaseBytes legacy_value = LegacyV3MWEBWalletCoinValue(coin, persisted_spend_key);
+    state->records[coin_key] = legacy_value;
+    state->fault = FaultPoint::WRITE_COIN;
+
+    CWallet wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(state));
+    BOOST_CHECK(wallet.LoadWallet() == DBErrors::LOAD_FAIL);
+    BOOST_CHECK_EQUAL(state->rewrite_count, 0U);
+    BOOST_CHECK(state->records.at(coin_key) == legacy_value);
+
+    std::unique_ptr<DatabaseBatch> batch = wallet.GetDatabase().MakeBatch();
+    uint8_t scrub_flag{0};
+    BOOST_CHECK(!batch->Read(DBKeys::MWEB_SPEND_KEY_SCRUB, scrub_flag));
+}
+
+BOOST_FIXTURE_TEST_CASE(MWEBPersistedSpendKeyScrubFailsClosedOnCorruption, TestingSetup)
+{
+    const mw::WalletCoin coin = V0215MWEBWalletCoin();
+    const SecretKey persisted_spend_key = SecretKey::FromHex(std::string(64, 'c'));
+    const TestDatabaseBytes coin_key = MWEBWalletCoinDatabaseKey(coin.output_id);
+    const TestDatabaseBytes legacy_value = LegacyV3MWEBWalletCoinValue(coin, persisted_spend_key);
+
+    // A malformed, non-key record is normally tolerated. It must not bypass
+    // migration when the same wallet contains a persisted MWEB spend key.
+    auto legacy_state = std::make_shared<FaultDatabaseState>();
+    legacy_state->records[WalletDatabaseKey(DBKeys::NAME)] = {};
+    legacy_state->records[coin_key] = legacy_value;
+    CWallet legacy_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(legacy_state));
+    BOOST_CHECK(legacy_wallet.LoadWallet() == DBErrors::LOAD_FAIL);
+    BOOST_CHECK_EQUAL(legacy_state->rewrite_count, 0U);
+    BOOST_CHECK(legacy_state->records.at(coin_key) == legacy_value);
+
+    // The same fail-closed rule applies when a previous migration already
+    // committed its scrub marker but the database rewrite was interrupted.
+    auto marked_state = std::make_shared<FaultDatabaseState>();
+    marked_state->records[WalletDatabaseKey(DBKeys::NAME)] = {};
+    {
+        FaultDatabase database(marked_state);
+        BOOST_REQUIRE(database.MakeBatch()->Write(DBKeys::MWEB_SPEND_KEY_SCRUB, uint8_t{1}));
+    }
+    CWallet marked_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(marked_state));
+    BOOST_CHECK(marked_wallet.LoadWallet() == DBErrors::LOAD_FAIL);
+    BOOST_CHECK_EQUAL(marked_state->rewrite_count, 0U);
+    uint8_t scrub_flag{0};
+    BOOST_REQUIRE(marked_wallet.GetDatabase().MakeBatch()->Read(DBKeys::MWEB_SPEND_KEY_SCRUB, scrub_flag));
+    BOOST_CHECK_EQUAL(scrub_flag, 1);
+
+    // MWEB coin records are key-critical because a malformed legacy value can
+    // itself contain an output spend key that could not be safely migrated.
+    auto corrupt_coin_state = std::make_shared<FaultDatabaseState>();
+    TestDatabaseBytes truncated_value = legacy_value;
+    truncated_value.pop_back();
+    corrupt_coin_state->records[coin_key] = std::move(truncated_value);
+    CWallet corrupt_coin_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(corrupt_coin_state));
+    BOOST_CHECK(corrupt_coin_wallet.LoadWallet() == DBErrors::CORRUPT);
+    BOOST_CHECK_EQUAL(corrupt_coin_state->rewrite_count, 0U);
+
+    // A mismatched database key must not be rewritten under coin.output_id
+    // while the original spend-key-bearing record survives the scrub.
+    auto mismatched_key_state = std::make_shared<FaultDatabaseState>();
+    const mw::Hash wrong_output_id = mw::Hash::ValueOf(98);
+    const TestDatabaseBytes wrong_coin_key = MWEBWalletCoinDatabaseKey(wrong_output_id);
+    mismatched_key_state->records[wrong_coin_key] = legacy_value;
+    CWallet mismatched_key_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(mismatched_key_state));
+    BOOST_CHECK(mismatched_key_wallet.LoadWallet() == DBErrors::CORRUPT);
+    BOOST_CHECK_EQUAL(mismatched_key_state->rewrite_count, 0U);
+    BOOST_CHECK(mismatched_key_state->records.at(wrong_coin_key) == legacy_value);
+
+    // A legacy coin embedded in a transaction can fail before CWalletTx
+    // decodes mweb_info. Recognize the serialized map key and fail closed
+    // without changing tolerated corruption handling for non-MWEB tx records.
+    auto corrupt_tx_state = std::make_shared<FaultDatabaseState>();
+    CDataStream legacy_info(SER_DISK, CLIENT_VERSION);
+    legacy_info << MWEB::WalletTxInfo::TAG_LEGACY_RECEIVED;
+    legacy_info.write(Span<const std::byte>{legacy_value.data(), legacy_value.size()});
+    CWalletTx legacy_wtx(MakeTransactionRef(), TxStateInactive{}, std::nullopt);
+    legacy_wtx.mapValue["mweb_info"] = HexStr(legacy_info);
+    {
+        FaultDatabase database(corrupt_tx_state);
+        BOOST_REQUIRE(database.MakeBatch()->Write(
+            std::make_pair(DBKeys::TX, legacy_wtx.GetHash()),
+            legacy_wtx
+        ));
+    }
+    BOOST_REQUIRE_EQUAL(corrupt_tx_state->records.size(), 1U);
+    corrupt_tx_state->records.begin()->second.pop_back();
+    CWallet corrupt_tx_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(corrupt_tx_state));
+    BOOST_CHECK(corrupt_tx_wallet.LoadWallet() == DBErrors::CORRUPT);
+    BOOST_CHECK_EQUAL(corrupt_tx_state->rewrite_count, 0U);
+
+    // A received-v24 tag followed by a legacy coin is parseable as an output
+    // ID unless WalletTxInfo requires exact consumption. Do not let the
+    // trailing legacy spend key evade migration and the database scrub.
+    auto overlong_tx_state = std::make_shared<FaultDatabaseState>();
+    CDataStream overlong_info(SER_DISK, CLIENT_VERSION);
+    overlong_info << MWEB::WalletTxInfo::TAG_RECEIVED;
+    overlong_info.write(Span<const std::byte>{legacy_value.data(), legacy_value.size()});
+    CWalletTx overlong_wtx(MakeTransactionRef(), TxStateInactive{}, std::nullopt);
+    overlong_wtx.mapValue["mweb_info"] = HexStr(overlong_info);
+    {
+        FaultDatabase database(overlong_tx_state);
+        BOOST_REQUIRE(database.MakeBatch()->Write(
+            std::make_pair(DBKeys::TX, overlong_wtx.GetHash()),
+            overlong_wtx
+        ));
+    }
+    BOOST_REQUIRE_EQUAL(overlong_tx_state->records.size(), 1U);
+    const TestDatabaseRecords overlong_records = overlong_tx_state->records;
+    CWallet overlong_tx_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(overlong_tx_state));
+    BOOST_CHECK(overlong_tx_wallet.LoadWallet() == DBErrors::CORRUPT);
+    BOOST_CHECK_EQUAL(overlong_tx_state->rewrite_count, 0U);
+    BOOST_CHECK(overlong_tx_state->records == overlong_records);
+
+    // Standalone coin records likewise have one exact serialization; trailing
+    // bytes are corruption rather than extension data.
+    auto overlong_coin_state = std::make_shared<FaultDatabaseState>();
+    TestDatabaseBytes overlong_coin_value = legacy_value;
+    overlong_coin_value.push_back(std::byte{0});
+    overlong_coin_state->records[coin_key] = overlong_coin_value;
+    CWallet overlong_coin_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(overlong_coin_state));
+    BOOST_CHECK(overlong_coin_wallet.LoadWallet() == DBErrors::CORRUPT);
+    BOOST_CHECK_EQUAL(overlong_coin_state->rewrite_count, 0U);
+    BOOST_CHECK(overlong_coin_state->records.at(coin_key) == overlong_coin_value);
+}
+
 BOOST_FIXTURE_TEST_CASE(MWEBWalletDatabaseWriteFailures, TestingSetup)
 {
     auto state = std::make_shared<FaultDatabaseState>();
@@ -1602,15 +2196,17 @@ BOOST_FIXTURE_TEST_CASE(MWEBWalletDatabaseWriteFailures, TestingSetup)
     auto partial_state = std::make_shared<FaultDatabaseState>();
     CWallet partial_wallet(m_node.chain.get(), "", m_args, std::make_unique<FaultDatabase>(partial_state));
     partial_state->fault = FaultPoint::WRITE_MINVERSION;
+    const uint256 partial_hash = MWEB::WalletTxInfo::Received(coin.output_id).GetHash();
     BOOST_CHECK(partial_wallet.AddToWallet(
         MakeTransactionRef(),
         std::make_optional(MWEB::WalletTxInfo::Received(coin.output_id)),
         TxStateInactive{}
     ) == nullptr);
+    BOOST_CHECK(partial_wallet.GetWalletTx(partial_hash) == nullptr);
 
     CWalletTx persisted_wtx(nullptr, TxStateInactive{}, std::nullopt);
     BOOST_CHECK(!partial_wallet.GetDatabase().MakeBatch()->Read(
-        std::make_pair(DBKeys::TX, MWEB::WalletTxInfo::Received(coin.output_id).GetHash()),
+        std::make_pair(DBKeys::TX, partial_hash),
         persisted_wtx
     ));
 
@@ -1627,6 +2223,32 @@ BOOST_FIXTURE_TEST_CASE(MWEBWalletDatabaseWriteFailures, TestingSetup)
     WalletDescriptor desc(Parse("combo(" + EncodeSecret(descriptor_key) + ")", provider, error, false), 0, 0, 1, 1);
     BOOST_REQUIRE(rewind_wallet.AddWalletDescriptor(desc, provider, "", false));
 
+    const mw::Keychain::Ptr sender_keychain = rewind_wallet.GetMWWallet()->GetActiveKeychain();
+    BOOST_REQUIRE(sender_keychain);
+    const CKeyID master_scan_keyid = PublicKey::From(sender_keychain->GetScanSecret()).GetID();
+    const mw::Output sent_output = test::TxBuilder()
+        .AddPeginKernel(1'000'000, 0)
+        .AddOutput(1'000'000, sender_keychain->GetSenderSigningKey(0), StealthAddress::Random())
+        .Build()
+        .GetOutputs()
+        .front()
+        .GetOutput();
+
+    {
+        LOCK(rewind_wallet.cs_wallet);
+        rewind_state->fault = FaultPoint::WRITE_MINVERSION;
+        BOOST_CHECK(!rewind_wallet.GetMWWallet()->RewindOutput(sent_output));
+        BOOST_CHECK_EQUAL(rewind_wallet.GetVersion(), FEATURE_MWEB);
+
+        uint64_t next_sender_index{0};
+        BOOST_CHECK(!rewind_wallet.GetDatabase().MakeBatch()->Read(
+            std::make_pair(DBKeys::MWEB_SENDER_KEY_INDEX, master_scan_keyid),
+            next_sender_index
+        ));
+        int persisted_min_version{0};
+        BOOST_CHECK(!rewind_wallet.GetDatabase().MakeBatch()->Read(DBKeys::MINVERSION, persisted_min_version));
+    }
+
     const util::Result<CTxDestination> dest = rewind_wallet.GetNewDestination(OutputType::MWEB, "");
     BOOST_REQUIRE(dest);
     BOOST_REQUIRE(std::holds_alternative<StealthAddress>(*dest));
@@ -1641,15 +2263,15 @@ BOOST_FIXTURE_TEST_CASE(MWEBWalletDatabaseWriteFailures, TestingSetup)
     {
         LOCK(rewind_wallet.cs_wallet);
         rewind_state->fault = FaultPoint::WRITE_COIN;
-        mw::WalletCoin rewound_coin;
-        if (rewind_wallet.GetMWWallet()->RewindOutput(output, rewound_coin)) {
+        if (rewind_wallet.GetMWWallet()->RewindOutput(output)) {
             rewind_wallet.AddToWallet(
                 MakeTransactionRef(),
-                std::make_optional(MWEB::WalletTxInfo::Received(rewound_coin.output_id)),
+                std::make_optional(MWEB::WalletTxInfo::Received(output.GetOutputID())),
                 TxStateInactive{}
             );
         }
 
+        mw::WalletCoin rewound_coin;
         BOOST_CHECK(!rewind_wallet.GetMWEBWalletCoin(output.GetOutputID(), rewound_coin));
         BOOST_CHECK(rewind_wallet.mapWallet.empty());
     }
@@ -1675,6 +2297,7 @@ BOOST_AUTO_TEST_CASE(MWEBWalletTxInfoSerialization)
     BOOST_CHECK(received_rt == received);
     BOOST_CHECK(!received_rt.legacy_received_coin.has_value());
     BOOST_CHECK(received_rt.GetHash() == received.GetHash());
+    BOOST_CHECK_THROW(MWEB::WalletTxInfo::FromHex(received.ToHex() + "00"), std::ios_base::failure);
 
     // Re-serializing a parsed legacy record emits the v24 format.
     BOOST_CHECK_EQUAL(from_legacy.ToHex(), received.ToHex());
@@ -1764,7 +2387,7 @@ BOOST_FIXTURE_TEST_CASE(MWEBLegacyWalletCoinMigration, TestingSetup)
 
     LOCK(wallet.cs_wallet);
 
-    // Loading in v24 must raise the minversion so older releases fail hard.
+    // WalletCoin v4 must gate released pre-v24 versions.
     BOOST_CHECK_EQUAL(wallet.GetVersion(), FEATURE_V24);
 
     // The embedded coin was promoted into the wallet's coin map.

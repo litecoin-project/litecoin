@@ -426,7 +426,7 @@ std::map<CTxDestination, std::vector<AnyWalletUTXO>> ListCoins(const CWallet& wa
                 if (FindNonChangeParentOutputDestination(wallet, *wtx, output_id, address)) {
                     if (output_id.IsMWEB()) {
                         mw::WalletCoin coin;
-                        if (wallet.GetMWEBWalletCoin(output_id.ToMWEB(), coin) && coin.IsMine() && coin.HasSpendKey()) {
+                        if (wallet.GetMWEBWalletCoin(output_id.ToMWEB(), coin) && coin.IsMine()) {
                             StealthAddress stealth_address;
                             wallet.GetMWWallet()->GetStealthAddress(coin, stealth_address);
                             result[address].emplace_back(MwebWalletUTXO{coin, depth, stealth_address, /*spendable=*/true, /*solvable=*/true, CachedTxIsFromMe(wallet, *wtx, ISMINE_ALL), wtx->GetHash()});

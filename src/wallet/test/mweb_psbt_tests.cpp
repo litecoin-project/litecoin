@@ -41,24 +41,6 @@ BOOST_AUTO_TEST_CASE(shared_secret_ecdh_symmetric)
     BOOST_CHECK(!(mw::RecoverSharedSecret(PublicKey::From(e), a) == mw::RecoverSharedSecret(PublicKey::From(e), e)));
 }
 
-BOOST_AUTO_TEST_CASE(resolve_from_wallet_coin_spend_key)
-{
-    const mw::Hash output_id = mw::Hash::ValueOf(7);
-    const SecretKey spend_key = TestSecret('a');
-
-    MockMWEBKeyStore keystore;
-    mw::WalletCoin coin;
-    coin.output_id = output_id;
-    coin.spend_key = spend_key;
-    keystore.m_coins[output_id] = coin;
-
-    PSBTInput input = MWEBInput(output_id);
-    util::Result<std::optional<SecretKey>> result = ResolveMWEBInputKeys(input, keystore);
-    BOOST_REQUIRE(bool{result});
-    BOOST_REQUIRE(result->has_value());
-    BOOST_CHECK(**result == spend_key);
-}
-
 BOOST_AUTO_TEST_CASE(resolve_from_descriptor_private_keys)
 {
     const MWEBTestKeys keys = MWEBTestKeys::Create();
@@ -128,6 +110,67 @@ BOOST_AUTO_TEST_CASE(resolve_derives_shared_secret_from_key_exchange_pubkey)
     BOOST_REQUIRE(input.mweb_shared_secret.has_value());
     BOOST_CHECK(*input.mweb_shared_secret == expected_secret);
     BOOST_REQUIRE(result->has_value());
+    BOOST_CHECK(PublicKey::From(**result) == *input.mweb_output_pubkey);
+}
+
+BOOST_AUTO_TEST_CASE(resolve_scan_only_keychain_exports_shared_secret)
+{
+    const SecretKey scan_secret = TestSecret('4');
+    const SecretKey ephemeral = TestSecret('5');
+    const PublicKey key_exchange_pubkey = PublicKey::From(ephemeral);
+    const SecretKey expected_secret = mw::RecoverSharedSecret(key_exchange_pubkey, scan_secret);
+    const mw::Hash output_id = mw::Hash::ValueOf(9);
+
+    MockMWEBKeyStore keystore;
+    keystore.m_active_keychain = std::make_shared<mw::Keychain>(
+        nullptr,
+        scan_secret,
+        std::optional<PublicKey>{}
+    );
+    mw::WalletCoin coin;
+    coin.output_id = output_id;
+    coin.address_index = 2;
+    keystore.m_coins[output_id] = coin;
+
+    PSBTInput input = MWEBInput(output_id);
+    input.mweb_key_exchange_pubkey = key_exchange_pubkey;
+    util::Result<std::optional<SecretKey>> result = ResolveMWEBInputKeys(input, keystore);
+
+    BOOST_REQUIRE(bool{result});
+    BOOST_CHECK(!result->has_value());
+    BOOST_REQUIRE(input.mweb_shared_secret);
+    BOOST_CHECK(*input.mweb_shared_secret == expected_secret);
+}
+
+BOOST_AUTO_TEST_CASE(resolve_descriptor_precedes_legacy_active_keychain)
+{
+    const MWEBTestKeys descriptor_keys = MWEBTestKeys::Create('6', '7');
+    const SecretKey active_scan_secret = TestSecret('8');
+    const SecretKey ephemeral = TestSecret('9');
+    const PublicKey key_exchange_pubkey = PublicKey::From(ephemeral);
+    const SecretKey expected_secret = mw::RecoverSharedSecret(key_exchange_pubkey, descriptor_keys.scan_secret);
+    const mw::Hash output_id = mw::Hash::ValueOf(10);
+
+    MockMWEBKeyStore keystore;
+    keystore.m_active_keychain = std::make_shared<mw::Keychain>(
+        nullptr,
+        active_scan_secret,
+        std::optional<PublicKey>{}
+    );
+    mw::WalletCoin coin;
+    coin.output_id = output_id;
+    keystore.m_coins[output_id] = coin;
+
+    PSBTInput input = MWEBInput(output_id);
+    input.mweb_address_descriptor = descriptor_keys.Descriptor(4);
+    input.mweb_key_exchange_pubkey = key_exchange_pubkey;
+    input.mweb_output_pubkey = descriptor_keys.OutputPubKey(4, expected_secret);
+
+    util::Result<std::optional<SecretKey>> result = ResolveMWEBInputKeys(input, keystore);
+    BOOST_REQUIRE(bool{result});
+    BOOST_REQUIRE(result->has_value());
+    BOOST_REQUIRE(input.mweb_shared_secret);
+    BOOST_CHECK(*input.mweb_shared_secret == expected_secret);
     BOOST_CHECK(PublicKey::From(**result) == *input.mweb_output_pubkey);
 }
 

@@ -1713,18 +1713,15 @@ BOOST_AUTO_TEST_CASE(MWEBSenderKeyScanAdvancesNextIndex)
         std::vector<uint8_t>{}
     );
 
+    BOOST_CHECK(!MWEBWallet().RewindOutput(output));
     mw::WalletCoin coin;
-    BOOST_CHECK(!MWEBWallet().RewindOutput(output, coin));
+    BOOST_REQUIRE(MWEBWallet().GetWalletCoin(output.GetOutputID(), coin));
     BOOST_CHECK(!coin.IsMine());
     BOOST_REQUIRE(coin.sender_key.has_value());
     BOOST_CHECK(*coin.sender_key == keychain->GetSenderSigningKey(SENDER_INDEX));
     BOOST_CHECK_EQUAL(coin.amount, OUTPUT_AMOUNT);
     BOOST_REQUIRE(coin.blind.has_value());
     BOOST_REQUIRE(coin.shared_secret.has_value());
-
-    mw::WalletCoin stored_coin;
-    BOOST_REQUIRE(MWEBWallet().GetWalletCoin(output.GetOutputID(), stored_coin));
-    BOOST_CHECK(stored_coin == coin);
 
     util::Result<SecretKey> next_sender_key = MWEBWallet().GenerateSenderKey();
     BOOST_REQUIRE(next_sender_key);
@@ -1752,8 +1749,9 @@ BOOST_AUTO_TEST_CASE(MWEBSenderKeyCacheFindsOldKeysBelowLookaheadWindow)
         std::vector<uint8_t>{}
     );
 
+    BOOST_CHECK(!MWEBWallet().RewindOutput(output));
     mw::WalletCoin coin;
-    BOOST_CHECK(!MWEBWallet().RewindOutput(output, coin));
+    BOOST_REQUIRE(MWEBWallet().GetWalletCoin(output.GetOutputID(), coin));
     BOOST_REQUIRE(coin.sender_key.has_value());
     BOOST_CHECK(*coin.sender_key == keychain->GetSenderSigningKey(OLD_SENDER_INDEX));
     BOOST_CHECK_EQUAL(coin.amount, OUTPUT_AMOUNT);
@@ -1783,8 +1781,9 @@ BOOST_AUTO_TEST_CASE(MWEBSenderKeyCacheFindsKeypoolBoundary)
         std::vector<uint8_t>{}
     );
 
+    BOOST_CHECK(!MWEBWallet().RewindOutput(output));
     mw::WalletCoin coin;
-    BOOST_CHECK(!MWEBWallet().RewindOutput(output, coin));
+    BOOST_REQUIRE(MWEBWallet().GetWalletCoin(output.GetOutputID(), coin));
     BOOST_REQUIRE(coin.sender_key.has_value());
     BOOST_CHECK(*coin.sender_key == keychain->GetSenderSigningKey(sender_index));
     BOOST_CHECK_EQUAL(coin.amount, OUTPUT_AMOUNT);

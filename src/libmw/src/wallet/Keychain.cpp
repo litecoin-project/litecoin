@@ -55,7 +55,6 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::WalletCoin& coin) cons
         rewound_coin.output_id = output.GetOutputID();
         rewound_coin.address = address;
         rewound_coin.shared_secret = std::make_optional(std::move(shared_secret));
-        rewound_coin.spend_key = CalculateOutputSpendKey(rewound_coin);
         rewound_coin.master_scan_key_id = PublicKey::From(m_scanSecret).GetID();
 
         coin = std::move(rewound_coin);
@@ -67,11 +66,6 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::WalletCoin& coin) cons
 
 std::optional<SecretKey> Keychain::CalculateOutputSpendKey(const mw::WalletCoin& coin) const
 {
-    // If we already calculated the spend key, there's no need to calculate it again.
-    if (coin.HasSpendKey()) {
-        return coin.spend_key;
-    }
-    
     if (!m_spk_man) {
         return std::nullopt;
     }
