@@ -173,6 +173,7 @@ if ENABLE_WALLET
 BITCOIN_TESTS += \
   wallet/test/feebumper_tests.cpp \
   wallet/test/mweb_accounting_tests.cpp \
+  wallet/test/mweb_coinselection_tests.cpp \
   wallet/test/mweb_lifecycle_tests.cpp \
   wallet/test/mweb_psbt_tests.cpp \
   wallet/test/psbt_filler_tests.cpp \
