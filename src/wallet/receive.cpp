@@ -259,6 +259,14 @@ CAmount CachedTxGetAvailableCredit(const CWallet& wallet, const CWalletTx& wtx, 
 CAmount CachedTxGetFee(const CWallet& wallet, const CWalletTx& wtx, const isminefilter& filter)
 {
     LOCK(wallet.cs_wallet);
+
+    // An ID-only MWEB spend tells us which coin left the wallet, but not its
+    // recipients or fee. Treat the value as an unattributed debit instead of
+    // reporting the whole coin as a transaction fee.
+    if (wtx.IsPartialMWEB()) {
+        return 0;
+    }
+
     if (wtx.m_amounts[CWalletTx::FEE].m_cached[filter]) {
         return wtx.m_amounts[CWalletTx::FEE].m_value[filter];
     }
@@ -314,6 +322,18 @@ void CachedTxGetAmounts(const CWallet& wallet, const CWalletTx& wtx,
     // Sent/received.
     for (const AnyOutputID& output_id : wtx.GetOutputIDs(OutputIdMode::WALLET_OUTPUTS))
     {
+        // The canonical peg-in output only bridges value into the MWEB
+        // transaction. When the matching MWEB transaction is available, its
+        // recipients describe the actual payment and the bridge output must
+        // not be reported as another sent amount.
+        if (!output_id.IsMWEB()) {
+            mw::Hash kernel_id;
+            if (wtx.tx->vout[output_id.ToOutPoint().n].scriptPubKey.IsMWEBPegin(&kernel_id) &&
+                wtx.tx->HasMWEBTx() && wtx.tx->mweb_tx.GetKernelIDs().count(kernel_id) > 0) {
+                continue;
+            }
+        }
+
         isminetype fIsMine = wallet.IsMine(output_id);
         // Only need to handle txouts if AT LEAST one of these is true:
         //   1) they debit from us (sent)

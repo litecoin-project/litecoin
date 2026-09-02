@@ -70,6 +70,27 @@ void TxList::List(std::vector<WalletTxRecord>& tx_records, const CWalletTx& wtx,
         return;
     }
 
+    // A transaction owned only through a different ismine class must not
+    // produce a zero-value history row for this filter.
+    if (nCredit == 0 && nDebit == 0 && !wtx.IsCoinBase() && !wtx.IsHogEx()) {
+        const CAmount nAllCredit = CachedTxGetCredit(m_wallet, wtx, ISMINE_ALL);
+        const CAmount nAllDebit = CachedTxGetDebit(m_wallet, wtx, ISMINE_ALL);
+        if (nAllCredit != 0 || nAllDebit != 0) {
+            return;
+        }
+    }
+
+    // An ID-only MWEB spend has no recipient or fee information. Report the
+    // known wallet debit without classifying the empty output set as a
+    // payment to self.
+    if (wtx.IsPartialMWEB() && wtx.mweb_wtx_info->spent_input) {
+        WalletTxRecord tx_record(&m_wallet, &wtx);
+        tx_record.type = WalletTxRecord::Type::Other;
+        tx_record.debit = nNet;
+        tx_records.push_back(std::move(tx_record));
+        return;
+    }
+
     if (nNet > 0 || wtx.IsCoinBase() || wtx.IsHogEx()) {
         // Credit
         List_Credit(tx_records, wtx, filter_ismine);
@@ -150,7 +171,8 @@ void TxList::List_Credit(std::vector<WalletTxRecord>& tx_records, const CWalletT
     }
 
     for (const auto& [pegout_index, pegout] : wtx.GetMWEBPegouts()) {
-        if (!(m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()}) & filter_ismine)) {
+        const wallet::isminetype ismine = m_wallet.IsMine(GenericAddress{pegout.GetScriptPubKey()});
+        if (!(ismine & filter_ismine)) {
             continue;
         }
 
@@ -158,6 +180,7 @@ void TxList::List_Credit(std::vector<WalletTxRecord>& tx_records, const CWalletT
         tx_record.type = WalletTxRecord::Type::RecvWithAddress;
         tx_record.credit = pegout.GetAmount();
         tx_record.address = GenericAddress(pegout.GetScriptPubKey()).Encode();
+        tx_record.involvesWatchAddress = ismine & ISMINE_WATCH_ONLY;
         tx_records.push_back(std::move(tx_record));
     }
 }

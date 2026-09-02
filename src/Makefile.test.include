@@ -172,6 +172,7 @@ BITCOIN_TESTS =\
 if ENABLE_WALLET
 BITCOIN_TESTS += \
   wallet/test/feebumper_tests.cpp \
+  wallet/test/mweb_accounting_tests.cpp \
   wallet/test/mweb_psbt_tests.cpp \
   wallet/test/psbt_filler_tests.cpp \
   wallet/test/psbt_vector_gen.cpp \
