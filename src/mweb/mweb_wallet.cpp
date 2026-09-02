@@ -16,10 +16,16 @@
 using namespace MWEB;
 
 namespace {
-void MergeSenderMetadata(mw::WalletCoin& target, const mw::WalletCoin& source)
+void MergeMissingMetadata(mw::WalletCoin& target, const mw::WalletCoin& source)
 {
+    if (source.IsMine() && !target.IsMine()) {
+        target.address_index = source.address_index;
+    }
     if (source.sender_key && !target.sender_key) {
         target.sender_key = source.sender_key;
+    }
+    if (source.address && !target.address) {
+        target.address = source.address;
     }
     if (source.shared_secret && !target.shared_secret) {
         target.shared_secret = source.shared_secret;
@@ -33,6 +39,12 @@ void MergeSenderMetadata(mw::WalletCoin& target, const mw::WalletCoin& source)
     if (source.master_scan_key_id && !target.master_scan_key_id) {
         target.master_scan_key_id = source.master_scan_key_id;
     }
+}
+
+bool HasCompleteOwnedMetadata(const mw::WalletCoin& coin)
+{
+    return coin.IsMine() && coin.HasAddress() && coin.blind &&
+        coin.HasSharedSecret() && coin.master_scan_key_id;
 }
 
 std::optional<SecretKey> DeriveSharedSecret(const mw::WalletCoin& coin, const StealthAddress& address)
@@ -79,54 +91,33 @@ bool Wallet::RewindOutput(const mw::Output& output)
 {
     AssertLockHeld(m_pWallet->cs_wallet);
     mw::WalletCoin coin;
-    coin.Reset();
+    GetWalletCoin(output.GetOutputID(), coin);
+    coin.output_id = output.GetOutputID();
+
     mw::WalletCoin sent_coin;
     const bool sent_by_me = RewindOutputSentByMe(output, sent_coin);
-
-    mw::WalletCoin existing_coin;
-    if (GetWalletCoin(output.GetOutputID(), existing_coin)) {
-        coin = existing_coin;
-
-        if (sent_by_me) {
-            MergeSenderMetadata(coin, sent_coin);
-            if (coin.HasAddress() && IsChange(*coin.address)) {
-                coin.address_index = mw::CHANGE_INDEX;
-            }
-            const bool external_address = coin.HasAddress() && m_pWallet->IsMine(GenericAddress{*coin.address}) == wallet::ISMINE_NO;
-            if (!coin.IsMine() && !external_address) {
-                RecoverOwnedOutputFromSenderData(output, coin);
-            }
-        }
-
-        if (coin.IsMine()) {
-            return SaveCoin(coin);
-        }
-
-        if (sent_by_me) {
-            (void)SaveCoin(coin);
-            return false;
-        }
-    }
-
-    for (const auto& keychain : GetAllKeychains()) {
-        if (keychain->RewindOutput(output, coin)) {
-            if (sent_by_me) {
-                MergeSenderMetadata(coin, sent_coin);
-            }
-            return SaveCoin(coin);
-        }
-    }
-
     if (sent_by_me) {
-        coin = sent_coin;
-        if (RecoverOwnedOutputFromSenderData(output, coin)) {
-            return SaveCoin(coin);
-        }
-
-        (void)SaveCoin(coin);
+        MergeMissingMetadata(coin, sent_coin);
     }
 
-    return false;
+    const bool needs_recipient_rewind = NeedsRecipientRewind(coin, sent_by_me);
+    bool received_by_me{false};
+    if (needs_recipient_rewind) {
+        mw::WalletCoin received_coin;
+        received_by_me = RewindOutputReceivedByMe(output, received_coin);
+        if (received_by_me) {
+            MergeMissingMetadata(coin, received_coin);
+        }
+    }
+
+    ClassifyOutput(output, sent_by_me && needs_recipient_rewind, coin);
+
+    if (!coin.IsMine() && !sent_by_me && !received_by_me) {
+        return false;
+    }
+
+    const bool owned = coin.IsMine();
+    return SaveCoin(coin) && owned;
 }
 
 bool Wallet::SaveCoin(const mw::WalletCoin& coin)
@@ -435,6 +426,29 @@ bool Wallet::AdvanceNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t
     return true;
 }
 
+bool Wallet::NeedsRecipientRewind(const mw::WalletCoin& coin, bool sent_by_me) const
+{
+    if (HasCompleteOwnedMetadata(coin)) {
+        return false;
+    }
+
+    const bool known_external_recipient = sent_by_me && coin.HasAddress() &&
+        m_pWallet->IsMine(GenericAddress{*coin.address}) == wallet::ISMINE_NO;
+    return !known_external_recipient;
+}
+
+bool Wallet::RewindOutputReceivedByMe(const mw::Output& output, mw::WalletCoin& coin) const
+{
+    for (const mw::Keychain::Ptr& keychain : GetAllKeychains()) {
+        coin.Reset();
+        if (keychain->RewindOutput(output, coin)) {
+            return true;
+        }
+    }
+
+    return false;
+}
+
 bool Wallet::RewindOutputSentByMe(const mw::Output& output, mw::WalletCoin& coin)
 {
     const std::optional<SenderKeyMatch> match = FindSenderKey(output.GetSenderPubKey());
@@ -477,6 +491,17 @@ bool Wallet::RewindOutputSentByMe(const mw::Output& output, mw::WalletCoin& coin
     }
 
     return true;
+}
+
+void Wallet::ClassifyOutput(const mw::Output& output, bool recover_from_sender_data, mw::WalletCoin& coin) const
+{
+    if (recover_from_sender_data && !coin.IsMine()) {
+        RecoverOwnedOutputFromSenderData(output, coin);
+    }
+
+    if (coin.HasAddress() && IsChange(*coin.address)) {
+        coin.address_index = mw::CHANGE_INDEX;
+    }
 }
 
 bool Wallet::RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::WalletCoin& coin) const

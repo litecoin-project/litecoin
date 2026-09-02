@@ -86,7 +86,11 @@ private:
 
     std::optional<SenderKeyMatch> FindSenderKey(const PublicKey& sender_pubkey) EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
     bool AdvanceNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t sender_key_index) EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
+    bool NeedsRecipientRewind(const mw::WalletCoin& coin, bool sent_by_me) const EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
+    bool RewindOutputReceivedByMe(const mw::Output& output, mw::WalletCoin& coin) const EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
     bool RewindOutputSentByMe(const mw::Output& output, mw::WalletCoin& coin) EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
+    void ClassifyOutput(const mw::Output& output, bool recover_from_sender_data, mw::WalletCoin& coin) const
+        EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
     bool RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::WalletCoin& coin) const EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
 };
 
