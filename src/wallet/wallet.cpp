@@ -129,6 +129,37 @@ static int GetTxPositionInBlock(const CWalletTx& wtx, const std::vector<CTransac
     return TxStateConfirmed::NO_POSITION_IN_BLOCK;
 }
 
+static void UpdateHogExMWEBIndices(CWallet& wallet, const CBlock& block)
+{
+    assert(!block.mweb_block.IsNull());
+    assert(!block.vtx.empty());
+
+    CWalletTx* hogex_wtx = wallet.GetWalletTx(block.vtx.back()->GetHash());
+    if (hogex_wtx == nullptr) return;
+
+    hogex_wtx->pegout_indices.clear();
+    hogex_wtx->pegout_indices.push_back({mw::Hash(), 0}); // HogAddr doesn't have a corresponding kernel
+
+    std::multimap<PegOutCoin, std::pair<mw::Hash, size_t>> pegout_kernels;
+    for (const mw::Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
+        const auto& kernel_pegouts = kernel.GetPegOuts();
+        for (size_t pegout_idx = 0; pegout_idx < kernel_pegouts.size(); pegout_idx++) {
+            pegout_kernels.insert({kernel_pegouts[pegout_idx], {kernel.GetKernelID(), pegout_idx}});
+        }
+    }
+
+    for (size_t i = 1; i < hogex_wtx->tx->vout.size(); i++) {
+        const CTxOut& hogex_out = hogex_wtx->tx->vout[i];
+        auto iter = pegout_kernels.find(PegOutCoin{hogex_out.nValue, hogex_out.scriptPubKey});
+        assert(iter != pegout_kernels.end());
+        hogex_wtx->pegout_indices.push_back(iter->second);
+        pegout_kernels.erase(iter);
+    }
+
+    assert(hogex_wtx->tx->vout.size() == hogex_wtx->pegout_indices.size());
+    WalletBatch(wallet.GetDatabase()).WriteTx(*hogex_wtx);
+}
+
 bool AddWallet(WalletContext& context, const std::shared_ptr<CWallet>& wallet)
 {
     LOCK(context.wallets_mutex);
@@ -1074,32 +1105,36 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
     const bool has_tx_data = tx->HasMWEBTx() || !tx->IsNull();
 
     // During restore/rescan we can create synthetic wallet rows for received
-    // MWEB outputs before learning the full transaction. If the transaction is
-    // later seen, collapse those partial rows into the canonical txid entry
-    // before the map insertion below.
+    // and spent MWEB outputs before learning the full transaction. If the
+    // transaction is later seen, collapse those partial rows into the
+    // canonical txid entry before the map insertion below.
     if (tx->HasMWEBTx()) {
-        struct PartialMWEBReceiveMatch {
+        struct PartialMWEBMatch {
             uint256 wallet_tx_hash;
-            mw::Hash output_id;
+            std::optional<mw::Hash> received_output_id;
+            std::optional<mw::Hash> spent_output_id;
             int64_t order_pos;
         };
 
-        std::vector<PartialMWEBReceiveMatch> partial_matches;
+        const std::set<mw::Hash> spent_ids = tx->mweb_tx.GetSpentIDs();
+        std::vector<PartialMWEBMatch> partial_matches;
         for (const auto& [wallet_tx_hash, partial_wtx] : mapWallet) {
             if (!partial_wtx.IsPartialMWEB()) {
                 continue;
             }
 
-            std::optional<mw::Hash> mweb_output_id = partial_wtx.GetMWEBReceivedOutputID();
-            if (mweb_output_id == std::nullopt) {
-                continue;
-            }
+            const std::optional<mw::Hash> received_output_id = partial_wtx.GetMWEBReceivedOutputID();
+            const std::optional<mw::Hash> spent_output_id = partial_wtx.mweb_wtx_info->spent_input;
+            const bool matches_receive = received_output_id && tx->HasOutput(AnyOutputID(*received_output_id));
+            const bool matches_spend = spent_output_id && spent_ids.count(*spent_output_id) > 0;
+            if (!matches_receive && !matches_spend) continue;
 
-            if (!tx->HasOutput(AnyOutputID(*mweb_output_id))) {
-                continue;
-            }
-
-            partial_matches.push_back({wallet_tx_hash, *mweb_output_id, partial_wtx.nOrderPos});
+            partial_matches.push_back({
+                wallet_tx_hash,
+                matches_receive ? received_output_id : std::nullopt,
+                matches_spend ? spent_output_id : std::nullopt,
+                partial_wtx.nOrderPos,
+            });
         }
 
         if (!partial_matches.empty()) {
@@ -1109,6 +1144,23 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
 
             const bool had_full_hash = mapWallet.count(hash) != 0;
             const uint256& primary_partial_hash = partial_matches.front().wallet_tx_hash;
+
+            for (const auto& match : partial_matches) {
+                if (match.received_output_id) {
+                    mapOutputsMWEB[*match.received_output_id] = hash;
+                }
+                if (match.spent_output_id) {
+                    auto range = mapTxSpends.equal_range(*match.spent_output_id);
+                    for (auto spend = range.first; spend != range.second;) {
+                        if (spend->second == match.wallet_tx_hash) {
+                            spend = mapTxSpends.erase(spend);
+                        } else {
+                            ++spend;
+                        }
+                    }
+                }
+            }
+
             if (!had_full_hash) {
                 auto node = mapWallet.extract(primary_partial_hash);
                 assert(!node.empty());
@@ -1120,8 +1172,6 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
             }
 
             for (const auto& match : partial_matches) {
-                mapOutputsMWEB[match.output_id] = hash;
-
                 if (!had_full_hash && match.wallet_tx_hash == primary_partial_hash) {
                     continue;
                 }
@@ -1175,6 +1225,7 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const std::optional<MWEB::Wa
         if (wtx.IsPartialMWEB() && has_tx_data) {
             wtx.SetTx(tx);
             wtx.mweb_wtx_info = mweb_wtx_info;
+            AddToSpends(wtx, &batch);
             AddMWEBOrigins(wtx);
             fUpdated = true;
         } else if (tx->HasWitness() && !wtx.tx->HasWitness()) {
@@ -1663,34 +1714,7 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
             }
         }
 
-        CWalletTx* hogex_wtx = GetWalletTx(block.data->vtx.back()->GetHash());
-        if (hogex_wtx != nullptr) {
-            hogex_wtx->pegout_indices.clear();
-            hogex_wtx->pegout_indices.push_back({mw::Hash(), 0}); // HogAddr doesn't have a corresponding kernel
-
-            std::multimap<PegOutCoin, std::pair<mw::Hash, size_t>> pegout_kernels;
-            for (const mw::Kernel& kernel : block.data->mweb_block.m_block->GetKernels()) {
-                const auto& kernel_pegouts = kernel.GetPegOuts();
-                for (size_t pegout_idx = 0; pegout_idx < kernel_pegouts.size(); pegout_idx++) {
-                    pegout_kernels.insert({kernel_pegouts[pegout_idx], {kernel.GetKernelID(), pegout_idx}});
-                }
-            }
-
-            for (size_t i = 1; i < hogex_wtx->tx->vout.size(); i++) {
-                const auto& hogex_out = hogex_wtx->tx->vout[i];
-                PegOutCoin pegout{hogex_out.nValue, hogex_out.scriptPubKey};
-                auto iter = pegout_kernels.find(pegout);
-                if (iter != pegout_kernels.end()) {
-                    hogex_wtx->pegout_indices.push_back(iter->second);
-                    pegout_kernels.erase(iter);
-                } else {
-                    assert(false);
-                }
-            }
-
-            assert(hogex_wtx->tx->vout.size() == hogex_wtx->pegout_indices.size());
-            WalletBatch(GetDatabase()).WriteTx(*hogex_wtx);
-        }
+        UpdateHogExMWEBIndices(*this, *block.data);
 
         for (const mw::Kernel& kernel : block.data->mweb_block.m_block->GetKernels()) {
             auto wtx = FindWalletTxByKernelId(kernel.GetKernelID());
@@ -2239,6 +2263,8 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
             }
 
             if (!block.mweb_block.IsNull()) {
+                UpdateHogExMWEBIndices(*this, block);
+
                 for (const mw::Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
                     const CWalletTx* wtx = FindWalletTxByKernelId(kernel.GetKernelID());
                     if (wtx) {
