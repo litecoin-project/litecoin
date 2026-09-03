@@ -177,6 +177,7 @@ BITCOIN_TESTS += \
   wallet/test/mweb_keychain_tests.cpp \
   wallet/test/mweb_lifecycle_tests.cpp \
   wallet/test/mweb_psbt_tests.cpp \
+  wallet/test/mweb_raw_tests.cpp \
   wallet/test/mweb_rewind_tests.cpp \
   wallet/test/psbt_filler_tests.cpp \
   wallet/test/psbt_vector_gen.cpp \

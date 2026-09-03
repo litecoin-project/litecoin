@@ -208,12 +208,6 @@ public:
         return dest;
     }
 
-    bool SignWithWallet(CMutableTransaction& tx)
-    {
-        LOCK(m_wallet.cs_wallet);
-        return m_wallet.SignTransaction(tx);
-    }
-
     void ExpectInputs(const CWalletTx& wtx, size_t ltc, size_t mweb)
     {
         const auto& inputs = wtx.GetInputs();
@@ -1640,34 +1634,6 @@ BOOST_AUTO_TEST_CASE(MWEBSentExternalOutputKeepsRecipientAddress)
 
     const CTxDestination extracted_dest = ExtractDestinationForOutput(*wtx, *output_id);
     BOOST_CHECK(extracted_dest == CTxDestination{recipient_addr});
-}
-
-// Wallet signing finalizes an unsigned pure MWEB transaction.
-BOOST_AUTO_TEST_CASE(WalletSignTransactionFinalizesPureMWEBSpend)
-{
-    const CTxDestination existing_mweb_addr = NewDestination(OutputType::MWEB);
-    AddTx({{existing_mweb_addr, 5 * COIN, false}}, {}, std::nullopt);
-
-    const AnyWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
-    const CTxDestination recipient_addr = NewDestination(OutputType::MWEB);
-    auto tx_result = BuildTx({{recipient_addr, 2 * COIN, false}}, {mweb_coin}, std::nullopt, false);
-    BOOST_REQUIRE(tx_result);
-
-    CMutableTransaction tx = tx_result->tx;
-    BOOST_REQUIRE(tx.vin.empty());
-    BOOST_REQUIRE(tx.vout.empty());
-    BOOST_REQUIRE_EQUAL(tx.mweb_tx.inputs.size(), 1U);
-    BOOST_REQUIRE(!tx.mweb_tx.IsFinal());
-    BOOST_CHECK(!tx.mweb_tx.inputs.front().signature.has_value());
-
-    BOOST_CHECK(SignWithWallet(tx));
-    BOOST_CHECK(tx.mweb_tx.IsFinal());
-    BOOST_CHECK(tx.mweb_tx.inputs.front().signature.has_value());
-    BOOST_CHECK(tx.mweb_tx.inputs.front().input_pubkey.has_value());
-
-    const CTransaction signed_tx(tx);
-    BOOST_CHECK(signed_tx.IsMWEBOnly());
-    BOOST_CHECK(!signed_tx.mweb_tx.IsNull());
 }
 
 // MWEB outputs use the scan-derived sender-key sequence.
