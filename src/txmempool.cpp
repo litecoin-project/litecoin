@@ -573,7 +573,6 @@ void CTxMemPool::removeUnchecked(txiter it, MemPoolRemovalReason reason)
         }
     }
 
-    LogPrintf("removeUnchecked: Removing transaction %s, reason: %d\n", ptx->GetHash().GetHex(), (int)reason);
     RemoveUnbroadcastTx(hash, true /* add logging because unchecked */ );
 
     if (vTxHashes.size() > 1) {

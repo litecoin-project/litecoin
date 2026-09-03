@@ -1478,6 +1478,205 @@ void CWallet::MarkInputsDirty(const CTransactionRef& tx, const std::optional<MWE
     }
 }
 
+void CWallet::SyncMWEBBlock(const CBlock& block, const uint256& block_hash, int block_height, bool update_tx, bool rescanning_old_block, bool update_mempool_status)
+{
+    AssertLockHeld(cs_wallet);
+    assert(!block.mweb_block.IsNull());
+
+    UpdateHogExMWEBIndices(*this, block);
+
+    const std::set<mw::Hash> block_kernel_ids = block.mweb_block.GetKernelIDs();
+    std::vector<uint256> known_txids;
+    for (const auto& [wallet_txid, wtx] : mapWallet) {
+        if (wtx.IsPartialMWEB() || !wtx.tx->HasMWEBTx()) continue;
+
+        const std::set<mw::Hash> tx_kernel_ids = wtx.tx->mweb_tx.GetKernelIDs();
+        if (!tx_kernel_ids.empty() && std::all_of(tx_kernel_ids.begin(), tx_kernel_ids.end(), [&](const mw::Hash& kernel_id) {
+                return block_kernel_ids.count(kernel_id) > 0;
+            })) {
+            known_txids.push_back(wallet_txid);
+        }
+    }
+
+    std::set<uint256> confirmed_txids;
+    for (const uint256& wallet_txid : known_txids) {
+        CWalletTx* wtx = GetWalletTx(wallet_txid);
+        if (wtx == nullptr) continue;
+
+        confirmed_txids.insert(wallet_txid);
+        const CTransactionRef tx = wtx->tx;
+        const std::optional<MWEB::WalletTxInfo> mweb_wtx_info = wtx->mweb_wtx_info;
+        SyncTransaction(
+            tx,
+            mweb_wtx_info,
+            TxStateConfirmed{block_hash, block_height, GetTxPositionInBlock(*wtx, block.vtx)},
+            update_tx,
+            rescanning_old_block
+        );
+
+        if (update_mempool_status) {
+            transactionRemovedFromMempool(tx, MemPoolRemovalReason::BLOCK, 0 /* mempool_sequence */);
+        }
+    }
+
+    for (const mw::Hash& spent_id : block.mweb_block.GetSpentIDs()) {
+        if (!IsMine(AnyOutputID{spent_id})) continue;
+
+        std::vector<uint256> losing_txids;
+        bool known_winner{false};
+        const auto range = mapTxSpends.equal_range(spent_id);
+        for (auto spend = range.first; spend != range.second; ++spend) {
+            auto tx_iter = mapWallet.find(spend->second);
+            if (tx_iter == mapWallet.end()) continue;
+
+            const CWalletTx& spend_wtx = tx_iter->second;
+            if (confirmed_txids.count(spend->second) > 0) {
+                known_winner = true;
+            } else if (!spend_wtx.IsPartialMWEB()) {
+                losing_txids.push_back(spend->second);
+            }
+        }
+
+        if (!known_winner) {
+            const std::optional<MWEB::WalletTxInfo> spent_info{MWEB::WalletTxInfo::Spent(spent_id)};
+            CWalletTx* partial_spend = AddToWallet(
+                MakeTransactionRef(),
+                spent_info,
+                TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
+                nullptr,
+                /*fFlushOnClose=*/false,
+                rescanning_old_block
+            );
+            if (partial_spend != nullptr) {
+                MarkInputsDirty(partial_spend->tx, partial_spend->mweb_wtx_info);
+            }
+        }
+
+        std::sort(losing_txids.begin(), losing_txids.end());
+        losing_txids.erase(std::unique(losing_txids.begin(), losing_txids.end()), losing_txids.end());
+        for (const uint256& losing_txid : losing_txids) {
+            MarkConflicted(block_hash, block_height, losing_txid);
+        }
+    }
+
+    for (const mw::Output& output : block.mweb_block.m_block->GetOutputs()) {
+        if (!mweb_wallet->RewindOutput(output)) continue;
+
+        const CWalletTx* wtx = FindWalletTx(output.GetOutputID());
+        if (wtx != nullptr) {
+            SyncTransaction(
+                wtx->tx,
+                wtx->mweb_wtx_info,
+                TxStateConfirmed{block_hash, block_height, GetTxPositionInBlock(*wtx, block.vtx)},
+                update_tx,
+                rescanning_old_block
+            );
+        } else {
+            AddToWallet(
+                MakeTransactionRef(),
+                std::make_optional(MWEB::WalletTxInfo::Received(output.GetOutputID())),
+                TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
+                nullptr,
+                /*fFlushOnClose=*/false,
+                rescanning_old_block
+            );
+        }
+    }
+}
+
+bool CWallet::ErasePartialMWEBSpend(const uint256& wallet_tx_hash, WalletBatch& batch)
+{
+    AssertLockHeld(cs_wallet);
+
+    auto tx_iter = mapWallet.find(wallet_tx_hash);
+    if (tx_iter == mapWallet.end() || !tx_iter->second.IsPartialMWEB() || !tx_iter->second.mweb_wtx_info->spent_input) {
+        return false;
+    }
+
+    if (!batch.EraseTx(wallet_tx_hash)) {
+        WalletLogPrintf("Failed to erase disconnected partial MWEB spend %s\n", wallet_tx_hash.ToString());
+        return false;
+    }
+
+    const mw::Hash spent_id = *tx_iter->second.mweb_wtx_info->spent_input;
+    auto spend_range = mapTxSpends.equal_range(spent_id);
+    for (auto spend = spend_range.first; spend != spend_range.second;) {
+        if (spend->second == wallet_tx_hash) {
+            spend = mapTxSpends.erase(spend);
+        } else {
+            ++spend;
+        }
+    }
+
+    wtxOrdered.erase(tx_iter->second.m_it_wtxOrdered);
+    mapWallet.erase(tx_iter);
+    NotifyTransactionChanged(wallet_tx_hash, CT_DELETED);
+
+    CWalletTx* prev = FindPrevTx(spent_id);
+    if (prev != nullptr) prev->MarkDirty();
+    return true;
+}
+
+void CWallet::DisconnectMWEBBlock(const CBlock& block, const uint256& block_hash)
+{
+    AssertLockHeld(cs_wallet);
+    assert(!block.mweb_block.IsNull());
+
+    const std::set<mw::Hash> block_kernel_ids = block.mweb_block.GetKernelIDs();
+    std::vector<uint256> restore_txids;
+    std::vector<uint256> partial_spend_txids;
+
+    for (const auto& [wallet_txid, wtx] : mapWallet) {
+        if (wtx.IsPartialMWEB() && wtx.mweb_wtx_info->spent_input) {
+            const TxStateConfirmed* confirmed = wtx.state<TxStateConfirmed>();
+            if (confirmed != nullptr && confirmed->confirmed_block_hash == block_hash) {
+                partial_spend_txids.push_back(wallet_txid);
+            }
+            continue;
+        }
+
+        const TxStateConfirmed* confirmed = wtx.state<TxStateConfirmed>();
+        const TxStateConflicted* conflicted = wtx.state<TxStateConflicted>();
+        const bool confirmed_in_block = confirmed != nullptr && confirmed->confirmed_block_hash == block_hash;
+        const bool conflicted_by_block = conflicted != nullptr && conflicted->conflicting_block_hash == block_hash;
+        if (confirmed_in_block || conflicted_by_block) {
+            restore_txids.push_back(wallet_txid);
+            continue;
+        }
+
+        if (!wtx.tx->HasMWEBTx()) continue;
+        const std::set<mw::Hash> tx_kernel_ids = wtx.tx->mweb_tx.GetKernelIDs();
+        if (!tx_kernel_ids.empty() && std::all_of(tx_kernel_ids.begin(), tx_kernel_ids.end(), [&](const mw::Hash& kernel_id) {
+                return block_kernel_ids.count(kernel_id) > 0;
+            })) {
+            restore_txids.push_back(wallet_txid);
+        }
+    }
+
+    WalletBatch batch(GetDatabase(), /*flush_on_close=*/false);
+    for (const uint256& partial_spend_txid : partial_spend_txids) {
+        ErasePartialMWEBSpend(partial_spend_txid, batch);
+    }
+
+    std::sort(restore_txids.begin(), restore_txids.end());
+    restore_txids.erase(std::unique(restore_txids.begin(), restore_txids.end()), restore_txids.end());
+    for (const uint256& wallet_txid : restore_txids) {
+        CWalletTx* wtx = GetWalletTx(wallet_txid);
+        if (wtx != nullptr) {
+            SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateInactive{});
+        }
+    }
+
+    for (const mw::Output& output : block.mweb_block.m_block->GetOutputs()) {
+        if (!mweb_wallet->RewindOutput(output)) continue;
+
+        const CWalletTx* wtx = FindWalletTx(output.GetOutputID());
+        if (wtx != nullptr) {
+            SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateInactive{});
+        }
+    }
+}
+
 bool CWallet::AbandonTransaction(const uint256& hashTx)
 {
     LOCK(cs_wallet);
@@ -1610,6 +1809,7 @@ void CWallet::MarkConflicted(const uint256& hashBlock, int conflicting_height, c
             wtx.m_state = TxStateConflicted{hashBlock, conflicting_height};
             wtx.MarkDirty();
             batch.WriteTx(wtx);
+            NotifyTransactionChanged(now, CT_UPDATED);
             // Iterate over all its outputs, and mark transactions in the wallet that spend them conflicted too
             for (const AnyOutputID& output_id : wtx.GetOutputIDs()) {
                 std::pair<TxSpends::const_iterator, TxSpends::const_iterator> range = mapTxSpends.equal_range(output_id);
@@ -1697,48 +1897,7 @@ void CWallet::blockConnected(const interfaces::BlockInfo& block)
     }
 
     if (!block.data->mweb_block.IsNull()) {
-        // Process each spent MWEB coin from the block.
-        // For every spent coin ID present in the MWEB part of the block, we:
-        // 1. Check if the coin belongs to our wallet (IsMine) and
-        //    ensure that it has not been marked as spent already.
-        // 2. Add a new wallet transaction (even though the transaction reference is empty)
-        //    to record the coin spending event, marking it as confirmed.
-        mw::WalletCoin coin;
-        for (const mw::Hash& spent_id : block.data->mweb_block.GetSpentIDs()) {
-            if (GetMWEBWalletCoin(spent_id, coin) && coin.IsMine() && !IsSpent(spent_id)) {
-                AddToWallet(
-                    MakeTransactionRef(),
-                    std::make_optional(MWEB::WalletTxInfo::Spent(spent_id)),
-                    TxStateConfirmed{block.hash, block.height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
-                );
-            }
-        }
-
-        UpdateHogExMWEBIndices(*this, *block.data);
-
-        for (const mw::Kernel& kernel : block.data->mweb_block.m_block->GetKernels()) {
-            auto wtx = FindWalletTxByKernelId(kernel.GetKernelID());
-            if (wtx != nullptr) {
-                SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateConfirmed{block.hash, block.height, GetTxPositionInBlock(*wtx, block.data->vtx)});
-                transactionRemovedFromMempool(wtx->tx, MemPoolRemovalReason::BLOCK, 0 /* mempool_sequence */);
-            }
-        }
-
-        for (const mw::Output& output : block.data->mweb_block.m_block->GetOutputs()) {
-            if (mweb_wallet->RewindOutput(output)) {
-                auto wtx = FindWalletTx(output.GetOutputID());
-                if (wtx != nullptr) {
-                    SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateConfirmed{block.hash, block.height, GetTxPositionInBlock(*wtx, block.data->vtx)});
-                    transactionRemovedFromMempool(wtx->tx, MemPoolRemovalReason::BLOCK, 0 /* mempool_sequence */);
-                } else {
-                    AddToWallet(
-                        MakeTransactionRef(),
-                        std::make_optional(MWEB::WalletTxInfo::Received(output.GetOutputID())),
-                        TxStateConfirmed{block.hash, block.height, TxStateConfirmed::NO_POSITION_IN_BLOCK}
-                    );
-                }
-            }
-        }
+        SyncMWEBBlock(*block.data, block.hash, block.height, /*update_tx=*/true, /*rescanning_old_block=*/false, /*update_mempool_status=*/true);
     }
 }
 
@@ -1758,33 +1917,7 @@ void CWallet::blockDisconnected(const interfaces::BlockInfo& block)
     }
 
     if (!block.data->mweb_block.IsNull()) {
-        mw::WalletCoin coin;
-        for (const mw::Hash& spent_id : block.data->mweb_block.GetSpentIDs()) {
-            if (GetMWEBWalletCoin(spent_id, coin) && coin.IsMine()) {
-                std::pair<TxSpends::const_iterator, TxSpends::const_iterator> range = mapTxSpends.equal_range(spent_id);
-                // MWEB: We just choose the first spend. In the future, we may need a better approach for handling conflicted txs
-                if (range.first != range.second) {
-                    auto tx_iter = mapWallet.find(range.first->second);
-                    SyncTransaction(tx_iter->second.tx, tx_iter->second.mweb_wtx_info, TxStateInactive{});
-                }
-            }
-        }
-
-        for (const mw::Hash& kernel_id : block.data->mweb_block.GetKernelIDs()) {
-            auto wtx = FindWalletTxByKernelId(kernel_id);
-            if (wtx != nullptr) {
-                SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateInactive{});
-            }
-        }
-
-        for (const mw::Output& output : block.data->mweb_block.m_block->GetOutputs()) {
-            if (mweb_wallet->RewindOutput(output)) {
-                auto wtx = FindWalletTx(output.GetOutputID());
-                if (wtx != nullptr) {
-                    SyncTransaction(wtx->tx, wtx->mweb_wtx_info, TxStateInactive{});
-                }
-            }
-        }
+        DisconnectMWEBBlock(*block.data, block.hash);
     }
 }
 
@@ -2263,71 +2396,7 @@ CWallet::ScanResult CWallet::ScanForWalletTransactions(const uint256& start_bloc
             }
 
             if (!block.mweb_block.IsNull()) {
-                UpdateHogExMWEBIndices(*this, block);
-
-                for (const mw::Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
-                    const CWalletTx* wtx = FindWalletTxByKernelId(kernel.GetKernelID());
-                    if (wtx) {
-                        SyncTransaction(
-                            wtx->tx,
-                            wtx->mweb_wtx_info,
-                            TxStateConfirmed{block_hash, block_height, GetTxPositionInBlock(*wtx, block.vtx)},
-                            fUpdate
-                        );
-                    }
-                }
-
-                for (const mw::Output& output : block.mweb_block.m_block->GetOutputs()) {
-                    if (mweb_wallet->RewindOutput(output)) {
-                        const CWalletTx* wtx = FindWalletTx(output.GetOutputID());
-                        if (wtx) {
-                            SyncTransaction(
-                                wtx->tx,
-                                wtx->mweb_wtx_info,
-                                TxStateConfirmed{block_hash, block_height, GetTxPositionInBlock(*wtx, block.vtx)},
-                                fUpdate
-                            );
-                        } else {
-                            AddToWallet(
-                                MakeTransactionRef(),
-                                std::make_optional(MWEB::WalletTxInfo::Received(output.GetOutputID())),
-                                TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
-                                nullptr,
-                                false
-                            );
-                        }
-                    }
-                }
-
-                for (const mw::Hash& spent_id : block.mweb_block.GetSpentIDs()) {
-                    if (IsMine(AnyOutputID(spent_id))) {
-                        auto spend_iter = mapTxSpends.find(spent_id);
-                        if (spend_iter != mapTxSpends.end()) {
-                            auto tx_iter = mapWallet.find(spend_iter->second);
-                            if (tx_iter != mapWallet.end()) {
-                                SyncTransaction(
-                                    tx_iter->second.tx,
-                                    tx_iter->second.mweb_wtx_info,
-                                    TxStateConfirmed{block_hash, block_height, GetTxPositionInBlock(tx_iter->second, block.vtx)},
-                                    fUpdate
-                                );
-                            }
-                        } else {
-                            AddToWallet(
-                                MakeTransactionRef(),
-                                std::make_optional(MWEB::WalletTxInfo::Spent(spent_id)),
-                                TxStateConfirmed{block_hash, block_height, TxStateConfirmed::NO_POSITION_IN_BLOCK},
-                                nullptr,
-                                false
-                            );
-                        }
-
-                        CWalletTx* prev = FindPrevTx(spent_id);
-                        if (prev != nullptr) {
-                            prev->MarkDirty();
-                        }
-                    }
-                }
+                SyncMWEBBlock(block, block_hash, block_height, fUpdate, /*rescanning_old_block=*/true, /*update_mempool_status=*/false);
             }
 
             // scan succeeded, record block as most recent successfully scanned

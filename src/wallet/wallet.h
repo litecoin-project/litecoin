@@ -247,6 +247,15 @@ private:
     /** Mark a transaction's inputs dirty, thus forcing the outputs to be recomputed */
     void MarkInputsDirty(const CTransactionRef& tx, const std::optional<MWEB::WalletTxInfo>& mweb_wtx_info) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
+    /** Reconcile the MWEB portion of a connected block with known and partial wallet transactions. */
+    void SyncMWEBBlock(const CBlock& block, const uint256& block_hash, int block_height, bool update_tx, bool rescanning_old_block, bool update_mempool_status) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
+    /** Reverse MWEB confirmations and conflicts associated with a disconnected block. */
+    void DisconnectMWEBBlock(const CBlock& block, const uint256& block_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
+    /** Remove a synthetic MWEB spend that existed only to represent a block observation. */
+    bool ErasePartialMWEBSpend(const uint256& wallet_tx_hash, WalletBatch& batch) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+
     void SyncMetaData(std::pair<TxSpends::iterator, TxSpends::iterator>) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     void SyncTransaction(const CTransactionRef& tx, const std::optional<MWEB::WalletTxInfo>& mweb_wtx_info, const SyncTxState& state, bool update_tx = true, bool rescanning_old_block = false) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);

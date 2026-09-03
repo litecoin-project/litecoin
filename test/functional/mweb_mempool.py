@@ -170,6 +170,9 @@ class MWEBMempoolTest(LitecoinTestFramework):
             outputs=[{clone_wallet.getnewaddress(address_type='mweb'): Decimal('0.6')}],
             options={"add_to_wallet": True},
         )["txid"]
+        conflict_fee = clone_wallet.gettransaction(conflict_txid)["fee"]
+        expected_balance = Decimal('2') + conflict_fee
+        expected_change = expected_balance - Decimal('0.6')
         assert stale_txid != conflict_txid
         assert_equal(node1.getrawmempool(), [stale_txid])
         assert_equal(node2.getrawmempool(), [conflict_txid])
@@ -187,6 +190,77 @@ class MWEBMempoolTest(LitecoinTestFramework):
         self.sync_blocks([node1, node2], timeout=10)
         assert_equal(node1.getbestblockhash(), conflict_block)
         self.wait_until(lambda: stale_txid not in node1.getrawmempool(), timeout=10)
+
+        def assert_confirmed_conflict():
+            stale = original_wallet.gettransaction(stale_txid)
+            assert_equal(stale["confirmations"], -1)
+            assert_equal(len(stale["walletconflicts"]), 1)
+            partial_spend_txid = stale["walletconflicts"][0]
+
+            partial = original_wallet.gettransaction(partial_spend_txid)
+            assert_equal(partial["confirmations"], 1)
+            assert_equal(partial["blockhash"], conflict_block)
+            assert_equal(partial["walletconflicts"], [stale_txid])
+
+            history = original_wallet.listwallettransactions()
+            stale_rows = [row for row in history if row["txid"] == stale_txid]
+            assert stale_rows
+            assert all(row["confirmations"] == -1 for row in stale_rows)
+
+            block_rows = [
+                row for row in history
+                if row.get("blockhash") == conflict_block and (row["type"] == "Other" or "mweb_out" in row)
+            ]
+            assert_equal(len(block_rows), 3)
+            partial_rows = [row for row in block_rows if row["txid"] == partial_spend_txid]
+            assert_equal(len(partial_rows), 1)
+            assert_equal(partial_rows[0]["type"], "Other")
+            assert_equal(partial_rows[0]["amount"], Decimal('-2'))
+            assert_equal(partial_rows[0]["confirmations"], 1)
+
+            receive_rows = [row for row in block_rows if "mweb_out" in row]
+            assert_equal(len(receive_rows), 2)
+            assert all(row["type"] == "RecvWithAddress" for row in receive_rows)
+            assert_equal(sorted(row["amount"] for row in receive_rows), sorted([Decimal('0.6'), expected_change]))
+            output_ids = [row["mweb_out"] for row in receive_rows]
+            assert_equal(len(set(output_ids)), 2)
+
+            assert_equal(original_wallet.getbalances()["mine"]["trusted"], expected_balance)
+            unspent = original_wallet.listunspent()
+            assert_equal(sum(output["amount"] for output in unspent), expected_balance)
+            assert_equal({output["mweb_out"] for output in unspent}, set(output_ids))
+            component_order = [row.get("mweb_out", row["txid"]) for row in block_rows]
+            return partial_spend_txid, output_ids, component_order
+
+        self.log.info("Assert the stale spend is conflicted and the unknown winner is represented once")
+        partial_spend_txid, output_ids, component_order = assert_confirmed_conflict()
+
+        self.log.info("Disconnect and reconnect the conflict block")
+        previous_block = node1.getblock(conflict_block)["previousblockhash"]
+        node1.invalidateblock(conflict_block)
+        assert_equal(node1.getbestblockhash(), previous_block)
+        stale = original_wallet.gettransaction(stale_txid)
+        assert_equal(stale["confirmations"], 0)
+        assert_equal(stale["walletconflicts"], [])
+        assert_raises_rpc_error(-5, "Invalid or non-wallet transaction id", original_wallet.gettransaction, partial_spend_txid)
+        assert all(row["txid"] != partial_spend_txid for row in original_wallet.listwallettransactions())
+        assert_equal(original_wallet.getbalances()["mine"]["trusted"], Decimal('0'))
+
+        node1.reconsiderblock(conflict_block)
+        assert_equal(node1.getbestblockhash(), conflict_block)
+        reconnected_partial_txid, reconnected_output_ids, reconnected_component_order = assert_confirmed_conflict()
+        assert_equal(reconnected_partial_txid, partial_spend_txid)
+        assert_equal(reconnected_output_ids, output_ids)
+        assert_equal(reconnected_component_order, component_order)
+
+        self.log.info("Restart with the confirmed conflict and verify wallet reload parity")
+        self.restart_node(1)
+        node1.loadwallet(wallet_name)
+        original_wallet = node1.get_wallet_rpc(wallet_name)
+        reloaded_partial_txid, reloaded_output_ids, reloaded_component_order = assert_confirmed_conflict()
+        assert_equal(reloaded_partial_txid, partial_spend_txid)
+        assert_equal(reloaded_output_ids, output_ids)
+        assert_equal(reloaded_component_order, component_order)
 
         self.log.info("Reconnect all nodes and unload temporary wallets")
         self.connect_nodes(1, 0)
