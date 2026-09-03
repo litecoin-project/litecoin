@@ -6,6 +6,7 @@
 #include <key_io.h>
 #include <rpc/util.h>
 #include <util/moneystr.h>
+#include <util/strencodings.h>
 #include <wallet/coincontrol.h>
 #include <wallet/receive.h>
 #include <wallet/rpc/util.h>
@@ -16,6 +17,18 @@
 
 
 namespace wallet {
+namespace {
+mw::Hash ParseMWEBOutputID(const UniValue& value)
+{
+    RPCTypeCheckArgument(value, UniValue::VSTR);
+    const std::string output_id = value.get_str();
+    if (output_id.size() != 64 || !IsHex(output_id)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, mweb_out must be a 64-character hexadecimal string");
+    }
+    return mw::Hash::FromHex(output_id);
+}
+} // namespace
+
 static CAmount GetReceived(const CWallet& wallet, const UniValue& params, bool by_label) EXCLUSIVE_LOCKS_REQUIRED(wallet.cs_wallet)
 {
     std::vector<CTxDestination> addresses;
@@ -250,12 +263,13 @@ RPCHelpMan lockunspent()
                 "Also see the listunspent call\n",
                 {
                     {"unlock", RPCArg::Type::BOOL, RPCArg::Optional::NO, "Whether to unlock (true) or lock (false) the specified transactions"},
-                    {"transactions", RPCArg::Type::ARR, RPCArg::Default{UniValue::VARR}, "The transaction outputs and within each, the txid (string) vout (numeric).",
+                    {"transactions", RPCArg::Type::ARR, RPCArg::Default{UniValue::VARR}, "The transaction outputs. Each object must contain either txid and vout, or mweb_out.",
                         {
                             {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                                 {
-                                    {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
-                                    {"vout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The output number"},
+                                    {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The transaction id for a transparent output"},
+                                    {"vout", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The output number for a transparent output"},
+                                    {"mweb_out", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The MWEB output id"},
                                 },
                             },
                         },
@@ -308,44 +322,61 @@ RPCHelpMan lockunspent()
 
     const UniValue& output_params = request.params[1];
 
-    // Create and validate the COutPoints first.
+    // Create and validate the output ids first.
 
-    std::vector<COutPoint> outputs;
+    std::vector<AnyOutputID> outputs;
     outputs.reserve(output_params.size());
 
     for (unsigned int idx = 0; idx < output_params.size(); idx++) {
         const UniValue& o = output_params[idx].get_obj();
 
-        RPCTypeCheckObj(o,
-            {
-                {"txid", UniValueType(UniValue::VSTR)},
-                {"vout", UniValueType(UniValue::VNUM)},
-            });
+        AnyOutputID output_id;
+        if (o.exists("mweb_out")) {
+            if (o.exists("txid") || o.exists("vout")) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, specify either mweb_out or txid and vout");
+            }
 
-        const uint256 txid(ParseHashO(o, "txid"));
-        const int nOutput = find_value(o, "vout").getInt<int>();
-        if (nOutput < 0) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, vout cannot be negative");
+            RPCTypeCheckObj(o, {{"mweb_out", UniValueType(UniValue::VSTR)}});
+            output_id = ParseMWEBOutputID(o["mweb_out"]);
+            mw::WalletCoin coin;
+            if (!pwallet->GetMWEBWalletCoin(output_id.ToMWEB(), coin)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, unknown MWEB output");
+            }
+        } else {
+            RPCTypeCheckObj(o,
+                {
+                    {"txid", UniValueType(UniValue::VSTR)},
+                    {"vout", UniValueType(UniValue::VNUM)},
+                });
+            const uint256 txid(ParseHashO(o, "txid"));
+            const UniValue& vout = find_value(o, "vout");
+            if (!vout.isNum()) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, missing vout key");
+            }
+            const int nOutput = vout.getInt<int>();
+            if (nOutput < 0) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, vout cannot be negative");
+            }
+
+            const COutPoint outpoint(txid, nOutput);
+            const auto it = pwallet->mapWallet.find(outpoint.hash);
+            if (it == pwallet->mapWallet.end()) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, unknown transaction");
+            }
+
+            const CWalletTx& trans = it->second;
+
+            if (outpoint.n >= trans.tx->vout.size()) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, vout index out of bounds");
+            }
+            output_id = outpoint;
         }
 
-        const COutPoint outpt(txid, nOutput);
-
-        const auto it = pwallet->mapWallet.find(outpt.hash);
-        if (it == pwallet->mapWallet.end()) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, unknown transaction");
-        }
-
-        const CWalletTx& trans = it->second;
-
-        if (outpt.n >= trans.tx->vout.size()) {
-            throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, vout index out of bounds");
-        }
-
-        if (pwallet->IsSpent(outpt)) {
+        if (pwallet->IsSpent(output_id)) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected unspent output");
         }
 
-        const bool is_locked = pwallet->IsLockedCoin(outpt);
+        const bool is_locked = pwallet->IsLockedCoin(output_id);
 
         if (fUnlock && !is_locked) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected locked output");
@@ -355,7 +386,7 @@ RPCHelpMan lockunspent()
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, output already locked");
         }
 
-        outputs.push_back(outpt);
+        outputs.push_back(output_id);
     }
 
     std::unique_ptr<WalletBatch> batch = nullptr;
@@ -363,11 +394,11 @@ RPCHelpMan lockunspent()
     if (fUnlock || persistent) batch = std::make_unique<WalletBatch>(pwallet->GetDatabase());
 
     // Atomically set (un)locked status for the outputs.
-    for (const COutPoint& outpt : outputs) {
+    for (const AnyOutputID& output_id : outputs) {
         if (fUnlock) {
-            if (!pwallet->UnlockCoin(outpt, batch.get())) throw JSONRPCError(RPC_WALLET_ERROR, "Unlocking coin failed");
+            if (!pwallet->UnlockCoin(output_id, batch.get())) throw JSONRPCError(RPC_WALLET_ERROR, "Unlocking coin failed");
         } else {
-            if (!pwallet->LockCoin(outpt, batch.get())) throw JSONRPCError(RPC_WALLET_ERROR, "Locking coin failed");
+            if (!pwallet->LockCoin(output_id, batch.get())) throw JSONRPCError(RPC_WALLET_ERROR, "Locking coin failed");
         }
     }
 
@@ -387,8 +418,9 @@ RPCHelpMan listlockunspent()
                     {
                         {RPCResult::Type::OBJ, "", "",
                         {
-                            {RPCResult::Type::STR_HEX, "txid", "The transaction id locked"},
-                            {RPCResult::Type::NUM, "vout", "The vout value"},
+                            {RPCResult::Type::STR_HEX, "txid", /*optional=*/true, "The transaction id of a locked transparent output"},
+                            {RPCResult::Type::NUM, "vout", /*optional=*/true, "The vout value of a locked transparent output"},
+                            {RPCResult::Type::STR_HEX, "mweb_out", /*optional=*/true, "The MWEB output id of a locked MWEB output"},
                         }},
                     }
                 },

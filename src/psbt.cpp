@@ -870,6 +870,8 @@ void PartiallySignedTransaction::SetupFromTx(const CMutableTransaction& tx)
 {
     tx_version = tx.nVersion;
     fallback_locktime = tx.nLockTime;
+    mweb_tx_offset = tx.mweb_tx.kernel_offset.IsNull() ? std::nullopt : std::make_optional(tx.mweb_tx.kernel_offset);
+    mweb_stealth_offset = tx.mweb_tx.stealth_offset.IsNull() ? std::nullopt : std::make_optional(tx.mweb_tx.stealth_offset);
 
     size_t num_inputs = tx.vin.size() + tx.mweb_tx.inputs.size();
     size_t num_outputs = tx.vout.size() + tx.mweb_tx.outputs.size();

@@ -8,11 +8,24 @@
 #include <script/script.h>
 #include <univalue.h>
 #include <util/rbf.h>
+#include <util/strencodings.h>
 #include <wallet/coincontrol.h>
 #include <wallet/spend.h>
 #include <wallet/wallet.h>
 
 using namespace wallet;
+
+namespace {
+mw::Hash ParseMWEBOutputID(const UniValue& value)
+{
+    RPCTypeCheckArgument(value, UniValue::VSTR);
+    const std::string output_id = value.get_str();
+    if (output_id.size() != 64 || !IsHex(output_id)) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, mweb_out must be a 64-character hexadecimal string");
+    }
+    return mw::Hash::FromHex(output_id);
+}
+} // namespace
 
 TransactionDraft TransactionDraft::FromRPC(const UniValue& inputs_in, const UniValue& outputs_in, const UniValue& locktime, std::optional<bool> rbf)
 {
@@ -39,6 +52,18 @@ TransactionDraft TransactionDraft::FromRPC(const UniValue& inputs_in, const UniV
     for (unsigned int idx = 0; idx < inputs.size(); idx++) {
         const UniValue& input = inputs[idx];
         const UniValue& o = input.get_obj();
+
+        if (o.exists("mweb_out")) {
+            if (o.exists("txid") || o.exists("vout")) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, specify either mweb_out or txid and vout");
+            }
+            if (o.exists("sequence") || o.exists("weight")) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, sequence and weight do not apply to MWEB inputs");
+            }
+
+            draft.tx.mweb_tx.inputs.emplace_back(ParseMWEBOutputID(o["mweb_out"]));
+            continue;
+        }
 
         uint256 txid = ParseHashO(o, "txid");
 

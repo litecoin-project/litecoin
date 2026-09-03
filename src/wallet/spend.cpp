@@ -262,7 +262,7 @@ CoinsResult AvailableCoins(const CWallet& wallet,
             if (value < nMinimumAmount || value > nMaximumAmount)
                 continue;
 
-            if (wallet.IsLockedCoin(output_id))
+            if (wallet.IsLockedCoin(output_id) && !(coinControl && coinControl->IsSelected(output_id)))
                 continue;
 
             if (wallet.IsSpent(output_id))

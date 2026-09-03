@@ -908,11 +908,8 @@ BOOST_AUTO_TEST_CASE(setup_from_tx_mapping)
     BOOST_CHECK(psbt.kernels[0].extra_data == kernel.extradata);
     BOOST_CHECK(psbt.kernels[0].sig == kernel.signature);
 
-    // SetupFromTx does NOT carry the transaction's kernel/stealth offsets into
-    // the PSBT's global offsets; creators must set them explicitly (and MWEB
-    // signing does). This pins current behavior.
-    BOOST_CHECK(!psbt.mweb_tx_offset.has_value());
-    BOOST_CHECK(!psbt.mweb_stealth_offset.has_value());
+    BOOST_CHECK(psbt.mweb_tx_offset == std::optional<BlindingFactor>{TestSecret('d')});
+    BOOST_CHECK(psbt.mweb_stealth_offset == std::optional<BlindingFactor>{TestSecret('e')});
 }
 
 BOOST_AUTO_TEST_CASE(compute_timelock)

@@ -1215,17 +1215,18 @@ RPCHelpMan send()
                                                           "If that happens, you will need to fund the transaction with different inputs and republish it."},
                     {"add_to_wallet", RPCArg::Type::BOOL, RPCArg::Default{true}, "When false, returns a serialized transaction which will not be added to the wallet or broadcast"},
                     {"change_address", RPCArg::Type::STR, RPCArg::DefaultHint{"automatic"}, "The litecoin address to receive the change"},
-                    {"change_position", RPCArg::Type::NUM, RPCArg::DefaultHint{"random"}, "The index of the change output"},
+                    {"change_position", RPCArg::Type::NUM, RPCArg::DefaultHint{"random"}, "The index of the change output. MWEB change is canonically ordered and may appear at a different position"},
                     {"change_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -changetype"}, "The output type to use. Only valid if change_address is not specified. Options are \"legacy\", \"p2sh-segwit\", \"bech32\" and \"bech32m\"."},
                     {"fee_rate", RPCArg::Type::AMOUNT, RPCArg::DefaultHint{"not set, fall back to wallet fee estimation"}, "Specify a fee rate in " + CURRENCY_ATOM + "/vB."},
                     {"include_watching", RPCArg::Type::BOOL, RPCArg::DefaultHint{"true for watch-only wallets, otherwise false"}, "Also select inputs which are watch only.\n"
                                           "Only solvable inputs can be used. Watch-only destinations are solvable if the public key and/or output script was imported,\n"
                                           "e.g. with 'importpubkey' or 'importmulti' with the 'pubkeys' or 'desc' field."},
-                    {"inputs", RPCArg::Type::ARR, RPCArg::Default{UniValue::VARR}, "Specify inputs instead of adding them automatically. A JSON array of JSON objects",
+                    {"inputs", RPCArg::Type::ARR, RPCArg::Default{UniValue::VARR}, "Specify inputs instead of adding them automatically. Each object must contain either txid and vout, or mweb_out.",
                         {
-                            {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
-                            {"vout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The output number"},
-                            {"sequence", RPCArg::Type::NUM, RPCArg::Optional::NO, "The sequence number"},
+                            {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The transaction id for a transparent input"},
+                            {"vout", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The output number for a transparent input"},
+                            {"mweb_out", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The MWEB output id"},
+                            {"sequence", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The sequence number for a transparent input"},
                             {"weight", RPCArg::Type::NUM, RPCArg::DefaultHint{"Calculated from wallet and solving data"}, "The maximum weight for this input, "
                                         "including the weight of the outpoint and sequence number. "
                                         "Note that signature sizes are not guaranteed to be consistent, "
@@ -1334,13 +1335,14 @@ RPCHelpMan sendall()
                         {"include_watching", RPCArg::Type::BOOL, RPCArg::DefaultHint{"true for watch-only wallets, otherwise false"}, "Also select inputs which are watch-only.\n"
                                               "Only solvable inputs can be used. Watch-only destinations are solvable if the public key and/or output script was imported,\n"
                                               "e.g. with 'importpubkey' or 'importmulti' with the 'pubkeys' or 'desc' field."},
-                        {"inputs", RPCArg::Type::ARR, RPCArg::Default{UniValue::VARR}, "Use exactly the specified inputs to build the transaction. Specifying inputs is incompatible with send_max.",
+                        {"inputs", RPCArg::Type::ARR, RPCArg::Default{UniValue::VARR}, "Use exactly the specified inputs to build the transaction. Each object must contain either txid and vout, or mweb_out. Specifying inputs is incompatible with send_max.",
                             {
                                 {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                                     {
-                                        {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
-                                        {"vout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The output number"},
-                                        {"sequence", RPCArg::Type::NUM, RPCArg::DefaultHint{"depends on the value of the 'replaceable' and 'locktime' arguments"}, "The sequence number"},
+                                        {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The transaction id for a transparent input"},
+                                        {"vout", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The output number for a transparent input"},
+                                        {"mweb_out", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The MWEB output id"},
+                                        {"sequence", RPCArg::Type::NUM, RPCArg::DefaultHint{"depends on the value of the 'replaceable' and 'locktime' arguments"}, "The sequence number for a transparent input"},
                                     },
                                 },
                             },
@@ -1716,13 +1718,14 @@ RPCHelpMan walletcreatefundedpsbt()
                 "All existing inputs must either have their previous output transaction be in the wallet\n"
                 "or be in the UTXO set. Solving data must be provided for non-wallet inputs.\n",
                 {
-                    {"inputs", RPCArg::Type::ARR, RPCArg::Optional::OMITTED_NAMED_ARG, "Leave empty to add inputs automatically. See add_inputs option.",
+                    {"inputs", RPCArg::Type::ARR, RPCArg::Optional::OMITTED_NAMED_ARG, "Leave empty to add inputs automatically. Each object must contain either txid and vout, or mweb_out. See add_inputs option.",
                         {
                             {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                                 {
-                                    {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
-                                    {"vout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The output number"},
-                                    {"sequence", RPCArg::Type::NUM, RPCArg::DefaultHint{"depends on the value of the 'locktime' and 'options.replaceable' arguments"}, "The sequence number"},
+                                    {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The transaction id for a transparent input"},
+                                    {"vout", RPCArg::Type::NUM, RPCArg::Optional::OMITTED, "The output number for a transparent input"},
+                                    {"mweb_out", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The MWEB output id"},
+                                    {"sequence", RPCArg::Type::NUM, RPCArg::DefaultHint{"depends on the value of the 'locktime' and 'options.replaceable' arguments"}, "The sequence number for a transparent input"},
                                     {"weight", RPCArg::Type::NUM, RPCArg::DefaultHint{"Calculated from wallet and solving data"}, "The maximum weight for this input, "
                                         "including the weight of the outpoint and sequence number. "
                                         "Note that signature sizes are not guaranteed to be consistent, "
@@ -1758,7 +1761,7 @@ RPCHelpMan walletcreatefundedpsbt()
                                                           "Warning: the resulting transaction may become invalid if one of the unsafe inputs disappears.\n"
                                                           "If that happens, you will need to fund the transaction with different inputs and republish it."},
                             {"changeAddress", RPCArg::Type::STR, RPCArg::DefaultHint{"automatic"}, "The litecoin address to receive the change"},
-                            {"changePosition", RPCArg::Type::NUM, RPCArg::DefaultHint{"random"}, "The index of the change output"},
+                            {"changePosition", RPCArg::Type::NUM, RPCArg::DefaultHint{"random"}, "The index of the change output. MWEB change is canonically ordered and may appear at a different position"},
                             {"change_type", RPCArg::Type::STR, RPCArg::DefaultHint{"set by -changetype"}, "The output type to use. Only valid if changeAddress is not specified. Options are \"legacy\", \"p2sh-segwit\", \"bech32\", and \"bech32m\"."},
                             {"includeWatching", RPCArg::Type::BOOL, RPCArg::DefaultHint{"true for watch-only wallets, otherwise false"}, "Also select inputs which are watch only"},
                             {"lockUnspents", RPCArg::Type::BOOL, RPCArg::Default{false}, "Lock selected unspent outputs"},

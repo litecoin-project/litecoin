@@ -451,7 +451,7 @@ BOOST_AUTO_TEST_CASE(AvoidPartialSpendsLeavesMWEBOutputsIndependent)
     BOOST_CHECK_EQUAL(privacy_groups[1].m_outputs.size(), 1U);
 }
 
-// Manual MWEB inputs are mandatory, may be supplemented on request, and remain subject to layer and lock rules.
+// Manual MWEB inputs are mandatory, may be supplemented on request, and override locks like transparent inputs.
 BOOST_AUTO_TEST_CASE(ManualMWEBSelectionHonorsCoinControlPolicy)
 {
     const mw::Hash selected_id = AddMWEBReceive(30'000, Confirmed(6));
@@ -475,7 +475,9 @@ BOOST_AUTO_TEST_CASE(ManualMWEBSelectionHonorsCoinControlPolicy)
     WITH_LOCK(m_wallet.cs_wallet, BOOST_REQUIRE(m_wallet.LockCoin(supplemental_id)));
     CCoinControl locked;
     locked.Select(supplemental_id);
-    BOOST_CHECK(!Select(40'000, TxType::MWEB_TO_MWEB, locked));
+    const std::optional<SelectionResult> locked_selected = Select(40'000, TxType::MWEB_TO_MWEB, locked);
+    BOOST_REQUIRE(locked_selected);
+    BOOST_CHECK(InputIDs(*locked_selected) == std::set<AnyOutputID>{supplemental_id});
 }
 
 BOOST_AUTO_TEST_SUITE_END()
