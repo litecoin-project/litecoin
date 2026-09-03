@@ -50,6 +50,27 @@ CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniVal
         const UniValue& input = inputs[idx];
         const UniValue& o = input.get_obj();
 
+        if (o.exists("mweb_out")) {
+            if (!allow_mweb) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "MWEB inputs cannot be represented in raw transaction hex; use createpsbt or walletcreatefundedpsbt");
+            }
+            if (o.exists("txid") || o.exists("vout")) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, specify either mweb_out or txid and vout");
+            }
+            if (o.exists("sequence") || o.exists("weight")) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, sequence and weight do not apply to MWEB inputs");
+            }
+
+            RPCTypeCheckObj(o, {{"mweb_out", UniValueType(UniValue::VSTR)}});
+            const std::string output_id = o["mweb_out"].get_str();
+            if (output_id.size() != 64 || !IsHex(output_id)) {
+                throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, mweb_out must be a 64-character hexadecimal string");
+            }
+
+            rawTx.mweb_tx.inputs.emplace_back(mw::Hash::FromHex(output_id));
+            continue;
+        }
+
         uint256 txid = ParseHashO(o, "txid");
 
         const UniValue& vout_v = find_value(o, "vout");
@@ -83,6 +104,10 @@ CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniVal
         CTxIn in(COutPoint(txid, nOutput), CScript(), nSequence);
 
         rawTx.vin.push_back(in);
+    }
+
+    if (!rawTx.vin.empty() && !rawTx.mweb_tx.inputs.empty()) {
+        throw JSONRPCError(RPC_INVALID_PARAMETER, "Mixed transparent and MWEB inputs require explicit peg-in or pegout metadata; use walletcreatefundedpsbt");
     }
 
     if (!outputs_is_obj) {
@@ -141,6 +166,18 @@ CMutableTransaction ConstructTransaction(const UniValue& inputs_in, const UniVal
                 CTxOut out(nAmount, address.GetScript());
                 rawTx.vout.push_back(out);
             }
+        }
+    }
+
+    // With MWEB-only inputs, transparent destinations are unambiguously
+    // pegouts. Keep them in the MWEB kernel instead of the canonical vout.
+    if (!rawTx.mweb_tx.inputs.empty()) {
+        for (const CTxOut& output : rawTx.vout) {
+            rawTx.mweb_tx.AddPegout(output.scriptPubKey, output.nValue, /*subtract_fee_from_amount=*/false);
+        }
+        rawTx.vout.clear();
+        if (rawTx.mweb_tx.kernels.empty()) {
+            rawTx.mweb_tx.kernels.emplace_back();
         }
     }
 

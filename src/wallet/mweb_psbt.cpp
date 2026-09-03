@@ -167,6 +167,24 @@ struct ResolvedSpendKey
     std::optional<SecretKey> shared_secret;
 };
 
+void PopulateInputFromWalletCoin(PSBTInput& input, const mw::WalletCoin& coin)
+{
+    const mw::MutableInput wallet_input = mw::MutableInput::FromWalletCoin(coin);
+
+    if (!input.mweb_amount) {
+        input.mweb_amount = coin.amount;
+    }
+    if (!input.mweb_output_commit) {
+        input.mweb_output_commit = wallet_input.commitment;
+    }
+    if (!input.mweb_output_pubkey) {
+        input.mweb_output_pubkey = wallet_input.output_pubkey;
+    }
+    if (!input.mweb_shared_secret) {
+        input.mweb_shared_secret = coin.shared_secret;
+    }
+}
+
 //! Derive the input's spend key into signing-local state. Wallet coins retain
 //! only recovery metadata and never provide a cached output spend key.
 ResolvedSpendKey ResolveSpendKey(const PSBTInput& input, const std::optional<mw::WalletCoin>& coin, const mw::Keychain::Ptr& keychain, const std::optional<MWEBAddressDescriptorData>& descriptor_data, const std::optional<SecretKey>& shared_secret)
@@ -262,6 +280,10 @@ util::Result<std::optional<SecretKey>> ResolveMWEBInputKeys(PSBTInput& input, co
     assert(input.IsMWEB());
 
     const std::optional<mw::WalletCoin> coin = keystore.GetWalletCoin(*input.mweb_output_id);
+
+    if (coin) {
+        PopulateInputFromWalletCoin(input, *coin);
+    }
 
     if (!input.mweb_address_descriptor && coin) {
         input.mweb_address_descriptor = keystore.InferAddressDescriptor(*coin);

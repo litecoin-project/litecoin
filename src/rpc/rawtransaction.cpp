@@ -136,16 +136,17 @@ static std::vector<RPCResult> DecodeTxDoc(const std::string& txid_field_doc)
     };
 }
 
-static std::vector<RPCArg> CreateTxDoc()
+static std::vector<RPCArg> CreateTxDoc(bool allow_mweb = false)
 {
     return {
-        {"inputs", RPCArg::Type::ARR, RPCArg::Optional::NO, "The inputs",
+        {"inputs", RPCArg::Type::ARR, RPCArg::Optional::NO, allow_mweb ? "The inputs. Each object must contain either txid and vout, or mweb_out." : "The inputs",
             {
                 {"", RPCArg::Type::OBJ, RPCArg::Optional::OMITTED, "",
                     {
-                        {"txid", RPCArg::Type::STR_HEX, RPCArg::Optional::NO, "The transaction id"},
-                        {"vout", RPCArg::Type::NUM, RPCArg::Optional::NO, "The output number"},
-                        {"sequence", RPCArg::Type::NUM, RPCArg::DefaultHint{"depends on the value of the 'replaceable' and 'locktime' arguments"}, "The sequence number"},
+                        {"txid", RPCArg::Type::STR_HEX, allow_mweb ? RPCArg::Optional::OMITTED : RPCArg::Optional::NO, "The transaction id for a transparent input"},
+                        {"vout", RPCArg::Type::NUM, allow_mweb ? RPCArg::Optional::OMITTED : RPCArg::Optional::NO, "The output number for a transparent input"},
+                        {"mweb_out", RPCArg::Type::STR_HEX, RPCArg::Optional::OMITTED, "The MWEB output id", "", {}, /*hidden=*/!allow_mweb},
+                        {"sequence", RPCArg::Type::NUM, RPCArg::DefaultHint{"depends on the value of the 'replaceable' and 'locktime' arguments"}, "The sequence number for a transparent input"},
                     },
                 },
             },
@@ -1840,9 +1841,12 @@ static RPCHelpMan createpsbt()
 {
     return RPCHelpMan{"createpsbt",
                 "\nCreates a transaction in the Partially Signed Transaction format.\n"
-                "Implements the Creator role.\n",
+                "Implements the Creator role.\n"
+                "MWEB inputs are identified by mweb_out and require PSBT version 2. When all inputs are MWEB,\n"
+                "transparent output addresses are encoded as pegouts. Mixed transparent and MWEB inputs require\n"
+                "walletcreatefundedpsbt so the peg-in and pegout intent can be determined.\n",
                 Cat<std::vector<RPCArg>>(
-                    CreateTxDoc(),
+                    CreateTxDoc(/*allow_mweb=*/true),
                     {
                         {"psbt_version", RPCArg::Type::NUM, RPCArg::Default{2}, "The PSBT version number to use."},
                     }

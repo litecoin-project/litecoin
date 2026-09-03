@@ -93,6 +93,80 @@ BOOST_AUTO_TEST_CASE(fill_sign_mweb_via_descriptor_keys)
     BOOST_CHECK_EQUAL(n_signed, 1U);
 }
 
+//! An MWEB-only Creator PSBT does not need to know the confidential input
+//! amount up front. Once updater metadata is present, the selected inputs and
+//! requested outputs uniquely determine the kernel fee.
+BOOST_AUTO_TEST_CASE(fill_infers_mweb_creator_kernel_fee)
+{
+    const MWEBTestKeys keys = MWEBTestKeys::Create();
+    const mw::Hash output_id = mw::Hash::ValueOf(11);
+    const SecretKey shared_secret = TestSecret('b');
+
+    PartiallySignedTransaction psbt = SignableMWEBPSBT(output_id, shared_secret, keys.Address(0));
+    psbt.kernels.clear();
+    psbt.inputs[0].mweb_address_descriptor = keys.Descriptor(0);
+    psbt.inputs[0].mweb_output_pubkey = keys.OutputPubKey(0, shared_secret);
+
+    LOCK(m_wallet.cs_wallet);
+    bool complete = true;
+    BOOST_REQUIRE_EQUAL(TransactionError::OK,
+                        m_wallet.FillPSBT(psbt, complete, SIGHASH_ALL, /*sign=*/false, /*bip32derivs=*/false));
+    BOOST_CHECK(!complete);
+    BOOST_REQUIRE_EQUAL(psbt.kernels.size(), 1U);
+    BOOST_CHECK(psbt.kernels[0].fee == std::optional<CAmount>{10'000});
+    BOOST_REQUIRE(psbt.kernels[0].features.has_value());
+    BOOST_CHECK(*psbt.kernels[0].features & mw::Kernel::FEE_FEATURE_BIT);
+
+    BOOST_REQUIRE_EQUAL(TransactionError::OK,
+                        m_wallet.FillPSBT(psbt, complete, SIGHASH_ALL, /*sign=*/true, /*bip32derivs=*/false));
+    BOOST_CHECK(complete);
+    BOOST_CHECK(psbt.IsComplete());
+}
+
+BOOST_AUTO_TEST_CASE(fill_infers_mweb_creator_pegout_fee)
+{
+    const MWEBTestKeys keys = MWEBTestKeys::Create();
+    const CKey recipient_key = MWEBTestKeys::ToCKey(TestSecret('7'));
+    const mw::Hash output_id = mw::Hash::ValueOf(12);
+    const SecretKey shared_secret = TestSecret('b');
+
+    PartiallySignedTransaction psbt;
+    psbt.m_psbt_version = 2;
+    psbt.tx_version = 2;
+
+    PSBTInput input(2);
+    input.mweb_output_id = output_id;
+    input.mweb_amount = 100'000;
+    input.mweb_shared_secret = shared_secret;
+    input.mweb_output_pubkey = keys.OutputPubKey(0, shared_secret);
+    input.mweb_address_descriptor = keys.Descriptor(0);
+    psbt.inputs.push_back(std::move(input));
+
+    PSBTKernel kernel;
+    kernel.pegouts.emplace_back(90'000, GetScriptForDestination(WitnessV0KeyHash(recipient_key.GetPubKey())));
+    psbt.kernels.push_back(std::move(kernel));
+
+    LOCK(m_wallet.cs_wallet);
+    bool complete = false;
+    BOOST_REQUIRE_EQUAL(TransactionError::OK,
+                        m_wallet.FillPSBT(psbt, complete, SIGHASH_ALL, /*sign=*/true, /*bip32derivs=*/false));
+    BOOST_CHECK(complete);
+    BOOST_CHECK(psbt.kernels[0].fee == std::optional<CAmount>{10'000});
+    BOOST_CHECK(psbt.IsComplete());
+}
+
+BOOST_AUTO_TEST_CASE(fill_rejects_mweb_creator_outputs_above_inputs)
+{
+    const MWEBTestKeys keys = MWEBTestKeys::Create();
+    PartiallySignedTransaction psbt = SignableMWEBPSBT(mw::Hash::ValueOf(13), TestSecret('b'), keys.Address(0));
+    psbt.kernels.clear();
+    psbt.inputs[0].mweb_amount = 80'000;
+
+    LOCK(m_wallet.cs_wallet);
+    bool complete = false;
+    BOOST_CHECK(m_wallet.FillPSBT(psbt, complete, SIGHASH_ALL, /*sign=*/false, /*bip32derivs=*/false) == TransactionError::INVALID_PSBT);
+}
+
 //! The stage-ordering contract: MWEB signing rewrites the peg-in script, and
 //! the canonical signature (produced afterwards) commits to the rewrite.
 BOOST_AUTO_TEST_CASE(fill_mixed_counts_n_signed)

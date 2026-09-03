@@ -16,7 +16,8 @@ namespace wallet {
  * of explicit stages:
  *
  *  1. PrepareInputs      — the Updater role. Attaches previous transactions to
- *                          script inputs and resolves MWEB input key material.
+ *                          script inputs, resolves MWEB input metadata, and
+ *                          infers the fee for unambiguous MWEB-only drafts.
  *                          Runs regardless of Options::sign.
  *  2. SignMWEBAndStageCoins — signs the MWEB components and stages discovered
  *                          wallet coins. Only runs when signing a PSBT with
@@ -42,6 +43,7 @@ public:
 
 private:
     util::Result<std::unordered_map<mw::Hash, SecretKey>> PrepareInputs(PartiallySignedTransaction& psbtx) EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
+    std::optional<util::Error> InferMWEBKernelFee(PartiallySignedTransaction& psbtx) const;
     util::Result<MWEBSignOutcome> SignMWEBAndStageCoins(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& spend_keys) EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
     TransactionError SignScriptInputs(PartiallySignedTransaction& psbtx, const MWEBSignOutcome& mweb_outcome, size_t* n_signed) EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
 

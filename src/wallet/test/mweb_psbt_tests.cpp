@@ -91,6 +91,39 @@ BOOST_AUTO_TEST_CASE(resolve_infers_descriptor_from_coin)
     BOOST_CHECK(PublicKey::From(**result) == *input.mweb_output_pubkey);
 }
 
+BOOST_AUTO_TEST_CASE(resolve_populates_id_only_input_from_wallet_coin)
+{
+    const MWEBTestKeys keys = MWEBTestKeys::Create();
+    const uint32_t index{2};
+    const mw::Hash output_id = mw::Hash::ValueOf(20);
+    const SecretKey shared_secret = TestSecret('d');
+    const BlindingFactor blind = BlindingFactor::FromHex(std::string(64, '3'));
+
+    mw::WalletCoin coin;
+    coin.address_index = index;
+    coin.address = keys.Address(index);
+    coin.amount = 125'000;
+    coin.blind = blind;
+    coin.output_id = output_id;
+    coin.shared_secret = shared_secret;
+
+    MockMWEBKeyStore keystore;
+    keystore.m_coins[output_id] = coin;
+    keystore.m_inferred_descriptor = keys.Descriptor(index);
+
+    PSBTInput input = MWEBInput(output_id);
+    util::Result<std::optional<SecretKey>> result = ResolveMWEBInputKeys(input, keystore);
+    BOOST_REQUIRE(bool{result});
+    BOOST_REQUIRE(result->has_value());
+
+    BOOST_CHECK(input.mweb_amount == std::optional<CAmount>{coin.amount});
+    BOOST_CHECK(input.mweb_output_commit == std::optional<Commitment>{Commitment::Switch(blind, coin.amount)});
+    BOOST_CHECK(input.mweb_output_pubkey == std::optional<PublicKey>{keys.OutputPubKey(index, shared_secret)});
+    BOOST_CHECK(input.mweb_shared_secret == coin.shared_secret);
+    BOOST_CHECK(input.mweb_address_descriptor == keystore.m_inferred_descriptor);
+    BOOST_CHECK(PublicKey::From(**result) == *input.mweb_output_pubkey);
+}
+
 BOOST_AUTO_TEST_CASE(resolve_derives_shared_secret_from_key_exchange_pubkey)
 {
     const MWEBTestKeys keys = MWEBTestKeys::Create();

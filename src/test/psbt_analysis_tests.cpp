@@ -153,18 +153,31 @@ BOOST_AUTO_TEST_CASE(analyze_mweb_role)
 
 BOOST_AUTO_TEST_CASE(analyze_mweb_amount_required)
 {
-    // MWEB inputs must carry an in-range amount or the whole analysis is
-    // invalidated: without it no fee or weight estimate is meaningful.
+    // An ID-only Creator PSBT still needs an updater to attach the
+    // confidential amount. It is incomplete, not malformed.
     {
         PartiallySignedTransaction psbt = DecodeHexPSBT(PSBT_MWEB_SIGNED);
         psbt.inputs[0].mweb_amount.reset();
         const PSBTAnalysis analysis = AnalyzePSBT(psbt);
-        BOOST_CHECK_EQUAL(analysis.error, "PSBT is not valid. Input 0 has invalid value");
-        BOOST_CHECK(analysis.next == PSBTRole::CREATOR);
-        BOOST_CHECK(analysis.inputs.empty());
+        BOOST_CHECK(analysis.error.empty());
+        BOOST_REQUIRE_EQUAL(analysis.inputs.size(), 1U);
+        BOOST_CHECK(analysis.inputs[0].next == PSBTRole::UPDATER);
+        BOOST_CHECK(analysis.next == PSBTRole::UPDATER);
         BOOST_CHECK(!analysis.fee.has_value());
         BOOST_CHECK(!analysis.estimated_mweb_weight.has_value());
     }
+
+    // Public coin metadata is also updater data.
+    {
+        PartiallySignedTransaction psbt = DecodeHexPSBT(PSBT_MWEB_SIGNED);
+        psbt.inputs[0].mweb_output_commit.reset();
+        const PSBTAnalysis analysis = AnalyzePSBT(psbt);
+        BOOST_CHECK(analysis.error.empty());
+        BOOST_CHECK(analysis.inputs[0].next == PSBTRole::UPDATER);
+        BOOST_CHECK(analysis.next == PSBTRole::UPDATER);
+    }
+
+    // A supplied amount outside the monetary range is malformed.
     {
         PartiallySignedTransaction psbt = DecodeHexPSBT(PSBT_MWEB_SIGNED);
         psbt.inputs[0].mweb_amount = MAX_MONEY + 1;

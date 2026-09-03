@@ -114,6 +114,11 @@ TransactionError PSBTFiller::Fill(PartiallySignedTransaction& psbtx, bool& compl
         return TransactionError::INVALID_PSBT;
     }
 
+    if (const std::optional<util::Error> error = InferMWEBKernelFee(psbtx)) {
+        m_wallet.WalletLogPrintf("FillPSBT: %s\n", error->message.original);
+        return TransactionError::INVALID_PSBT;
+    }
+
     MWEBSignOutcome mweb_outcome = MWEBSignOutcome::Skipped();
     if (m_opts.sign && psbtx.ContainsMWEBComponents()) {
         const auto count_unsigned_mweb = [&psbtx]() {
@@ -122,10 +127,11 @@ TransactionError PSBTFiller::Fill(PartiallySignedTransaction& psbtx, bool& compl
             });
         };
         const auto unsigned_mweb_before = count_unsigned_mweb();
-        const bool missing_mweb_spend_key = std::any_of(psbtx.inputs.begin(), psbtx.inputs.end(), [&mweb_spend_keys](const PSBTInput& input) {
-            return input.IsMWEB() && !input.mweb_sig && (!input.mweb_output_id || mweb_spend_keys->count(*input.mweb_output_id) == 0);
+        const bool missing_mweb_signing_data = std::any_of(psbtx.inputs.begin(), psbtx.inputs.end(), [&mweb_spend_keys](const PSBTInput& input) {
+            return input.IsMWEB() && !input.mweb_sig &&
+                (!input.mweb_output_id || !input.mweb_amount || !input.mweb_shared_secret || mweb_spend_keys->count(*input.mweb_output_id) == 0);
         });
-        if (missing_mweb_spend_key) {
+        if (missing_mweb_signing_data) {
             // Keep updater data in the PSBT, but do not sign script inputs
             // against peg-in placeholders that MWEB signing may later rewrite.
             complete = false;
@@ -198,6 +204,81 @@ util::Result<std::unordered_map<mw::Hash, SecretKey>> PSBTFiller::PrepareInputs(
     }
 
     return mweb_spend_keys;
+}
+
+std::optional<util::Error> PSBTFiller::InferMWEBKernelFee(PartiallySignedTransaction& psbtx) const
+{
+    const bool has_mweb_input = std::any_of(psbtx.inputs.begin(), psbtx.inputs.end(), [](const PSBTInput& input) { return input.IsMWEB(); });
+    if (!has_mweb_input) {
+        return std::nullopt;
+    }
+
+    // A missing amount means this PSBT still needs an updater that knows the
+    // confidential coin. Do not guess a fee until every input is known.
+    if (std::any_of(psbtx.inputs.begin(), psbtx.inputs.end(), [](const PSBTInput& input) {
+            return input.IsMWEB() && !input.mweb_amount.has_value();
+        })) {
+        return std::nullopt;
+    }
+
+    // createpsbt rejects mixed-layer inputs, so a draft with only MWEB inputs
+    // has exactly one balance equation and its fee is unambiguous. Pre-built
+    // mixed transactions already carry their explicit kernel metadata.
+    const bool has_transparent_component = std::any_of(psbtx.inputs.begin(), psbtx.inputs.end(), [](const PSBTInput& input) { return !input.IsMWEB(); }) ||
+        std::any_of(psbtx.outputs.begin(), psbtx.outputs.end(), [](const PSBTOutput& output) { return !output.IsMWEB(); });
+    const bool missing_fee = psbtx.kernels.empty() || std::any_of(psbtx.kernels.begin(), psbtx.kernels.end(), [](const PSBTKernel& kernel) { return !kernel.fee.has_value(); });
+    if (has_transparent_component || !missing_fee) {
+        return std::nullopt;
+    }
+
+    if (psbtx.kernels.size() > 1) {
+        return util::Error{Untranslated("Cannot infer MWEB fee across multiple kernels")};
+    }
+
+    CAmount input_amount{0};
+    for (const PSBTInput& input : psbtx.inputs) {
+        if (!input.IsMWEB() || !MoneyRange(*input.mweb_amount) || !MoneyRange(input_amount + *input.mweb_amount)) {
+            return util::Error{Untranslated("Invalid MWEB input amount")};
+        }
+        input_amount += *input.mweb_amount;
+    }
+
+    CAmount output_amount{0};
+    for (const PSBTOutput& output : psbtx.outputs) {
+        if (!output.IsMWEB() || !output.amount || !MoneyRange(*output.amount) || !MoneyRange(output_amount + *output.amount)) {
+            return util::Error{Untranslated("Invalid MWEB output amount")};
+        }
+        output_amount += *output.amount;
+    }
+
+    CAmount pegout_amount{0};
+    if (!psbtx.kernels.empty()) {
+        for (const PegOutCoin& pegout : psbtx.kernels.front().pegouts) {
+            if (!MoneyRange(pegout.GetAmount()) || !MoneyRange(pegout_amount + pegout.GetAmount())) {
+                return util::Error{Untranslated("Invalid MWEB pegout amount")};
+            }
+            pegout_amount += pegout.GetAmount();
+        }
+    }
+
+    const CAmount fee = input_amount - output_amount - pegout_amount;
+    if (fee < 0 || !MoneyRange(fee)) {
+        return util::Error{Untranslated("MWEB outputs exceed inputs")};
+    }
+
+    if (psbtx.kernels.empty()) {
+        psbtx.kernels.emplace_back();
+    }
+    PSBTKernel& kernel = psbtx.kernels.front();
+    kernel.fee = fee;
+    uint8_t features = mw::Kernel::FEE_FEATURE_BIT;
+    features |= kernel.pegin_amount.has_value() ? mw::Kernel::PEGIN_FEATURE_BIT : 0;
+    features |= !kernel.pegouts.empty() ? mw::Kernel::PEGOUT_FEATURE_BIT : 0;
+    features |= kernel.lock_height.has_value() ? mw::Kernel::HEIGHT_LOCK_FEATURE_BIT : 0;
+    features |= kernel.stealth_commit.has_value() ? mw::Kernel::STEALTH_EXCESS_FEATURE_BIT : 0;
+    features |= !kernel.extra_data.empty() ? mw::Kernel::EXTRA_DATA_FEATURE_BIT : 0;
+    kernel.features = features;
+    return std::nullopt;
 }
 
 util::Result<MWEBSignOutcome> PSBTFiller::SignMWEBAndStageCoins(PartiallySignedTransaction& psbtx, const std::unordered_map<mw::Hash, SecretKey>& spend_keys)

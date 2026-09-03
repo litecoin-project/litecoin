@@ -40,6 +40,7 @@ class MWEBWalletCoinControlTest(LitecoinTestFramework):
         self.test_explicit_inputs(funding_node, wallet_node, coins)
         self.test_invalid_inputs(funding_node, wallet_node, coins)
         self.test_mixed_inputs(funding_node, wallet_node, coins)
+        self.test_createpsbt(funding_node, wallet_node, coins[:3])
         self.test_spent_input(funding_node, wallet_node, coins[-1])
 
     def create_mweb_coins(self, funding_node, wallet_node, amounts):
@@ -410,12 +411,152 @@ class MWEBWalletCoinControlTest(LitecoinTestFramework):
             {'inputs': [coin['input']]},
         )
 
+    def test_createpsbt(self, funding_node, wallet, coins):
+        self.log.info("createpsbt creates an ID-only MWEB input for the updater role")
+        recipient = funding_node.getnewaddress(address_type='mweb')
+        fee = Decimal('0.0001')
+        selected = coins[:2]
+        amount = sum((coin['amount'] for coin in selected), Decimal('0')) - fee
+        created = wallet.createpsbt([coin['input'] for coin in selected], {recipient: amount})
+        decoded = wallet.decodepsbt(created)
+        assert_equal(
+            [txin['mweb']['output_id'] for txin in decoded['inputs']],
+            [coin['input']['mweb_out'] for coin in selected],
+        )
+        assert all(set(txin['mweb']) == {'output_id'} for txin in decoded['inputs'])
+        assert_equal(wallet.analyzepsbt(created)['next'], 'updater')
+
+        self.log.info("utxoupdatepsbt attaches public fields but leaves the confidential amount to the owner")
+        public_updated = funding_node.utxoupdatepsbt(created)
+        public_inputs = [txin['mweb'] for txin in funding_node.decodepsbt(public_updated)['inputs']]
+        assert all('output_commit' in txin for txin in public_inputs)
+        assert all('output_pubkey' in txin for txin in public_inputs)
+        assert all('amount' not in txin for txin in public_inputs)
+        assert_equal(funding_node.analyzepsbt(public_updated)['next'], 'updater')
+
+        self.log.info("walletprocesspsbt supplies private metadata and infers the MWEB kernel fee")
+        private_updated = wallet.walletprocesspsbt(public_updated, False)
+        assert not private_updated['complete']
+        updated_decoded = wallet.decodepsbt(private_updated['psbt'])
+        updated_inputs = [txin['mweb'] for txin in updated_decoded['inputs']]
+        assert_equal(
+            [txin['amount'] for txin in updated_inputs],
+            [self.to_litoshis(coin['amount']) for coin in selected],
+        )
+        assert all('shared_secret' in txin for txin in updated_inputs)
+        assert all(txin['address_descriptor'].startswith('mweb(') for txin in updated_inputs)
+        assert all('signature' not in txin for txin in updated_inputs)
+        assert_equal(len(updated_decoded['kernels']), 1)
+        assert_equal(updated_decoded['kernels'][0]['fee'], self.to_litoshis(fee))
+        analysis = wallet.analyzepsbt(private_updated['psbt'])
+        assert_equal(analysis['next'], 'signer')
+        assert_equal(analysis['fee'], fee)
+
+        signed = wallet.walletprocesspsbt(private_updated['psbt'])
+        assert signed['complete']
+        for combined in [
+            wallet.combinepsbt([created, signed['psbt']]),
+            wallet.combinepsbt([signed['psbt'], created]),
+        ]:
+            assert wallet.finalizepsbt(combined)['complete']
+        finalized = wallet.finalizepsbt(signed['psbt'])
+        assert finalized['complete']
+        funding_node.sendrawtransaction(finalized['hex'], 0)
+
+        self.log.info("Transparent createpsbt destinations become pegouts for MWEB-only inputs")
+        pegout_recipient = funding_node.getnewaddress(address_type='bech32')
+        pegout_amount = coins[2]['amount'] - fee
+        pegout_created = wallet.createpsbt([coins[2]['input']], {pegout_recipient: pegout_amount})
+        pegout_decoded = wallet.decodepsbt(pegout_created)
+        assert_equal(len(pegout_decoded['outputs']), 0)
+        assert_equal(len(pegout_decoded['kernels']), 1)
+        assert 'fee' not in pegout_decoded['kernels'][0]
+        assert_equal(len(pegout_decoded['kernels'][0]['pegouts']), 1)
+        assert_equal(pegout_decoded['kernels'][0]['pegouts'][0]['amount'], self.to_litoshis(pegout_amount))
+        assert_equal(pegout_decoded['kernels'][0]['pegouts'][0]['scriptPubKey']['address'], pegout_recipient)
+
+        pegout_signed = wallet.walletprocesspsbt(pegout_created)
+        assert pegout_signed['complete']
+        assert wallet.finalizepsbt(wallet.combinepsbt([pegout_created, pegout_signed['psbt']]))['complete']
+        pegout_finalized = wallet.finalizepsbt(pegout_signed['psbt'])
+        assert pegout_finalized['complete']
+        funding_node.sendrawtransaction(pegout_finalized['hex'], 0)
+        self.sync_mempools()
+        self.generate(funding_node, 1, sync_fun=self.sync_all)
+
+        received = funding_node.listunspent(addresses=[recipient])
+        assert_equal(len(received), 1)
+        assert_equal(received[0]['amount'], amount)
+        pegout_received = funding_node.listreceivedbyaddress(minconf=1, address_filter=pegout_recipient)
+        assert_equal(len(pegout_received), 1)
+        assert_equal(pegout_received[0]['amount'], pegout_amount)
+
+        self.log.info("createpsbt validates MWEB identifiers and rejects ambiguous input layers")
+        unknown = {'mweb_out': '11' * 32}
+        unknown_psbt = wallet.createpsbt([unknown], {wallet.getnewaddress(address_type='mweb'): Decimal('0.1')})
+        assert_equal(wallet.analyzepsbt(unknown_psbt)['next'], 'updater')
+        assert not wallet.walletprocesspsbt(unknown_psbt)['complete']
+
+        for output_id in ['00', 'zz' * 32]:
+            assert_raises_rpc_error(
+                -8,
+                "mweb_out must be a 64-character hexadecimal string",
+                wallet.createpsbt,
+                [{'mweb_out': output_id}],
+                {wallet.getnewaddress(address_type='mweb'): Decimal('0.1')},
+            )
+
+        mixed_form = {'mweb_out': unknown['mweb_out'], 'txid': unknown['mweb_out'], 'vout': 0}
+        assert_raises_rpc_error(
+            -8,
+            "specify either mweb_out or txid and vout",
+            wallet.createpsbt,
+            [mixed_form],
+            {wallet.getnewaddress(address_type='mweb'): Decimal('0.1')},
+        )
+        assert_raises_rpc_error(
+            -8,
+            "sequence and weight do not apply to MWEB inputs",
+            wallet.createpsbt,
+            [dict(unknown, sequence=1)],
+            {wallet.getnewaddress(address_type='mweb'): Decimal('0.1')},
+        )
+        assert_raises_rpc_error(
+            -8,
+            "MWEB PSBTs require PSBT version 2",
+            wallet.createpsbt,
+            [unknown],
+            {wallet.getnewaddress(address_type='mweb'): Decimal('0.1')},
+            0,
+            False,
+            0,
+        )
+        assert_raises_rpc_error(
+            -8,
+            "MWEB inputs cannot be represented in raw transaction hex",
+            wallet.createrawtransaction,
+            [unknown],
+            {wallet.getnewaddress(): Decimal('0.1')},
+        )
+
+        transparent = next(utxo for utxo in wallet.listunspent() if 'vout' in utxo)
+        assert_raises_rpc_error(
+            -8,
+            "Mixed transparent and MWEB inputs require explicit peg-in or pegout metadata",
+            wallet.createpsbt,
+            [unknown, {'txid': transparent['txid'], 'vout': transparent['vout']}],
+            {wallet.getnewaddress(address_type='mweb'): Decimal('0.1')},
+        )
+
     def mweb_input_ids(self, wallet, psbt):
         return {
             txin['mweb']['output_id']
             for txin in wallet.decodepsbt(psbt)['inputs']
             if 'mweb' in txin
         }
+
+    def to_litoshis(self, amount):
+        return int(amount * Decimal('100000000'))
 
     def locked_ids(self, wallet):
         result = set()

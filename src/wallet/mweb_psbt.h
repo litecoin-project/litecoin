@@ -40,11 +40,11 @@ public:
 /**
  * Resolves the key material for one MWEB PSBT input (the PSBT Updater role).
  *
- * Fills input.mweb_address_descriptor and input.mweb_shared_secret in place
- * where they can be determined from the keystore or derived from the input's
- * own fields. Returns the input's spend key if one could be resolved, nullopt
- * if not (which is not an error — another signer may hold the key), or an
- * error if the descriptor is invalid or inconsistent with the input.
+ * Fills the confidential amount, public coin fields, address descriptor, and
+ * shared secret in place where they can be determined from the keystore or
+ * derived from the input's own fields. Returns the input's spend key if one
+ * could be resolved, nullopt if not (which is not an error — another signer
+ * may hold the key), or an error if descriptor metadata is inconsistent.
  */
 util::Result<std::optional<SecretKey>> ResolveMWEBInputKeys(PSBTInput& input, const MWEBSigningKeyStore& keystore);
 

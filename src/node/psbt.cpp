@@ -91,6 +91,9 @@ std::optional<PSBTRole> GetMWEBNextRole(const PartiallySignedTransaction& psbtx)
             continue;
         }
         has_mweb_tx_component = true;
+        if (!input.mweb_amount || !input.mweb_output_commit || !input.mweb_output_pubkey) {
+            return PSBTRole::UPDATER;
+        }
         if (!MWEBInputComplete(input)) {
             return PSBTRole::SIGNER;
         }
@@ -182,7 +185,14 @@ PSBTAnalysis AnalyzePSBT(PartiallySignedTransaction psbtx)
         // We currently only support signing all MWEB transactions at once, so MWEB inputs share the MWEB component role.
         if (input.IsMWEB()) {
             assert(mweb_role.has_value());
-            if (!input.mweb_amount.has_value() || !MoneyRange(*input.mweb_amount) || !MoneyRange(in_amt + (*input.mweb_amount))) {
+            if (!input.mweb_amount.has_value()) {
+                calc_fee = false;
+                input_analysis.has_utxo = false;
+                input_analysis.is_final = false;
+                input_analysis.next = *mweb_role;
+                continue;
+            }
+            if (!MoneyRange(*input.mweb_amount) || !MoneyRange(in_amt + (*input.mweb_amount))) {
                 result.SetInvalid(strprintf("PSBT is not valid. Input %u has invalid value", i));
                 return result;
             }
