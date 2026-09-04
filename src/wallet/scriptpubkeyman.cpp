@@ -58,6 +58,10 @@ util::Result<CTxDestination> LegacyScriptPubKeyMan::GetNewDestination(const Outp
     }
     assert(type != OutputType::BECH32M);
 
+    if (type == OutputType::MWEB && !IsHDEnabled()) {
+        return util::Error{_("Error: MWEB addresses require an HD wallet")};
+    }
+
     LOCK(cs_KeyStore);
 
     // Generate a new key that is added to wallet
@@ -346,6 +350,11 @@ util::Result<CTxDestination> LegacyScriptPubKeyMan::GetReservedDestination(const
         return util::Error{_("Error: Legacy wallets only support the \"legacy\", \"p2sh-segwit\", \"bech32\", and \"mweb\"  address types")};
     }
     assert(type != OutputType::BECH32M);
+
+    if (type == OutputType::MWEB && !IsHDEnabled()) {
+        return util::Error{_("Error: MWEB addresses require an HD wallet")};
+    }
+
     const KeyPurpose purpose = GetPurpose(type, internal);
 
     LOCK(cs_KeyStore);
