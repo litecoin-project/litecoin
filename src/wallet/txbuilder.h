@@ -39,14 +39,10 @@ private:
     
     // Attempts to select inputs from the available coins provided.
     // 
-    // When recipients are MWEB addresses:
-    // 1. Select only MWEB inputs in order to create an MWEB->MWEB transaction.
-    // 2. Select LTC and (optionally) MWEB inputs in order to create a LTC->MWEB pegin transaction.
-    // 
-    // When recipients are LTC addresses:
-    // 1. Select only LTC inputs in order to create a LTC->LTC transaction.
-    // 2. Select only MWEB inputs in order to create a MWEB->LTC pegout transaction.
-    // 3. Select LTC and MWEB inputs in order to create a LTC->MWEB->LTC pegin-pegout transaction.
+    // Homogeneous recipient sets prefer inputs from the recipients' layer,
+    // then cross the extension boundary only when necessary. Mixed LTC/MWEB
+    // recipient sets prefer an MWEB-funded pegout, then an LTC-funded peg-in,
+    // and finally a transaction combining both input layers.
     util::Result<SelectionResult> SelectInputCoins(const CoinsResult& available_coins) EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
     
     CAmount CalcSelectionTarget(const TxType& tx_type) const;

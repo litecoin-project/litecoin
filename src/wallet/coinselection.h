@@ -32,7 +32,7 @@ enum class TxType {
     // A LTC->MWEB pegin transaction.
     // INPUTS: At least one LTC input, but could also include MWEB inputs.
     // KERNELS: At least one kernel with a peg-in amount.
-    // OUTPUTS: At least one LTC output with a peg-in script. At least one MWEB output.
+    // OUTPUTS: At least one LTC output with a peg-in script and one MWEB output. May also contain ordinary LTC recipient outputs.
     // CHANGE: Could include MWEB change or explicit LTC change.
     // FEES: Split between layers. LTC fee is paid on the LTC transaction (CalcLTCFee, via LTC input/output delta),
     //       and MWEB fee is paid in kernel(s) (CalcMWEBFee, funded by pegin amount and/or MWEB inputs).
@@ -45,7 +45,7 @@ enum class TxType {
     // FEES: All fees must be included in the transaction's kernel(s).
     PEGOUT,
     // A LTC->MWEB->LTC pegin and pegout in the same transaction.
-    // Created when sending to a LTC address where the wallet only has enough available balance if we include inputs from both LTC and the MWEB.
+    // Created when a recipient set needs both LTC and MWEB inputs.
     // INPUTS: At least one LTC input, but could also include MWEB inputs.
     // KERNELS: At least one kernel with a pegout script. At least one kernel with a pegin amount. Typically, a single kernel used which contains both. 
     // OUTPUTS: At least one LTC output with a peg-in script. Could include additional LTC outputs.

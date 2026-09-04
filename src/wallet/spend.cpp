@@ -876,16 +876,6 @@ util::Result<CreatedTransactionResult> CreateTransaction(
         return util::Error{_("Transaction amounts must not be negative")};
     }
 
-    if (vecSend.size() > 1) {
-        if (std::any_of(vecSend.cbegin(), vecSend.cend(), [](const auto& recipient){ return recipient.IsMWEB(); })) {
-            return util::Error{_("Only one MWEB recipient supported")};
-        }
-    }
-
-    if (std::holds_alternative<StealthAddress>(coin_control.destChange)) {
-        return util::Error{_("Custom MWEB change addresses not yet supported")};
-    }
-
     for (const CRecipient& recipient : vecSend) {
         if (!recipient.IsMWEB()) {
             CTxOut txout(recipient.nAmount, recipient.GetScript());

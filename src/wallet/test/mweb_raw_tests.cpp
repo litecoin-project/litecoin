@@ -434,8 +434,7 @@ BOOST_AUTO_TEST_CASE(PegoutDraftRawFundingBoundaryIsAtomic)
 
 // Recipient indexes are flattened as canonical outputs followed by MWEB
 // outputs before funding. This is the indexing contract used by the RPC's
-// subtract_fee_from_outputs option even though the current transaction builder
-// rejects a mixed list containing an MWEB recipient.
+// subtract_fee_from_outputs option for mixed LTC and MWEB recipient lists.
 BOOST_AUTO_TEST_CASE(BuildRecipientsFlattensFeeSubtractionIndexes)
 {
     static constexpr CAmount LTC_RECIPIENT_AMOUNT{1 * COIN};

@@ -628,6 +628,162 @@ BOOST_AUTO_TEST_CASE(MultipleLTCRecipientsFromLTCAndMWEBBuildPeginPegout)
         *tx.mweb_tx.outputs[0].amount + pegouts[0].GetAmount() + pegouts[1].GetAmount() + mweb_fee);
 }
 
+// LTC funds one recipient on each layer; the LTC payment remains canonical
+// and the MWEB payment is funded by one peg-in.
+BOOST_AUTO_TEST_CASE(MixedRecipientsFromLTCBuildPegin)
+{
+    const AnyWalletUTXO ltc_coin = SmallestCoin(AvailableLTCCoins());
+    const CTxDestination ltc_recipient = NewDestination(OutputType::BECH32);
+    const CTxDestination mweb_recipient = NewDestination(OutputType::MWEB);
+
+    auto tx_result = BuildTx(
+        {
+            {ltc_recipient, 1 * COIN, false},
+            {mweb_recipient, 2 * COIN, false},
+        },
+        {ltc_coin},
+        std::nullopt,
+        true);
+    BOOST_REQUIRE_MESSAGE(tx_result, util::ErrorString(tx_result).original);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_REQUIRE_EQUAL(tx.vin.size(), 1U);
+    BOOST_CHECK(tx.mweb_tx.inputs.empty());
+    BOOST_REQUIRE_EQUAL(tx.vout.size(), 2U);
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.GetPegIns().size(), 1U);
+    BOOST_CHECK(tx.mweb_tx.GetPegOutCoins().empty());
+
+    const auto ltc_output = std::find_if(
+        tx.vout.cbegin(), tx.vout.cend(),
+        [&ltc_recipient](const CTxOut& output) { return GenericAddress(output.scriptPubKey) == ltc_recipient; });
+    BOOST_REQUIRE(ltc_output != tx.vout.cend());
+    BOOST_CHECK_EQUAL(ltc_output->nValue, 1 * COIN);
+
+    const auto mweb_output = std::find_if(
+        tx.mweb_tx.outputs.cbegin(), tx.mweb_tx.outputs.cend(),
+        [&mweb_recipient](const mw::MutableOutput& output) {
+            return output.address && GenericAddress(*output.address) == mweb_recipient;
+        });
+    BOOST_REQUIRE(mweb_output != tx.mweb_tx.outputs.cend());
+    BOOST_REQUIRE(mweb_output->amount);
+    BOOST_CHECK_EQUAL(*mweb_output->amount, 2 * COIN);
+    BOOST_REQUIRE(tx_result->change_pos.IsMWEB());
+}
+
+// When either layer can fund a mixed recipient set, automatic policy prefers
+// MWEB: the LTC payment is a pegout and change remains on MWEB.
+BOOST_AUTO_TEST_CASE(MixedRecipientsPreferMWEBFundedPegout)
+{
+    const CTxDestination source = NewDestination(OutputType::MWEB);
+    AddTx({{source, 5 * COIN, false}}, {}, std::nullopt);
+
+    const CTxDestination ltc_recipient = NewDestination(OutputType::BECH32);
+    const CTxDestination mweb_recipient = NewDestination(OutputType::MWEB);
+
+    auto tx_result = BuildTx(
+        {
+            {ltc_recipient, 1 * COIN, false},
+            {mweb_recipient, 2 * COIN, false},
+        },
+        std::nullopt,
+        true);
+    BOOST_REQUIRE_MESSAGE(tx_result, util::ErrorString(tx_result).original);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_CHECK(tx.vin.empty());
+    BOOST_CHECK(tx.vout.empty());
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.inputs.size(), 1U);
+    BOOST_CHECK(tx.mweb_tx.GetPegIns().empty());
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.GetPegOutCoins().size(), 1U);
+    BOOST_CHECK(GenericAddress(tx.mweb_tx.GetPegOutCoins()[0].GetScriptPubKey()) == ltc_recipient);
+    BOOST_CHECK_EQUAL(tx.mweb_tx.GetPegOutCoins()[0].GetAmount(), 1 * COIN);
+
+    const auto mweb_output = std::find_if(
+        tx.mweb_tx.outputs.cbegin(), tx.mweb_tx.outputs.cend(),
+        [&mweb_recipient](const mw::MutableOutput& output) {
+            return output.address && GenericAddress(*output.address) == mweb_recipient;
+        });
+    BOOST_REQUIRE(mweb_output != tx.mweb_tx.outputs.cend());
+    BOOST_REQUIRE(mweb_output->amount);
+    BOOST_CHECK_EQUAL(*mweb_output->amount, 2 * COIN);
+    BOOST_REQUIRE(tx_result->change_pos.IsMWEB());
+}
+
+// Neither layer alone is used when both are explicitly selected for a mixed
+// recipient set; LTC enters MWEB and the LTC recipient is paid by pegout.
+BOOST_AUTO_TEST_CASE(MixedRecipientsFromCombinedInputsBuildPeginPegout)
+{
+    const CTxDestination source = NewDestination(OutputType::MWEB);
+    AddTx({{source, 5 * COIN, false}}, {}, std::nullopt);
+
+    const AnyWalletUTXO ltc_coin = SmallestCoin(AvailableLTCCoins());
+    const AnyWalletUTXO mweb_coin = SmallestCoin(AvailableCoinsByType(OutputType::MWEB));
+    const CTxDestination ltc_recipient = NewDestination(OutputType::BECH32);
+    const CTxDestination mweb_recipient = NewDestination(OutputType::MWEB);
+
+    auto tx_result = BuildTx(
+        {
+            {ltc_recipient, 1 * COIN, false},
+            {mweb_recipient, 2 * COIN, false},
+        },
+        {ltc_coin, mweb_coin},
+        std::nullopt,
+        true);
+    BOOST_REQUIRE_MESSAGE(tx_result, util::ErrorString(tx_result).original);
+
+    const CMutableTransaction& tx = tx_result->tx;
+    BOOST_REQUIRE_EQUAL(tx.vin.size(), 1U);
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.inputs.size(), 1U);
+    BOOST_REQUIRE_EQUAL(tx.vout.size(), 1U);
+    BOOST_CHECK(tx.vout[0].scriptPubKey.IsMWEBPegin());
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.GetPegIns().size(), 1U);
+    BOOST_REQUIRE_EQUAL(tx.mweb_tx.GetPegOutCoins().size(), 1U);
+    BOOST_CHECK(GenericAddress(tx.mweb_tx.GetPegOutCoins()[0].GetScriptPubKey()) == ltc_recipient);
+    BOOST_CHECK_EQUAL(tx.mweb_tx.GetPegOutCoins()[0].GetAmount(), 1 * COIN);
+
+    const auto mweb_output = std::find_if(
+        tx.mweb_tx.outputs.cbegin(), tx.mweb_tx.outputs.cend(),
+        [&mweb_recipient](const mw::MutableOutput& output) {
+            return output.address && GenericAddress(*output.address) == mweb_recipient;
+        });
+    BOOST_REQUIRE(mweb_output != tx.mweb_tx.outputs.cend());
+    BOOST_REQUIRE(mweb_output->amount);
+    BOOST_CHECK_EQUAL(*mweb_output->amount, 2 * COIN);
+    BOOST_REQUIRE(tx_result->change_pos.IsMWEB());
+}
+
+// A custom MWEB change address applies to a mixed public recipient list and
+// remains identifiable independently of MWEB output ordering.
+BOOST_AUTO_TEST_CASE(MixedRecipientsFromLTCUseCustomMWEBChange)
+{
+    const AnyWalletUTXO ltc_coin = SmallestCoin(AvailableLTCCoins());
+    const CTxDestination ltc_recipient = NewDestination(OutputType::BECH32);
+    const CTxDestination mweb_recipient = NewDestination(OutputType::MWEB);
+    const CTxDestination mweb_change = NewDestination(OutputType::MWEB);
+
+    auto tx_result = BuildTx(
+        {
+            {ltc_recipient, 1 * COIN, false},
+            {mweb_recipient, 2 * COIN, false},
+        },
+        {ltc_coin},
+        mweb_change,
+        true);
+    BOOST_REQUIRE_MESSAGE(tx_result, util::ErrorString(tx_result).original);
+    BOOST_REQUIRE(tx_result->change_pos.IsMWEB());
+    BOOST_REQUIRE(tx_result->change_pos.ToMWEB().hash);
+
+    const mw::Hash& change_id = *tx_result->change_pos.ToMWEB().hash;
+    const auto change_output = std::find_if(
+        tx_result->tx.mweb_tx.outputs.cbegin(), tx_result->tx.mweb_tx.outputs.cend(),
+        [&change_id](const mw::MutableOutput& output) { return output.CalcOutputID() == change_id; });
+    BOOST_REQUIRE(change_output != tx_result->tx.mweb_tx.outputs.cend());
+    BOOST_REQUIRE(change_output->address);
+    BOOST_CHECK(GenericAddress(*change_output->address) == mweb_change);
+    BOOST_REQUIRE(change_output->amount);
+    BOOST_CHECK_GT(*change_output->amount, 0);
+}
+
 // LTC funds one LTC recipient; no change; the recipient pays the fee.
 BOOST_AUTO_TEST_CASE(SingleLTCRecipientFromLTCSubtractsFeeWithoutChange)
 {

@@ -284,6 +284,8 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
 {
     const SelectedInputTypes selected_inputs = GetSelectedInputTypes(m_coin_control);
     const bool has_mweb_recipient = !m_recipients.MWEB().empty();
+    const bool has_ltc_recipient = !m_recipients.LTC().empty();
+    const bool has_mixed_recipients = has_mweb_recipient && has_ltc_recipient;
     const bool change_is_set = !std::holds_alternative<CNoDestination>(m_coin_control.destChange);
     const bool change_is_mweb = std::holds_alternative<StealthAddress>(m_coin_control.destChange);
     const bool explicit_ltc_change = change_is_set && !change_is_mweb;
@@ -304,7 +306,7 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
         return false;
     };
 
-    auto selection_result_matches_type = [](const TxType& tx_type, const SelectionResult& result) {
+    auto selection_result_matches_type = [has_mixed_recipients](const TxType& tx_type, const SelectionResult& result) {
         switch (tx_type) {
         case TxType::LTC_TO_LTC:
             return !SelectionHasMWEBInput(result);
@@ -312,6 +314,12 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
         case TxType::PEGOUT:
             return !SelectionHasLTCInput(result);
         case TxType::PEGIN:
+            // For mixed recipients, reserve PEGIN for LTC-only funding so the
+            // final fallback can represent combined inputs as a peg-in/pegout.
+            // Homogeneous MWEB payments may still supplement LTC with MWEB.
+            if (has_mixed_recipients && SelectionHasMWEBInput(result)) {
+                return false;
+            }
             return SelectionHasLTCInput(result);
         case TxType::PEGIN_PEGOUT:
             return SelectionHasLTCInput(result);
@@ -324,6 +332,7 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
     auto select_by_type = [&](const TxType& tx_type) -> std::optional<SelectionResult> {
         LOCK(m_wallet.cs_wallet);
         if (!selected_inputs_compatible(tx_type)) return {};
+        if (tx_type == TxType::PEGIN && has_mixed_recipients && selected_inputs.mweb) return {};
 
         m_selection_params.m_tx_type = tx_type;
 
@@ -333,6 +342,9 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
 
         const CAmount nTarget = CalcSelectionTarget(tx_type);
         CoinsResult available_coins_mut = available_coins;
+        if (tx_type == TxType::PEGIN && has_mixed_recipients) {
+            available_coins_mut.coins.erase(OutputType::MWEB);
+        }
 
         std::optional<SelectionResult> result = SelectCoins(m_wallet, available_coins_mut, nTarget, m_coin_control, m_selection_params);
         if (result.has_value() && !selection_result_matches_type(tx_type, *result)) {
@@ -341,48 +353,22 @@ util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& ava
 
         return result;
     };
-    
-    if (has_mweb_recipient) {
-        if (explicit_ltc_change) {
-            std::optional<SelectionResult> pegout_result = select_by_type(TxType::PEGOUT);
-            if (pegout_result.has_value()) {
-                return *pegout_result;
-            }
 
-            std::optional<SelectionResult> pegin_pegout_result = select_by_type(TxType::PEGIN_PEGOUT);
-            if (pegin_pegout_result.has_value()) {
-                return *pegin_pegout_result;
-            }
-        } else {
-            // First try to construct an MWEB-to-MWEB transaction
-            std::optional<SelectionResult> mweb_to_mweb_result = select_by_type(TxType::MWEB_TO_MWEB);
-            if (mweb_to_mweb_result.has_value()) {
-                return *mweb_to_mweb_result;
-            }
-
-            // If MWEB-to-MWEB fails, create a peg-in transaction
-            std::optional<SelectionResult> pegin_result = select_by_type(TxType::PEGIN);
-            if (pegin_result.has_value()) {
-                return *pegin_result;
-            }
-        }
+    std::vector<TxType> candidate_types;
+    if (has_mweb_recipient && explicit_ltc_change) {
+        candidate_types = {TxType::PEGOUT, TxType::PEGIN_PEGOUT};
+    } else if (has_mixed_recipients) {
+        // Cross one layer at a time before combining input layers.
+        candidate_types = {TxType::PEGOUT, TxType::PEGIN, TxType::PEGIN_PEGOUT};
+    } else if (has_mweb_recipient) {
+        candidate_types = {TxType::MWEB_TO_MWEB, TxType::PEGIN};
     } else {
-        // First try to construct a LTC-to-LTC transaction
-        std::optional<SelectionResult> ltc_to_ltc_result = select_by_type(TxType::LTC_TO_LTC);
-        if (ltc_to_ltc_result.has_value()) {
-            return *ltc_to_ltc_result;
-        }
+        candidate_types = {TxType::LTC_TO_LTC, TxType::PEGOUT, TxType::PEGIN_PEGOUT};
+    }
 
-        // If LTC-to-LTC fails, try a simple peg-out transaction (MWEB->LTC)
-        std::optional<SelectionResult> mweb_to_ltc_result = select_by_type(TxType::PEGOUT);
-        if (mweb_to_ltc_result.has_value()) {
-            return *mweb_to_ltc_result;
-        }
-
-        // If simple peg-out fails, try a complex peg-out transaction (LTC->MWEB->LTC)
-        std::optional<SelectionResult> pegin_pegout_result =  select_by_type(TxType::PEGIN_PEGOUT);
-        if (pegin_pegout_result.has_value()) {
-            return *pegin_pegout_result;
+    for (const TxType tx_type : candidate_types) {
+        if (std::optional<SelectionResult> result = select_by_type(tx_type)) {
+            return *result;
         }
     }
 
@@ -570,12 +556,15 @@ std::optional<util::Error> TxBuilder::UpdatePeginOutput()
         // Balance the MWEB side when there is no change output to absorb the difference.
         pegin_amount = amounts.GetRequiredPegin(CalcMWEBFee());
     } else {
-        // All selected LTC value is pegged in, less the fee paid on the LTC side.
+        // Peg in the selected LTC value left after ordinary LTC recipients and
+        // the fee. amounts.ltc_outputs includes the previous peg-in amount
+        // when this method is called again after fee subtraction.
         const util::Result<CAmount> ltc_fee_result = CalcLTCFee();
         if (!ltc_fee_result) {
             return util::Error{ErrorString(ltc_fee_result)};
         }
-        pegin_amount = amounts.ltc_inputs - *ltc_fee_result;
+        const CAmount non_pegin_ltc_outputs = amounts.ltc_outputs - amounts.pegin;
+        pegin_amount = amounts.ltc_inputs - non_pegin_ltc_outputs - *ltc_fee_result;
     }
 
     pegin_output.nValue = pegin_amount;
@@ -799,7 +788,12 @@ CAmount TxBuilder::CalcSelectionTarget(const TxType& tx_type) const
         return recipients_sum + get_layered_fee(0, 0, standard_mweb_weight);
     }
     case TxType::PEGIN: {
-        return recipients_sum + get_layered_fee(pegin_ltc_bytes, 0, standard_mweb_weight);
+        // LTC recipients remain ordinary outputs in a peg-in transaction.
+        // Replace the one-output overhead estimate with the actual canonical
+        // output count when the public recipient list spans both layers.
+        const size_t mixed_pegin_ltc_bytes = pegin_ltc_bytes + ltc_recipient_bytes +
+            GetSizeOfCompactSize(1 + ltc_recipients.size()) - GetSizeOfCompactSize(1);
+        return recipients_sum + get_layered_fee(mixed_pegin_ltc_bytes, 0, standard_mweb_weight);
     }
     case TxType::PEGOUT: {
         // Include enough fee to pay for the kernel (with pegout script(s)), MWEB outputs, and the hogex pegout output(s).
