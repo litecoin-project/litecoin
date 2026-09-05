@@ -102,6 +102,8 @@ public:
 
     SERIALIZE_METHODS(CBlock, obj)
     {
+        SER_READ(obj, obj.fChecked = false);
+        SER_READ(obj, obj.mweb_block.SetNull());
         READWRITEAS(CBlockHeader, obj);
         READWRITE(obj.vtx);
         if (!(s.GetVersion() & SERIALIZE_NO_MWEB)) {

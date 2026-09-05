@@ -529,7 +529,7 @@ struct MutableTx : public Traits::ISerializable
         mw::Transaction::CPtr tx;
         SER_WRITE(obj, tx = obj.Finalized().value_or(nullptr));
         READWRITE(WrapOptionalPtr(tx));
-        SER_READ(obj, if (tx) obj = MutableTx::From(*tx) );
+        SER_READ(obj, obj = tx ? MutableTx::From(*tx) : MutableTx{});
     }
 };
 

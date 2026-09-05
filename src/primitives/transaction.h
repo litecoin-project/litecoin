@@ -362,6 +362,9 @@ inline void UnserializeTransaction(TxType& tx, Stream& s) {
     unsigned char flags = 0;
     tx.vin.clear();
     tx.vout.clear();
+    // Optional fields must not survive when a transaction object is reused.
+    tx.mweb_tx.SetNull();
+    tx.m_hogEx = false;
     /* Try to read the vin. In case the dummy is there, this will be read as an empty vector. */
     s >> tx.vin;
     if (tx.vin.size() == 0 && fAllowWitness) {

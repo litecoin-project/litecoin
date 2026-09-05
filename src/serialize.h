@@ -744,6 +744,8 @@ public:
 
         if (is_set == 1) {
             ::Unserialize(is, obj);
+        } else {
+            obj.reset();
         }
     }
 };

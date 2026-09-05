@@ -83,6 +83,9 @@ public:
 template <typename Stream>
 inline void UnserializeBlockUndo(CBlockUndo& blockundo, Stream& s, const unsigned int num_bytes)
 {
+    // The record replaces any previous undo, including an optional MWEB tail.
+    blockundo.vtxundo.clear();
+    blockundo.mwundo.reset();
     const uint64_t num_txs = ::ReadCompactSize(s);
     blockundo.vtxundo.reserve(num_txs);
     for (uint64_t i = 0; i < num_txs; i++) {
