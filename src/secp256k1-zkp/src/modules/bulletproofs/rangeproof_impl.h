@@ -243,6 +243,7 @@ static int secp256k1_bulletproof_rangeproof_verify_impl(const secp256k1_ecmult_c
         /* Compute y, z, x */
         if (!secp256k1_bulletproof_deserialize_point(&age, &proof[i][64], 0, 4) ||
             !secp256k1_bulletproof_deserialize_point(&sge, &proof[i][64], 1, 4)) {
+            secp256k1_scratch_deallocate_frame(scratch);
             return 0;
         }
 
@@ -261,6 +262,7 @@ static int secp256k1_bulletproof_rangeproof_verify_impl(const secp256k1_ecmult_c
 
         if (!secp256k1_bulletproof_deserialize_point(&ecmult_data[i].t1, &proof[i][64], 2, 4) ||
             !secp256k1_bulletproof_deserialize_point(&ecmult_data[i].t2, &proof[i][64], 3, 4)) {
+            secp256k1_scratch_deallocate_frame(scratch);
             return 0;
         }
 

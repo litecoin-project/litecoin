@@ -27,7 +27,9 @@ static void test_bulletproof_api(void) {
     secp256k1_pedersen_commitment pcommit[4];
     const secp256k1_pedersen_commitment *pcommit_arr[1];
     unsigned char proof[2000];
+    unsigned char malformed_proof[2000];
     const unsigned char *proof_ptr = proof;
+    const unsigned char *malformed_proof_ptr = malformed_proof;
     const unsigned char blind[32] = "   i am not a blinding factor   ";
     const unsigned char *blind_ptr[4];
     size_t blindlen = sizeof(blind);
@@ -119,6 +121,37 @@ static void test_bulletproof_api(void) {
     CHECK(ecount == 16);
     CHECK(secp256k1_bulletproof_rangeproof_prove(both, scratch, gens, proof, &plen, NULL, NULL, NULL, value, min_value, blind_ptr, NULL, 1, &value_gen, 64, blind, NULL, blind, 32, NULL) == 1);
     CHECK(ecount == 16);
+
+    /* Malformed A/S and T1/T2 points must release both verifier scratch frames. */
+    {
+        const size_t malformed_point_indices[2] = {0, 2};
+        size_t point_case;
+        for (point_case = 0; point_case < 2; point_case++) {
+            secp256k1_ge parsed_point;
+            const size_t point_index = malformed_point_indices[point_case];
+            const size_t point_offset = 64 + 1 + point_index * 32;
+            size_t invalid_x;
+            size_t repeat;
+
+            memcpy(malformed_proof, proof, plen);
+            for (invalid_x = 0; invalid_x < 256; invalid_x++) {
+                memset(&malformed_proof[point_offset], 0, 32);
+                malformed_proof[point_offset + 31] = (unsigned char)invalid_x;
+                if (!secp256k1_bulletproof_deserialize_point(&parsed_point, &malformed_proof[64], point_index, 4)) {
+                    break;
+                }
+            }
+            CHECK(invalid_x < 256);
+
+            for (repeat = 0; repeat < 8; repeat++) {
+                CHECK(scratch->frame == 0);
+                CHECK(secp256k1_bulletproof_rangeproof_verify(both, scratch, gens, malformed_proof, plen, min_value, pcommit, 1, 64, &value_gen, blind, 32) == 0);
+                CHECK(scratch->frame == 0);
+                CHECK(secp256k1_bulletproof_rangeproof_verify_multi(both, scratch, gens, &malformed_proof_ptr, 1, plen, &mv_ptr, pcommit_arr, 1, 64, &value_gen, blind_ptr, &blindlen) == 0);
+                CHECK(scratch->frame == 0);
+            }
+        }
+    }
 
     /* rangeproof_verify */
     ecount = 0;
