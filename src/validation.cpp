@@ -64,10 +64,14 @@
 #include <cassert>
 #include <chrono>
 #include <deque>
+#include <map>
 #include <numeric>
 #include <optional>
+#include <set>
 #include <string>
 #include <thread>
+#include <utility>
+#include <vector>
 
 using kernel::CCoinsStats;
 using kernel::CoinStatsHashType;
@@ -291,6 +295,50 @@ static bool IsCurrentForFeeEstimation(Chainstate& active_chainstate) EXCLUSIVE_L
     return true;
 }
 
+// Cached MWEB transactions arrive in kernel order, not dependency order. Walk
+// both input types so every available parent precedes its children on recovery.
+static std::vector<CTransactionRef> GetDisconnectedTransactionsInDependencyOrder(const DisconnectedBlockTransactions& disconnectpool)
+{
+    std::map<mw::Hash, CTransactionRef> mweb_parents;
+    for (const auto& tx : disconnectpool.queuedTx) {
+        for (const auto& output_id : tx->mweb_tx.GetOutputIDs()) {
+            mweb_parents.emplace(output_id, tx);
+        }
+    }
+
+    std::vector<CTransactionRef> ordered;
+    ordered.reserve(disconnectpool.queuedTx.size());
+    std::set<uint256> visited;
+    // Use an explicit stack to avoid recursion for long chains of transactions.
+    std::vector<std::pair<CTransactionRef, bool>> pending;
+    for (const auto& root : reverse_iterate(disconnectpool.queuedTx.get<insertion_order>())) {
+        pending.emplace_back(root, false);
+        while (!pending.empty()) {
+            const auto [tx, parents_queued] = pending.back();
+            pending.pop_back();
+            if (parents_queued) {
+                ordered.push_back(tx);
+                continue;
+            }
+            if (!visited.insert(tx->GetHash()).second) continue;
+
+            // Revisit this transaction after its parents. Shared ancestors and
+            // parents referenced by several inputs are only traversed once.
+            pending.emplace_back(tx, true);
+            for (const auto& input : tx->GetInputs()) {
+                if (input.IsMWEB()) {
+                    const auto parent = mweb_parents.find(input.ToMWEB());
+                    if (parent != mweb_parents.end()) pending.emplace_back(parent->second, false);
+                } else {
+                    const auto parent = disconnectpool.queuedTx.find(input.GetTxIn().prevout.hash);
+                    if (parent != disconnectpool.queuedTx.end()) pending.emplace_back(*parent, false);
+                }
+            }
+        }
+    }
+    return ordered;
+}
+
 static bool CheckMWEBInputsForMempoolReorg(const CTransaction& tx, const CTxMemPool& pool, const CCoinsViewCache& coins_tip) EXCLUSIVE_LOCKS_REQUIRED(::cs_main, pool.cs)
 {
     AssertLockHeld(::cs_main);
@@ -334,26 +382,21 @@ void Chainstate::MaybeUpdateMempoolForReorg(
     AssertLockHeld(cs_main);
     AssertLockHeld(m_mempool->cs);
     std::vector<uint256> vHashUpdate;
-    // disconnectpool's insertion_order index sorts the entries from
-    // oldest to newest, but the oldest entry will be the last tx from the
-    // latest mined block that was disconnected.
-    // Iterate disconnectpool in reverse, so that we add transactions
-    // back to the mempool starting with the earliest transaction that had
-    // been previously seen in a block.
-    auto it = disconnectpool.queuedTx.get<insertion_order>().rbegin();
-    while (it != disconnectpool.queuedTx.get<insertion_order>().rend()) {
+    // Reverse insertion order preserves block order for canonical transactions,
+    // but cached MWEB transactions (including full hybrids) need their parents
+    // restored first, regardless of kernel order.
+    for (const auto& tx : GetDisconnectedTransactionsInDependencyOrder(disconnectpool)) {
         // ignore validation errors in resurrected transactions
-        if (!fAddToMempool || (*it)->IsCoinBase() || (*it)->IsHogEx() ||
-            AcceptToMemoryPool(*this, *it, GetTime(),
+        if (!fAddToMempool || tx->IsCoinBase() || tx->IsHogEx() ||
+            AcceptToMemoryPool(*this, tx, GetTime(),
                 /*bypass_limits=*/true, /*test_accept=*/false).m_result_type !=
                     MempoolAcceptResult::ResultType::VALID) {
             // If the transaction doesn't make it in to the mempool, remove any
             // transactions that depend on it (which would now be orphans).
-            m_mempool->removeRecursive(**it, MemPoolRemovalReason::REORG);
-        } else if (m_mempool->exists(GenTxid::Txid((*it)->GetHash()))) {
-            vHashUpdate.push_back((*it)->GetHash());
+            m_mempool->removeRecursive(*tx, MemPoolRemovalReason::REORG);
+        } else if (m_mempool->exists(GenTxid::Txid(tx->GetHash()))) {
+            vHashUpdate.push_back(tx->GetHash());
         }
-        ++it;
     }
     disconnectpool.queuedTx.clear();
     // AcceptToMemoryPool/addUnchecked all assume that new mempool entries have
