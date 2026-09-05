@@ -615,11 +615,137 @@ void CTxMemPool::removeConflicts(const CTransaction &tx)
 void CTxMemPool::removeForBlock(const CBlock& block, unsigned int nBlockHeight, DisconnectedBlockTransactions* disconnectpool)
 {
     AssertLockHeld(cs);
+    std::set<uint256> mweb_conflict_hashes;
+
+    // Resolve MWEB conflicts before classifying kernel matches as mined. An
+    // aggregate can share some kernels with a block while another component
+    // conflicts with a block input. Kernel IDs also do not commit to inputs or
+    // outputs. Preserve kernel identity as the BLOCK boundary, while removing
+    // only non-mined branches whose outputs do not survive the block.
+    if (!block.mweb_block.IsNull()) {
+        const auto block_kernels = block.mweb_block.GetKernelIDs();
+        const auto block_spent = block.mweb_block.GetSpentIDs();
+        const std::set<mw::Hash> block_spent_set(block_spent.begin(), block_spent.end());
+        const auto block_outputs = block.mweb_block.GetOutputIDs();
+        const std::set<mw::Hash> block_output_set(block_outputs.begin(), block_outputs.end());
+        std::set<uint256> block_txids;
+        std::set<COutPoint> block_spent_outpoints;
+        for (const CTransactionRef& tx : block.vtx) {
+            block_txids.insert(tx->GetHash());
+            for (const CTxIn& input : tx->vin) {
+                block_spent_outpoints.insert(input.prevout);
+            }
+        }
+
+        const auto all_kernels_mined = [&block_kernels](const CTransaction& tx) {
+            const auto& tx_kernels = tx.mweb_tx.GetKernelIDs();
+            return !tx_kernels.empty() && std::all_of(
+                tx_kernels.begin(), tx_kernels.end(),
+                [&block_kernels](const mw::Hash& kernel_id) {
+                    return block_kernels.count(kernel_id) != 0;
+                }
+            );
+        };
+
+        std::set<uint256> mined_hashes;
+        std::vector<CTransactionRef> conflicts;
+
+        for (txiter it = mapTx.begin(); it != mapTx.end(); ++it) {
+            CTransactionRef ptx = it->GetSharedTx();
+            if (!ptx->HasMWEBTx()) {
+                if (block_txids.count(ptx->GetHash()) != 0) {
+                    mined_hashes.insert(ptx->GetHash());
+                }
+                continue;
+            }
+
+            const auto& tx_kernels = ptx->mweb_tx.GetKernelIDs();
+            const auto& tx_spent = ptx->mweb_tx.GetSpentIDs();
+            const bool shares_kernel = std::any_of(
+                tx_kernels.begin(), tx_kernels.end(),
+                [&block_kernels](const mw::Hash& kernel_id) {
+                    return block_kernels.count(kernel_id) != 0;
+                }
+            );
+            const bool spends_block_input = std::any_of(
+                tx_spent.begin(), tx_spent.end(),
+                [&block_spent_set](const mw::Hash& spent_id) {
+                    return block_spent_set.count(spent_id) != 0;
+                }
+            );
+            const bool canonical_side_mined = ptx->IsMWEBOnly()
+                || block_txids.count(ptx->GetHash()) != 0;
+            const bool tx_mined = canonical_side_mined && all_kernels_mined(*ptx);
+
+            if (tx_mined) {
+                mined_hashes.insert(ptx->GetHash());
+            } else if (shares_kernel || spends_block_input) {
+                conflicts.push_back(std::move(ptx));
+            }
+        }
+
+        const auto output_survives = [&](const CTxOutput& output) {
+            if (output.IsMWEB()) {
+                return block_output_set.count(output.ToMWEB()) != 0
+                    && block_spent_set.count(output.ToMWEB()) == 0;
+            }
+
+            const COutPoint& outpoint = boost::get<COutPoint>(output.GetIndex());
+            return block_txids.count(outpoint.hash) != 0
+                && block_spent_outpoints.count(outpoint) == 0;
+        };
+
+        // Mined parents can have a non-mined alternative child when their
+        // output was consumed (or cut through) by this block.
+        for (const uint256& mined_hash : mined_hashes) {
+            txiter mined_it = mapTx.find(mined_hash);
+            if (mined_it == mapTx.end()) continue;
+
+            const CTransaction& mined_tx = mined_it->GetTx();
+            for (const CTxOutput& output : mined_tx.GetOutputs()) {
+                if (output_survives(output)) continue;
+
+                auto child_it = mapNextTx.find(output.GetIndex());
+                if (child_it == mapNextTx.end()) continue;
+
+                txiter child_entry = mapTx.find(child_it->second->GetHash());
+                if (child_entry != mapTx.end()
+                    && mined_hashes.count(child_entry->GetTx().GetHash()) == 0) {
+                    conflicts.push_back(child_entry->GetSharedTx());
+                }
+            }
+        }
+
+        // Expand only through branches whose parent outputs do not survive the
+        // block. Mined descendants remain for the normal BLOCK path below.
+        for (size_t i = 0; i < conflicts.size(); ++i) {
+            CTransactionRef conflict = conflicts[i];
+            if (mined_hashes.count(conflict->GetHash()) != 0
+                || !mweb_conflict_hashes.insert(conflict->GetHash()).second) {
+                continue;
+            }
+
+            for (const CTxOutput& output : conflict->GetOutputs()) {
+                if (output_survives(output)) continue;
+
+                auto child_it = mapNextTx.find(output.GetIndex());
+                if (child_it == mapNextTx.end()) continue;
+
+                txiter child_entry = mapTx.find(child_it->second->GetHash());
+                if (child_entry != mapTx.end()
+                    && child_entry->GetTx().GetHash() != conflict->GetHash()
+                    && mined_hashes.count(child_entry->GetTx().GetHash()) == 0) {
+                    conflicts.push_back(child_entry->GetSharedTx());
+                }
+            }
+        }
+    }
+
     std::vector<const CTxMemPoolEntry*> entries;
     for (const auto& tx : block.vtx)
     {
         indexed_transaction_set::iterator i = mapTx.find(tx->GetHash());
-        if (i != mapTx.end())
+        if (i != mapTx.end() && mweb_conflict_hashes.count(tx->GetHash()) == 0)
             entries.push_back(&*i);
     }
 
@@ -631,6 +757,7 @@ void CTxMemPool::removeForBlock(const CBlock& block, unsigned int nBlockHeight, 
         for (txiter it = mapTx.begin(); it != mapTx.end(); ++it) {
             CTransactionRef ptx = it->GetSharedTx();
             if (!ptx->HasMWEBTx()) continue;
+            if (mweb_conflict_hashes.count(ptx->GetHash()) != 0) continue;
 
             const auto& tx_kernels = ptx->mweb_tx.GetKernelIDs();
             bool remove_tx = std::any_of(tx_kernels.begin(), tx_kernels.end(),
@@ -647,6 +774,17 @@ void CTxMemPool::removeForBlock(const CBlock& block, unsigned int nBlockHeight, 
 
     // Before the txs in the new block have been removed from the mempool, update policy estimates
     if (minerPolicyEstimator) {minerPolicyEstimator->processBlock(nBlockHeight, entries);}
+
+    setEntries conflict_entries;
+    for (const uint256& conflict_hash : mweb_conflict_hashes) {
+        txiter conflict_it = mapTx.find(conflict_hash);
+        if (conflict_it != mapTx.end()) {
+            ClearPrioritisation(conflict_hash);
+            conflict_entries.insert(conflict_it);
+        }
+    }
+    RemoveStaged(conflict_entries, true, MemPoolRemovalReason::CONFLICT);
+
     for (const auto& tx : txs)
     {
         txiter it = mapTx.find(tx->GetHash());
