@@ -8,6 +8,8 @@
 #include <chainparams.h>
 #include <consensus/merkle.h>
 #include <consensus/validation.h>
+#include <mw/crypto/Schnorr.h>
+#include <mw/mmr/MMR.h>
 #include <mweb/mweb_node.h>
 #include <primitives/block.h>
 #include <script/standard.h>
@@ -115,6 +117,79 @@ BOOST_AUTO_TEST_CASE(ConnectBlock_RevalidatesDiskBody)
     BlockValidationState accepted;
     BOOST_REQUIRE(MWEB::Node::ContextualCheckBlock(valid, consensus, &previous, accepted));
 
+    CBlock extra_hogex_marker = valid;
+    CMutableTransaction marked_deposit(*extra_hogex_marker.vtx[1]);
+    marked_deposit.m_hogEx = true;
+    extra_hogex_marker.vtx[1] = MakeTransactionRef(std::move(marked_deposit));
+    BOOST_REQUIRE(extra_hogex_marker.GetHash() == valid.GetHash());
+
+    BlockValidationState marker_state;
+    BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(extra_hogex_marker, consensus, &previous, marker_state));
+    BOOST_CHECK(marker_state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
+    BOOST_CHECK_EQUAL(marker_state.GetRejectReason(), "bad-hogex-position");
+
+    consensus.mweb_pegout_feature_activation_height = height;
+    consensus.mweb_extradata_feature_activation_height = height;
+    const Kernel& valid_kernel = valid_mweb->GetKernels().front();
+    const auto make_noncanonical_kernel = [&](const uint8_t feature_bit) {
+        const uint8_t features = valid_kernel.GetFeatures() | feature_bit;
+        const boost::optional<CAmount> fee =
+            (valid_kernel.GetFeatures() & Kernel::FEE_FEATURE_BIT)
+                ? boost::make_optional(valid_kernel.GetFee())
+                : boost::none;
+        const boost::optional<CAmount> pegin_amount = valid_kernel.HasPegIn()
+            ? boost::make_optional(valid_kernel.GetPegIn())
+            : boost::none;
+        const boost::optional<int32_t> lock_height =
+            (valid_kernel.GetFeatures() & Kernel::HEIGHT_LOCK_FEATURE_BIT)
+                ? boost::make_optional(valid_kernel.GetLockHeight())
+                : boost::none;
+        const boost::optional<PublicKey> stealth_excess = valid_kernel.HasStealthExcess()
+            ? boost::make_optional(valid_kernel.GetStealthExcess())
+            : boost::none;
+        return Kernel(
+            features,
+            fee,
+            pegin_amount,
+            valid_kernel.GetPegOuts(),
+            lock_height,
+            stealth_excess,
+            valid_kernel.GetExtraData(),
+            valid_kernel.GetExcess(),
+            valid_kernel.GetSignature()
+        );
+    };
+    const auto check_kernel_feature = [&](const uint8_t feature_bit, const std::string& reject_reason) {
+        CBlock mutated = valid;
+        mutated.mweb_block = MWEB::Block{mw::MutBlock(valid_mweb)
+            .SetKernels({make_noncanonical_kernel(feature_bit)})
+            .Build()};
+        BOOST_REQUIRE(mutated.GetHash() == valid.GetHash());
+
+        BlockValidationState state;
+        BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(mutated, consensus, &previous, state));
+        BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
+        BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-mweb");
+
+        MemMMR kernel_mmr;
+        for (const Kernel& kernel : mutated.mweb_block.m_block->GetKernels()) {
+            kernel_mmr.Add(kernel);
+        }
+        const auto committed_mweb = std::make_shared<mw::Block>(
+            mw::MutHeader(mutated.mweb_block.m_block->GetHeader())
+                .SetKernelRoot(kernel_mmr.Root())
+                .Build(),
+            mutated.mweb_block.m_block->GetTxBody());
+        const CBlock committed = make_block(committed_mweb, pegin.GetKernelID());
+
+        BlockValidationState committed_state;
+        BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(committed, consensus, &previous, committed_state));
+        BOOST_CHECK(committed_state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
+        BOOST_CHECK_EQUAL(committed_state.GetRejectReason(), reject_reason);
+    };
+    check_kernel_feature(Kernel::PEGOUT_FEATURE_BIT, "bad-mweb-empty-pegout");
+    check_kernel_feature(Kernel::EXTRA_DATA_FEATURE_BIT, "bad-mweb-empty-extradata");
+
     const auto check_connection = [&](const CBlock& block, const bool expected_valid) {
         // A disk reload must not inherit acceptance of an earlier body.
         CDataStream disk(SER_DISK, PROTOCOL_VERSION);
@@ -153,6 +228,156 @@ BOOST_AUTO_TEST_CASE(ConnectBlock_RevalidatesDiskBody)
     check_connection(make_block(invalid_root, pegin.GetKernelID()), false);
     check_connection(make_block(valid_mweb, mw::Hash{}), false);
     check_connection(valid, true);
+}
+
+BOOST_AUTO_TEST_CASE(ContextualCheckBlock_KernelSerializationCollisionIsMutated)
+{
+    auto consensus = Params().GetConsensus();
+    consensus.vDeployments[Consensus::DEPLOYMENT_MWEB].nStartTime = Consensus::BIP9Deployment::ALWAYS_ACTIVE;
+
+    const int height = 3'172'640;
+    consensus.mweb_pegout_feature_activation_height = height;
+    consensus.mweb_extradata_feature_activation_height = height;
+
+    constexpr CAmount pegin_amount = 6;
+    constexpr CAmount output_amount = 1;
+    constexpr CAmount pegout_amount = 5;
+    const uint8_t features =
+        Kernel::PEGIN_FEATURE_BIT |
+        Kernel::PEGOUT_FEATURE_BIT |
+        Kernel::HEIGHT_LOCK_FEATURE_BIT |
+        Kernel::EXTRA_DATA_FEATURE_BIT;
+    const boost::optional<CAmount> pegin(pegin_amount);
+    const std::vector<PegOutCoin> pegouts{
+        PegOutCoin(pegout_amount, CScript() << OP_TRUE)
+    };
+    const auto lock_height = boost::make_optional<int32_t>(0);
+    const std::vector<uint8_t> extra_data{0x42};
+
+    const BlindingFactor excess_blind = BlindingFactor::Random();
+    const Commitment excess = Commitment::Blinded(excess_blind, 0);
+    const Signature signature = Schnorr::Sign(
+        excess_blind.data(),
+        Kernel::GetSignatureMessage(
+            features,
+            excess,
+            boost::none,
+            boost::none,
+            pegin,
+            pegouts,
+            lock_height,
+            extra_data
+        )
+    );
+    const Kernel valid_kernel(
+        features,
+        boost::none,
+        pegin,
+        pegouts,
+        lock_height,
+        boost::none,
+        extra_data,
+        excess,
+        signature
+    );
+
+    const SecretKey sender_key = SecretKey::Random();
+    const test::TxOutput output = test::TxOutput::Create(
+        sender_key,
+        SecretKey::Random(),
+        SecretKey::Random(),
+        output_amount
+    );
+    Blinds kernel_offset;
+    kernel_offset.Add(output.GetBlind()).Sub(excess_blind);
+    Blinds stealth_offset;
+    stealth_offset.Add(sender_key);
+    const auto valid_tx = mw::Transaction::Create(
+        kernel_offset.Total(),
+        stealth_offset.Total(),
+        {},
+        {output.GetOutput()},
+        {valid_kernel}
+    );
+    BOOST_REQUIRE_NO_THROW(valid_tx->Validate());
+
+    test::Miner miner(GetDataDir());
+    const auto prior = miner.MineBlock(height - 1).GetBlock();
+    const auto valid_mweb = miner.MineBlock(
+        height,
+        {test::Tx(valid_tx, {output})}
+    ).GetBlock();
+
+    CBlockIndex previous;
+    previous.nHeight = height - 1;
+    previous.hogex_hash = uint256S("01");
+    previous.mweb_header = prior->GetHeader();
+    previous.mweb_amount = 100;
+
+    const auto make_block = [&](const mw::Block::CPtr& body) {
+        CMutableTransaction coinbase;
+        coinbase.vin.resize(1);
+        coinbase.vout.emplace_back(0, CScript() << OP_TRUE);
+
+        CMutableTransaction deposit;
+        deposit.vin.emplace_back(uint256S("02"), 0);
+        deposit.vout.emplace_back(pegin_amount, GetScriptForPegin(valid_kernel.GetKernelID()));
+
+        CMutableTransaction hogex;
+        hogex.m_hogEx = true;
+        hogex.vin.emplace_back(previous.hogex_hash, 0);
+        hogex.vin.emplace_back(deposit.GetHash(), 0);
+        hogex.vout.emplace_back(
+            previous.mweb_amount + output_amount,
+            CScript() << OP_8 << body->GetHash().vec()
+        );
+        hogex.vout.emplace_back(pegout_amount, CScript() << OP_TRUE);
+
+        CBlock block;
+        block.vtx = {
+            MakeTransactionRef(coinbase),
+            MakeTransactionRef(deposit),
+            MakeTransactionRef(hogex)
+        };
+        block.hashMerkleRoot = BlockMerkleRoot(block);
+        block.mweb_block = MWEB::Block{body};
+        return block;
+    };
+
+    const CBlock valid_block = make_block(valid_mweb);
+    BlockValidationState valid_state;
+    BOOST_REQUIRE(MWEB::Node::ContextualCheckBlock(valid_block, consensus, &previous, valid_state));
+
+    auto collision_bytes = valid_kernel.Serialized();
+    BOOST_REQUIRE(collision_bytes.size() >= 2);
+    BOOST_REQUIRE_EQUAL(collision_bytes[0], features);
+    BOOST_REQUIRE_EQUAL(collision_bytes[1], pegin_amount);
+    collision_bytes.insert(collision_bytes.begin() + 2, 0x00);
+    const Kernel collision_kernel = Kernel::Deserialize(collision_bytes);
+
+    BOOST_REQUIRE(collision_kernel.GetPegOuts().empty());
+    BOOST_REQUIRE_EQUAL(collision_kernel.GetLockHeight(), 1);
+    BOOST_REQUIRE(collision_kernel.GetExtraData() == std::vector<uint8_t>({0x01, 0x51, 0x00, 0x01, 0x42}));
+    BOOST_REQUIRE(collision_kernel.Serialized() == valid_kernel.Serialized());
+    BOOST_REQUIRE(collision_kernel.GetKernelID() == valid_kernel.GetKernelID());
+
+    const auto collision_mweb = mw::MutBlock(valid_mweb)
+        .SetKernels({collision_kernel})
+        .Build();
+    BOOST_REQUIRE(collision_mweb->GetHash() == valid_mweb->GetHash());
+    BOOST_REQUIRE(collision_mweb->HasValidKernelMMR());
+
+    CBlock collision_block = valid_block;
+    collision_block.mweb_block = MWEB::Block{collision_mweb};
+    BOOST_REQUIRE(collision_block.GetHash() == valid_block.GetHash());
+
+    BlockValidationState collision_state;
+    BOOST_CHECK(!MWEB::Node::ContextualCheckBlock(collision_block, consensus, &previous, collision_state));
+    BOOST_CHECK(collision_state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
+    BOOST_CHECK_EQUAL(collision_state.GetRejectReason(), "bad-mweb-empty-pegout");
+
+    BlockValidationState replacement_state;
+    BOOST_CHECK(MWEB::Node::ContextualCheckBlock(valid_block, consensus, &previous, replacement_state));
 }
 
 BOOST_AUTO_TEST_CASE(BlockValidator_Test_PeginMismatch)

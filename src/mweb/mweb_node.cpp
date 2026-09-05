@@ -49,18 +49,6 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
         return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "mweb-missing", "MWEB activated but extension block not found");
     }
 
-    // Validate each transaction in the block.
-    for (const auto& tx : block.vtx) {
-        // Verify that there are no pegin outputs in the coinbase or HogEx transactions.
-        if (tx->IsCoinBase() || tx->IsHogEx()) {
-            for (const CTxOut& out : tx->vout) {
-                if (out.scriptPubKey.IsMWEBPegin()) {
-                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-tx-unexpected-pegin", "Pegin found in coinbase or HogEx");
-                }
-            }
-        }
-    }
-
     // Last transaction must be marked as HogEx.
     // Note: We don't commit to the HogEx indicator, so if indicator not set, just mark the block as mutated.
     const CTransactionRef& pHogEx = block.vtx.back();
@@ -72,6 +60,19 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
     for (size_t i = 0; i < block.vtx.size() - 1; i++) {
         if (block.vtx[i]->IsHogEx()) {
             return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-hogex-position", "hogex in wrong position");
+        }
+    }
+
+    // Validate each transaction in the block. HogEx placement must be checked
+    // first because the marker is not committed by the canonical merkle root.
+    for (const auto& tx : block.vtx) {
+        // Verify that there are no pegin outputs in the coinbase or HogEx transactions.
+        if (tx->IsCoinBase() || tx->IsHogEx()) {
+            for (const CTxOut& out : tx->vout) {
+                if (out.scriptPubKey.IsMWEBPegin()) {
+                    return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-tx-unexpected-pegin", "Pegin found in coinbase or HogEx");
+                }
+            }
         }
     }
 
@@ -94,11 +95,21 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "mweb-height-mismatch", "Invalid MWEB block height");
     }
 
+    // Kernel data is not directly committed by the canonical block hash, so
+    // authenticate it against the HogEx-committed header before using feature
+    // bits for permanent consensus decisions.
+    if (!block.mweb_block.m_block->HasValidKernelMMR()) {
+        return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-blk-mweb", "MWEB kernel root doesn't match body");
+    }
+
     // Verify that pegout features are canonical once the pegout rule is active.
     if (pindexPrev->nHeight + 1 >= consensus_params.mweb_pegout_feature_activation_height) {
         for (const Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
             if (!kernel.HasCanonicalPegOutFeature()) {
-                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-pegout", "Pegout feature set without pegouts");
+                // Empty feature fields can have alternate wire encodings that
+                // reserialize to the same kernel MMR leaf. Do not permanently
+                // invalidate the canonical block hash based on those fields.
+                return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-mweb-empty-pegout", "Pegout feature set without pegouts");
             }
         }
     }
@@ -107,7 +118,9 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
     if (pindexPrev->nHeight + 1 >= consensus_params.mweb_extradata_feature_activation_height) {
         for (const Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
             if (!kernel.HasCanonicalExtraDataFeature()) {
-                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-extradata", "Extra data feature set without extra data");
+                // See the empty pegout case above. The block remains invalid,
+                // but the failure must not poison another body with this hash.
+                return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-mweb-empty-extradata", "Extra data feature set without extra data");
             }
         }
     }

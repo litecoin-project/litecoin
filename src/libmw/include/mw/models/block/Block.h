@@ -73,6 +73,7 @@ public:
     //
     // Context-free validation of the block.
     //
+    bool HasValidKernelMMR() const;
     void Validate() const;
 
 private:

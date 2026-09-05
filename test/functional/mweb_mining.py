@@ -99,7 +99,7 @@ class MWEBMiningTest(BitcoinTestFramework):
         self.mine_after_stale_mweb_spend_reorg()
 
     def test_noncanonical_kernel_features_rejected(self, node):
-        self.log.info("Reject a block with an empty pegout feature")
+        self.log.info("Reject an uncommitted empty pegout feature as mutated")
         node.sendtoaddress(node.getnewaddress(address_type='mweb'), Decimal("0.1"))
 
         gbt = node.getblocktemplate(NORMAL_GBT_REQUEST_PARAMS)
@@ -131,7 +131,7 @@ class MWEBMiningTest(BitcoinTestFramework):
             'data': block.serialize().hex(),
             'mode': 'proposal',
             'rules': ['mweb', 'segwit'],
-        }), 'bad-mweb-empty-pegout')
+        }), 'bad-blk-mweb')
 
         kernel.features &= ~4
         kernel.pegouts = None
@@ -139,12 +139,12 @@ class MWEBMiningTest(BitcoinTestFramework):
         kernel.extradata = b""
         kernel.rehash()
 
-        self.log.info("Reject a block with an empty extra data feature")
+        self.log.info("Reject uncommitted empty extra data as mutated")
         assert_equal(node.getblocktemplate(template_request={
             'data': block.serialize().hex(),
             'mode': 'proposal',
             'rules': ['mweb', 'segwit'],
-        }), 'bad-mweb-empty-extradata')
+        }), 'bad-blk-mweb')
 
         # Do not leave the valid MWEB transaction in the mempool for the
         # following empty-block proposal.
