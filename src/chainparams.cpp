@@ -109,7 +109,7 @@ public:
         consensus.mweb_input_metadata_grandfather_blockhash = uint256S("0xd1695b5d115f86927a9763768218118ba88b315844e1a0681fa08f6f008be622");
         // One expected week (4,032 blocks) after height 3,150,408.
         consensus.mweb_pegout_feature_activation_height = 3'154'440;
-        consensus.mweb_extradata_feature_activation_height = 3'200'000;
+        consensus.mweb_extradata_feature_activation_height = 3'172'640;
         consensus.frozen_mweb_output_ids = GetFrozenMWEBOutputIDs();
 
         /**

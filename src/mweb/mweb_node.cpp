@@ -188,6 +188,11 @@ bool Node::ValidateMWEBBlock(const CBlock& block)
 
 bool Node::ConnectBlock(const CBlock& block, const Consensus::Params& consensus_params, const CBlockIndex* pindexPrev, CBlockUndo& blockundo, mw::CoinsViewCache& mweb_view, BlockValidationState& state)
 {
+    // Revalidate the body actually being applied, including after disk reload.
+    if (!ContextualCheckBlock(block, consensus_params, pindexPrev, state)) {
+        return false;
+    }
+
     if (!block.mweb_block.IsNull()) {
         const CTransactionRef& pHogEx = block.vtx.back();
 
