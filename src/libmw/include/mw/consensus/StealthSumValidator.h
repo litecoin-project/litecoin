@@ -8,6 +8,12 @@
 class StealthSumValidator
 {
 public:
+    struct SumState
+    {
+        boost::optional<PublicKey> lhs;
+        boost::optional<PublicKey> rhs;
+    };
+
     //
     // Verifies that stealth excesses balance:
     // 
@@ -15,7 +21,21 @@ public:
     //
     static void Validate(const BlindingFactor& stealth_offset, const TxBody& body)
     {
+        ValidateAndAdd(stealth_offset, body, SumState{});
+    }
+
+    // Extends the sums of an already-valid transaction aggregate without
+    // rebuilding the full aggregate body.
+    static SumState ValidateAndAdd(
+        const BlindingFactor& stealth_offset,
+        const TxBody& body,
+        const SumState& previous)
+    {
         std::vector<PublicKey> lhs_keys;
+
+        if (previous.lhs) {
+            lhs_keys.push_back(*previous.lhs);
+        }
 
         //
         // sum(K_s) + sum(K_i)
@@ -31,15 +51,16 @@ public:
             }
         }
 
-        PublicKey lhs_total;
-        if (!lhs_keys.empty()) {
-            lhs_total = PublicKeys::Add(lhs_keys);
-        }
+        const boost::optional<PublicKey> lhs_total = AddKeys(lhs_keys);
         
         //
         // sum(E') + x'*G + sum(K_o)
         //
         std::vector<PublicKey> rhs_keys = body.GetStealthExcesses();
+
+        if (previous.rhs) {
+            rhs_keys.push_back(*previous.rhs);
+        }
 
         std::transform(
             body.GetInputs().cbegin(), body.GetInputs().cend(), std::back_inserter(rhs_keys),
@@ -51,14 +72,23 @@ public:
             rhs_keys.push_back(PublicKeys::Calculate(stealth_offset.GetBigInt()));
         }
 
-        PublicKey rhs_total;
-        if (!rhs_keys.empty()) {
-            rhs_total = PublicKeys::Add(rhs_keys);
-        }
+        const boost::optional<PublicKey> rhs_total = AddKeys(rhs_keys);
 
         // sum(K_s) + sum(K_i) = sum(E') + x'*G + sum(K_o)
         if (lhs_total != rhs_total) {
             ThrowValidation(EConsensusError::STEALTH_SUMS);
         }
+
+        return SumState{lhs_total, rhs_total};
+    }
+
+private:
+    static boost::optional<PublicKey> AddKeys(const std::vector<PublicKey>& keys)
+    {
+        if (keys.empty()) {
+            return boost::none;
+        }
+
+        return PublicKeys::Add(keys);
     }
 };

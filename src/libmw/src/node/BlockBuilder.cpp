@@ -1,5 +1,4 @@
 #include <mw/node/BlockBuilder.h>
-#include <mw/consensus/KernelSumValidator.h>
 #include <mw/consensus/Params.h>
 #include <mw/consensus/Weight.h>
 
@@ -72,19 +71,28 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
         return false;
     }
     
-    try {
-        std::vector<Commitment> input_commits = pTransaction->GetInputCommits();
-        std::vector<Commitment> output_commits = pTransaction->GetOutputCommits();
-        for (const auto& tx : m_stagedTxs) {
-            std::vector<Commitment> staged_tx_input_commits = tx->GetInputCommits();
-            input_commits.insert(input_commits.end(), staged_tx_input_commits.begin(), staged_tx_input_commits.end());
-            std::vector<Commitment> staged_tx_output_commits = tx->GetOutputCommits();
-            output_commits.insert(output_commits.end(), staged_tx_output_commits.begin(), staged_tx_output_commits.end());
+    // Kernel IDs must remain unique in the aggregate block body.
+    for (const Kernel& kernel : pTransaction->GetKernels()) {
+        if (m_stagedKernels.count(kernel.GetKernelID()) > 0) {
+            LOG_ERROR_F("Kernel {} already staged", kernel.GetKernelID());
+            return false;
         }
-        Commitment commit = Pedersen::AddCommitments(input_commits, output_commits);
-        assert(!commit.IsZero());
-    } catch (std::exception& e) {
-        LOG_ERROR_F("Staged inputs and outputs would sum to zero. Error: {}", e.what());
+    }
+
+    // Individually valid transactions can still form unrepresentable group
+    // identities when aggregated. Extend the validated sums using only the
+    // candidate so template construction remains linear in the body size.
+    KernelSumValidator::SumState kernel_sums;
+    StealthSumValidator::SumState stealth_sums;
+    try {
+        kernel_sums = KernelSumValidator::ValidateAndAdd(*pTransaction, m_kernelSums);
+        stealth_sums = StealthSumValidator::ValidateAndAdd(
+            pTransaction->GetStealthOffset(),
+            pTransaction->GetBody(),
+            m_stealthSums
+        );
+    } catch (const std::exception& e) {
+        LOG_ERROR_F("Transaction is incompatible with staged MWEB transactions. Error: {}", e.what());
         return false;
     }
 
@@ -122,6 +130,14 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
         auto inserted = m_stagedOutputs.insert(output.GetOutputID());
         assert(inserted.second);
     }
+
+    for (const Kernel& kernel : pTransaction->GetKernels()) {
+        auto inserted = m_stagedKernels.insert(kernel.GetKernelID());
+        assert(inserted.second);
+    }
+
+    m_kernelSums = std::move(kernel_sums);
+    m_stealthSums = std::move(stealth_sums);
 
     return true;
 }

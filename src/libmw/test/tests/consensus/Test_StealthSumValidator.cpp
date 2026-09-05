@@ -17,6 +17,14 @@ BOOST_FIXTURE_TEST_SUITE(TestStealthSumValidator, MWEBTestingSetup)
 //
 BOOST_AUTO_TEST_CASE(ValidateStealthSum)
 {
+    const StealthSumValidator::SumState empty_sums = StealthSumValidator::ValidateAndAdd(
+        BlindingFactor{},
+        TxBody{},
+        StealthSumValidator::SumState{}
+    );
+    BOOST_CHECK(!empty_sums.lhs);
+    BOOST_CHECK(!empty_sums.rhs);
+
     ////////////////////////////////////////
     // Build inputs
     ////////////////////////////////////////
