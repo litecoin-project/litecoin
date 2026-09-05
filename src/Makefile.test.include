@@ -103,6 +103,7 @@ BITCOIN_TESTS =\
   test/key_io_tests.cpp \
   test/key_tests.cpp \
   test/logging_tests.cpp \
+  test/mweb_admission_tests.cpp \
   test/mweb_mempool_tests.cpp \
   test/mweb_miner_tests.cpp \
   test/mweb_node_tests.cpp \
