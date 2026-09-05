@@ -37,6 +37,7 @@ public:
     TxBuilder& AddPlainKernel(const CAmount fee, const bool add_stealth_excess = false);
     TxBuilder& AddPeginKernel(const CAmount amount, const std::optional<CAmount>& fee = std::nullopt, const bool add_stealth_excess = false);
     TxBuilder& AddPegoutKernel(const CAmount amount, const CAmount fee, const bool add_stealth_excess = false);
+    TxBuilder& AddPegoutKernel(const std::vector<PegOutCoin>& pegouts, const CAmount fee, const bool add_stealth_excess = false);
 
     Tx Build();
 

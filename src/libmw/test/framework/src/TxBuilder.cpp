@@ -112,9 +112,14 @@ TxBuilder& TxBuilder::AddPeginKernel(const CAmount amount, const std::optional<C
 
 TxBuilder& TxBuilder::AddPegoutKernel(const CAmount amount, const CAmount fee, const bool add_stealth_excess)
 {
+    const std::vector<uint8_t> ltc_address = SecretKey::Random().vec();
+    return AddPegoutKernel({PegOutCoin{amount, CScript{ltc_address.begin(), ltc_address.end()}}}, fee, add_stealth_excess);
+}
+
+TxBuilder& TxBuilder::AddPegoutKernel(const std::vector<PegOutCoin>& pegouts, const CAmount fee, const bool add_stealth_excess)
+{
     BlindingFactor kernel_excess = BlindingFactor::Random();
     m_kernelOffset.Sub(kernel_excess);
-    std::vector<uint8_t> ltc_address = SecretKey::Random().vec();
 
     std::optional<SecretKey> stealth_excess = std::nullopt;
     if (add_stealth_excess) {
@@ -122,19 +127,21 @@ TxBuilder& TxBuilder::AddPegoutKernel(const CAmount amount, const CAmount fee, c
         m_stealthOffset.Sub(stealth_excess.value());
     }
     
-    PegOutCoin pegout(amount, CScript{ ltc_address.begin(), ltc_address.end() });
     mw::Kernel kernel = mw::Kernel::Create(
         kernel_excess,
         stealth_excess,
         fee,
         std::nullopt,
-        std::vector<PegOutCoin>{ pegout },
+        pegouts,
         std::nullopt,
         std::vector<uint8_t>{}
     );
 
     m_kernels.push_back(std::move(kernel));
-    m_amount -= amount + fee;
+    m_amount -= fee;
+    for (const PegOutCoin& pegout : pegouts) {
+        m_amount -= pegout.GetAmount();
+    }
     return *this;
 }
 
