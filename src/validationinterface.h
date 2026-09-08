@@ -171,7 +171,9 @@ protected:
     virtual void BlockChecked(const CBlock&, const BlockValidationState&) {}
     /**
      * Notifies listeners that a block which builds directly on our current tip
-     * has been received and connected to the headers tree, though not validated yet */
+     * has been received and is ready for fast relay. Most blocks are connected
+     * only to the headers tree; blocks with uncommitted extension data may be
+     * fully validated and connected first. */
     virtual void NewPoWValidBlock(const CBlockIndex *pindex, const std::shared_ptr<const CBlock>& block) {};
     friend class CMainSignals;
 };
