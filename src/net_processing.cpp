@@ -1507,6 +1507,23 @@ bool static AlreadyHaveTx(const GenTxid& gtxid, const CTxMemPool& mempool) EXCLU
     return recentRejects->contains(hash) || mempool.exists(gtxid);
 }
 
+/**
+ * Return true when a transaction's txid/wtxid can identify a different MWEB
+ * relay payload. MWEB data and the HogEx marker are excluded from both hashes.
+ * A pegin with its required MWEB body stripped must also be classified here,
+ * even though HasMWEBTx() is false for that invalid relay variant.
+ */
+bool static HasUncommittedMWEBPayload(const CTransaction& tx)
+{
+    if (tx.HasMWEBTx() || tx.IsHogEx()) return true;
+
+    for (const CTxOut& txout : tx.vout) {
+        if (txout.scriptPubKey.IsMWEBPegin()) return true;
+    }
+
+    return false;
+}
+
 bool static AlreadyHaveBlock(const uint256& block_hash) EXCLUSIVE_LOCKS_REQUIRED(cs_main)
 {
     return LookupBlockIndex(block_hash) != nullptr;
@@ -2396,7 +2413,9 @@ void PeerManager::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
                 // for concerns around weakening security of unupgraded nodes
                 // if we start doing this too early.
                 assert(recentRejects);
-                recentRejects->insert(porphanTx->GetWitnessHash());
+                if (!HasUncommittedMWEBPayload(*porphanTx)) {
+                    recentRejects->insert(porphanTx->GetWitnessHash());
+                }
                 // If the transaction failed for TX_INPUTS_NOT_STANDARD,
                 // then we know that the witness was irrelevant to the policy
                 // failure, since this check depends only on the txid
@@ -2405,7 +2424,9 @@ void PeerManager::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
                 // processing of this transaction in the event that child
                 // transactions are later received (resulting in
                 // parent-fetching by txid via the orphan-handling logic).
-                if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && porphanTx->GetWitnessHash() != porphanTx->GetHash()) {
+                if (!HasUncommittedMWEBPayload(*porphanTx) &&
+                    state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD &&
+                    porphanTx->GetWitnessHash() != porphanTx->GetHash()) {
                     // We only add the txid if it differs from the wtxid, to
                     // avoid wasting entries in the rolling bloom filter.
                     recentRejects->insert(porphanTx->GetHash());
@@ -3517,8 +3538,14 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
                 // for concerns around weakening security of unupgraded nodes
                 // if we start doing this too early.
                 assert(recentRejects);
-                recentRejects->insert(tx.GetWitnessHash());
-                m_txrequest.ForgetTxHash(tx.GetWitnessHash());
+                // MWEB transaction identifiers do not commit to the MWEB
+                // payload. Caching a rejection would allow an invalid relay
+                // variant to suppress a valid transaction with the same
+                // identifiers.
+                if (!HasUncommittedMWEBPayload(tx)) {
+                    recentRejects->insert(tx.GetWitnessHash());
+                    m_txrequest.ForgetTxHash(tx.GetWitnessHash());
+                }
                 // If the transaction failed for TX_INPUTS_NOT_STANDARD,
                 // then we know that the witness was irrelevant to the policy
                 // failure, since this check depends only on the txid
@@ -3527,7 +3554,9 @@ void PeerManager::ProcessMessage(CNode& pfrom, const std::string& msg_type, CDat
                 // processing of this transaction in the event that child
                 // transactions are later received (resulting in
                 // parent-fetching by txid via the orphan-handling logic).
-                if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && tx.GetWitnessHash() != tx.GetHash()) {
+                if (!HasUncommittedMWEBPayload(tx) &&
+                    state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD &&
+                    tx.GetWitnessHash() != tx.GetHash()) {
                     recentRejects->insert(tx.GetHash());
                     m_txrequest.ForgetTxHash(tx.GetHash());
                 }

@@ -2032,7 +2032,8 @@ def deser_mweb_tx(f):
     has_mweb = struct.unpack("B", f.read(1))[0]
     if has_mweb == 1:
         mweb_tx = MWEBTransaction()
-        return mweb_tx.deserialize(f)
+        mweb_tx.deserialize(f)
+        return mweb_tx
     else:
         return None
         
