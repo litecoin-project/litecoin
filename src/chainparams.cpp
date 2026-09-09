@@ -139,7 +139,7 @@ public:
         vSeeds.emplace_back("seed-a.litecoin.loshan.co.uk");
         vSeeds.emplace_back("dnsseed.thrasher.io");
         vSeeds.emplace_back("dnsseed.litecointools.com");
-        vSeeds.emplace_back("dnsseed.litecoinpool.org");
+        vSeeds.emplace_back("dnsseed.ltcpool.org");
         vSeeds.emplace_back("dnsseed.koin-project.com");
 
         base58Prefixes[PUBKEY_ADDRESS] = std::vector<unsigned char>(1,48);
