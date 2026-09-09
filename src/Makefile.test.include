@@ -464,6 +464,7 @@ univalue_test_object_CPPFLAGS = -I$(srcdir)/$(UNIVALUE_INCLUDE_DIR_INT)
 univalue_test_object_LDFLAGS = -static $(LIBTOOL_APP_LDFLAGS)
 endif
 
+# Boost.Test needs comma-separated suite names when a source registers multiple suites.
 %.cpp.test: %.cpp
 	@echo Running tests: $$(\
 	  cat $< | \
@@ -476,7 +477,7 @@ endif
 	$(TEST_BINARY) --catch_system_errors=no -l test_suite -t "$$(\
 	  cat $< | \
 	  grep -E "(BOOST_FIXTURE_TEST_SUITE\\(|BOOST_AUTO_TEST_SUITE\\()" | \
-	  cut -d '(' -f 2 | cut -d ',' -f 1 | cut -d ')' -f 1\
+	  cut -d '(' -f 2 | cut -d ',' -f 1 | cut -d ')' -f 1 | paste -sd ',' -\
 	)" -- DEBUG_LOG_OUT > "$$TEST_LOGFILE" 2>&1 || (cat "$$TEST_LOGFILE" && false)
 
 %.json.h: %.json

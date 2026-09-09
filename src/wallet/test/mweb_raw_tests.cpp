@@ -12,6 +12,7 @@
 #include <mw/models/wallet/WalletCoin.h>
 #include <policy/policy.h>
 #include <rpc/protocol.h>
+#include <rpc/util.h>
 #include <script/interpreter.h>
 #include <script/standard.h>
 #include <test/util/setup_common.h>
@@ -27,6 +28,7 @@
 #include <boost/test/unit_test.hpp>
 
 #include <algorithm>
+#include <array>
 #include <optional>
 #include <set>
 #include <stdexcept>
@@ -54,6 +56,69 @@ mw::MutableOutput MWEBOutput(const StealthAddress& address, CAmount amount)
     output.address = address;
     output.amount = amount;
     return output;
+}
+
+UniValue RPCInputs(const std::vector<AnyOutputID>& output_ids)
+{
+    UniValue inputs(UniValue::VARR);
+    for (const AnyOutputID& id : output_ids) {
+        UniValue input(UniValue::VOBJ);
+        if (id.IsMWEB()) {
+            input.pushKV("mweb_out", id.ToMWEB().ToHex());
+        } else {
+            input.pushKV("txid", id.ToOutPoint().hash.GetHex());
+            input.pushKV("vout", id.ToOutPoint().n);
+        }
+        inputs.push_back(input);
+    }
+    return inputs;
+}
+
+UniValue RPCOutputs(const std::vector<CRecipient>& recipients, bool as_object = false)
+{
+    UniValue outputs(as_object ? UniValue::VOBJ : UniValue::VARR);
+    for (const CRecipient& recipient : recipients) {
+        UniValue output(UniValue::VOBJ);
+        output.pushKV(recipient.receiver.Encode(), ValueFromAmount(recipient.nAmount));
+        if (as_object) {
+            outputs.pushKVs(output);
+        } else {
+            outputs.push_back(output);
+        }
+    }
+    return outputs;
+}
+
+CAmount RecipientAmount(const CMutableTransaction& tx, const GenericAddress& address)
+{
+    std::vector<CAmount> amounts;
+    for (const CTxOut& output : tx.vout) {
+        if (GenericAddress{output.scriptPubKey} == address) amounts.push_back(output.nValue);
+    }
+    for (const mw::MutableOutput& output : tx.mweb_tx.outputs) {
+        if (output.address && GenericAddress{*output.address} == address) {
+            BOOST_REQUIRE(output.amount);
+            amounts.push_back(*output.amount);
+        }
+    }
+    for (const PegOutCoin& pegout : tx.mweb_tx.GetPegOutCoins()) {
+        if (GenericAddress{pegout.GetScriptPubKey()} == address) amounts.push_back(pegout.GetAmount());
+    }
+    BOOST_REQUIRE_EQUAL(amounts.size(), 1U);
+    return amounts.front();
+}
+
+CAmount PaymentTotal(const CMutableTransaction& tx)
+{
+    CAmount total = tx.mweb_tx.GetTotalPegoutAmount();
+    for (const CTxOut& output : tx.vout) {
+        if (!output.scriptPubKey.IsMWEBPegin()) total += output.nValue;
+    }
+    for (const mw::MutableOutput& output : tx.mweb_tx.outputs) {
+        BOOST_REQUIRE(output.amount);
+        total += *output.amount;
+    }
+    return total;
 }
 
 class MWEBRawTestingSetup : public TestChain100Setup
@@ -255,6 +320,21 @@ public:
                 MissingDataBehavior::ASSERT_FAIL),
             &error);
     }
+
+    void CheckSignedRoundTrip(TransactionDraft& draft)
+    {
+        BOOST_REQUIRE(Sign(draft.tx));
+        const CTransaction tx{draft.tx};
+        if (tx.HasMWEBTx()) {
+            BOOST_CHECK(!tx.mweb_tx.m_transaction->Validate());
+        }
+        CMutableTransaction decoded;
+        BOOST_REQUIRE(DecodeHexTx(decoded, draft.ToHex()));
+        BOOST_CHECK_EQUAL(EncodeHexTx(CTransaction{decoded}), draft.ToHex());
+        for (size_t i = 0; i < decoded.vin.size(); ++i) {
+            BOOST_CHECK(VerifyInput(decoded, i, PreviousOutput(decoded.vin[i])));
+        }
+    }
 };
 
 BOOST_FIXTURE_TEST_SUITE(mweb_raw_tests, MWEBRawTestingSetup)
@@ -432,9 +512,8 @@ BOOST_AUTO_TEST_CASE(PegoutDraftRawFundingBoundaryIsAtomic)
     BOOST_CHECK(draft.tx.mweb_tx.IsFinal());
 }
 
-// Recipient indexes are flattened as canonical outputs followed by MWEB
-// outputs before funding. This is the indexing contract used by the RPC's
-// subtract_fee_from_outputs option for mixed LTC and MWEB recipient lists.
+// Drafts constructed directly, without an RPC recipient order, use canonical
+// outputs followed by MWEB outputs for fee-subtraction indexes.
 BOOST_AUTO_TEST_CASE(BuildRecipientsFlattensFeeSubtractionIndexes)
 {
     static constexpr CAmount LTC_RECIPIENT_AMOUNT{1 * COIN};
@@ -457,6 +536,337 @@ BOOST_AUTO_TEST_CASE(BuildRecipientsFlattensFeeSubtractionIndexes)
     BOOST_CHECK(recipients[1].fSubtractFeeFromAmount);
     BOOST_REQUIRE(draft.tx.mweb_tx.outputs[0].subtract_fee_from_amount);
     BOOST_CHECK(*draft.tx.mweb_tx.outputs[0].subtract_fee_from_amount);
+}
+
+// Exercise the actual RPC boundary, including all recipient permutations,
+// object/array syntax, individual fee payers, subsets, and clearing a selection.
+BOOST_AUTO_TEST_CASE(RPCFeeSubtractionFollowsRecipientOrder)
+{
+    const std::vector<CRecipient> recipients{
+        {NewExternalMWEBAddress(), COIN, false},
+        {NewExternalLTCAddress(), 2 * COIN, false},
+        {NewExternalMWEBAddress(), 3 * COIN, false},
+        {NewExternalLTCAddress(), 4 * COIN, false},
+    };
+    std::array<size_t, 4> order{0, 1, 2, 3};
+    do {
+        std::vector<CRecipient> requested;
+        for (size_t index : order) requested.push_back(recipients[index]);
+        for (bool as_object : {false, true}) {
+            TransactionDraft draft = TransactionDraft::FromRPC({}, RPCOutputs(requested, as_object), {}, false);
+            for (const std::set<int>& selected : std::vector<std::set<int>>{{0}, {1}, {2}, {3}, {0, 2}, {1, 3}, {0, 1, 2, 3}, {}}) {
+                const auto built = draft.BuildRecipients(selected);
+                BOOST_REQUIRE_EQUAL(built.size(), requested.size());
+                for (size_t i = 0; i < requested.size(); ++i) {
+                    const auto found = std::find_if(built.begin(), built.end(), [&](const CRecipient& recipient) {
+                        return recipient.receiver == requested[i].receiver;
+                    });
+                    BOOST_REQUIRE(found != built.end());
+                    BOOST_CHECK_EQUAL(found->nAmount, requested[i].nAmount);
+                    BOOST_CHECK_EQUAL(found->fSubtractFeeFromAmount, selected.count(i) != 0);
+                }
+            }
+        }
+    } while (std::next_permutation(order.begin(), order.end()));
+}
+
+// OP_RETURN occupies a caller-visible output index even when it is between
+// MWEB and transparent recipients. It must not become a fee payer by accident.
+BOOST_AUTO_TEST_CASE(RPCDataOutputKeepsItsRecipientIndex)
+{
+    const CRecipient mweb{NewExternalMWEBAddress(), COIN, false};
+    const CRecipient ltc{NewExternalLTCAddress(), 2 * COIN, false};
+    for (bool as_object : {false, true}) {
+        UniValue data(UniValue::VOBJ);
+        data.pushKV("data", "010203");
+        UniValue outputs = RPCOutputs({mweb}, as_object);
+        if (as_object) {
+            outputs.pushKVs(data);
+            outputs.pushKVs(RPCOutputs({ltc}, true));
+        } else {
+            outputs.push_back(data);
+            outputs.push_back(RPCOutputs({ltc})[0]);
+        }
+        TransactionDraft draft = TransactionDraft::FromRPC({}, outputs, {}, false);
+        for (int selected : {0, 1, 2}) {
+            const auto built = draft.BuildRecipients({selected});
+            BOOST_REQUIRE_EQUAL(built.size(), 3U);
+            for (const CRecipient& recipient : built) {
+                const int original_index = recipient.receiver == mweb.receiver ? 0 : recipient.receiver == ltc.receiver ? 2 : 1;
+                BOOST_CHECK_EQUAL(recipient.fSubtractFeeFromAmount, selected == original_index);
+                if (original_index == 1) {
+                    BOOST_CHECK(recipient.GetScript() == (CScript{} << OP_RETURN << std::vector<unsigned char>{1, 2, 3}));
+                    BOOST_CHECK_EQUAL(recipient.nAmount, 0);
+                }
+            }
+        }
+        const auto funding = FundSuccessfully(draft, CoinControl(), {0});
+        BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, mweb.receiver), mweb.nAmount - funding.fee);
+        BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, ltc.receiver), ltc.nAmount);
+        CheckSignedRoundTrip(draft);
+    }
+}
+
+// Follow mixed payments through peg-ins, peg-outs and combined funding, with
+// and without change. Check actual amounts by recipient, then sign both layers.
+BOOST_AUTO_TEST_CASE(RPCMixedFundingChargesOnlySelectedRecipients)
+{
+    const AnyWalletUTXO mweb_source = AddMWEBFunds(5 * COIN);
+    const AnyWalletUTXO ltc_source = SmallestLTCCoin();
+    const GenericAddress mweb_recipient{NewExternalMWEBAddress()};
+    const GenericAddress ltc_recipient{NewExternalLTCAddress()};
+
+    for (int input_layer : {0, 1, 2}) {
+        std::vector<AnyOutputID> inputs;
+        CAmount input_amount{0};
+        if (input_layer != 1) {
+            inputs.push_back(ltc_source.GetID());
+            input_amount += ltc_source.GetValue();
+        }
+        if (input_layer != 0) {
+            inputs.push_back(mweb_source.GetID());
+            input_amount += mweb_source.GetValue();
+        }
+        for (bool mweb_first : {false, true}) {
+            for (bool with_change : {false, true}) {
+                const CAmount requested_total = with_change ? 3 * COIN : input_amount;
+                std::vector<CRecipient> requested{
+                    {mweb_recipient, requested_total / 2, false},
+                    {ltc_recipient, requested_total - requested_total / 2, false},
+                };
+                if (!mweb_first) std::reverse(requested.begin(), requested.end());
+                for (const std::set<int>& selected : std::vector<std::set<int>>{{0}, {1}, {0, 1}, {}}) {
+                    BOOST_TEST_CONTEXT("input layer=" << input_layer << ", MWEB first=" << mweb_first << ", change=" << with_change << ", fee payers=" << selected.size()) {
+                        TransactionDraft draft = TransactionDraft::FromRPC(RPCInputs(inputs), RPCOutputs(requested), 123, false);
+                        draft.BuildRecipients(); // RPC option validation also calls this before funding.
+                        if (!with_change && selected.empty()) {
+                            // Exact-value inputs cannot pay the fee without subtraction.
+                            ExpectRPCError([&] { Fund(draft, CoinControl(false), {}, true); }, RPC_WALLET_ERROR, "Insufficient funds");
+                            for (const CRecipient& recipient : requested) {
+                                BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, recipient.receiver), recipient.nAmount);
+                            }
+                            for (const AnyOutputID& input : inputs) {
+                                WITH_LOCK(m_wallet.cs_wallet, BOOST_CHECK(!m_wallet.IsLockedCoin(input)));
+                            }
+                            continue;
+                        }
+                        const auto funding = FundSuccessfully(draft, CoinControl(false), selected);
+                        BOOST_CHECK_EQUAL(draft.tx.nLockTime, 123U);
+                        for (const CTxIn& input : draft.tx.vin) {
+                            BOOST_CHECK_EQUAL(input.nSequence, uint32_t{CTxIn::MAX_SEQUENCE_NONFINAL});
+                        }
+                        BOOST_CHECK_EQUAL(funding.change_pos.IsNull(), !with_change);
+                        BOOST_CHECK_EQUAL(PaymentTotal(draft.tx) + funding.fee, input_amount);
+                        BOOST_CHECK_EQUAL(draft.tx.GetInputs().size(), inputs.size());
+                        for (const AnyInput& input : draft.tx.GetInputs()) {
+                            BOOST_CHECK(std::find(inputs.begin(), inputs.end(), input.GetID()) != inputs.end());
+                        }
+                        CAmount deducted{0};
+                        std::vector<CAmount> funded_amounts;
+                        for (size_t i = 0; i < requested.size(); ++i) {
+                            const CAmount amount = RecipientAmount(draft.tx, requested[i].receiver);
+                            const CAmount difference = requested[i].nAmount - amount;
+                            funded_amounts.push_back(amount);
+                            if (selected.count(i)) {
+                                BOOST_CHECK_GE(difference, funding.fee / selected.size());
+                                BOOST_CHECK_LE(difference, (funding.fee + selected.size() - 1) / selected.size());
+                            } else {
+                                BOOST_CHECK_EQUAL(difference, 0);
+                            }
+                            deducted += difference;
+                        }
+                        BOOST_CHECK_EQUAL(deducted, selected.empty() ? 0 : funding.fee);
+                        CheckSignedRoundTrip(draft);
+                        for (size_t i = 0; i < requested.size(); ++i) {
+                            BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, requested[i].receiver), funded_amounts[i]);
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// RPC parsing preserves both input IDs and locktime, applies RBF-dependent
+// sequence defaults to transparent inputs, and honors explicit sequences.
+BOOST_AUTO_TEST_CASE(RPCInputParsingPreservesMixedInputsAndSequences)
+{
+    const AnyOutputID ltc{COutPoint{InsecureRand256(), 2}};
+    const AnyOutputID mweb{mw::Hash::FromHex(InsecureRand256().GetHex())};
+    const UniValue outputs = RPCOutputs({{NewExternalMWEBAddress(), COIN, false}});
+    for (const std::optional<bool> rbf : {std::optional<bool>{}, std::optional<bool>{false}, std::optional<bool>{true}}) {
+        for (int locktime : {0, 123}) {
+            TransactionDraft draft = TransactionDraft::FromRPC(RPCInputs({mweb, ltc}), outputs, locktime, rbf);
+            BOOST_REQUIRE_EQUAL(draft.tx.vin.size(), 1U);
+            BOOST_REQUIRE_EQUAL(draft.tx.mweb_tx.inputs.size(), 1U);
+            BOOST_CHECK(draft.tx.vin[0].prevout == ltc.ToOutPoint());
+            BOOST_CHECK(draft.tx.mweb_tx.inputs[0].output_id == mweb.ToMWEB());
+            BOOST_CHECK(!draft.tx.mweb_tx.inputs[0].amount);
+            BOOST_CHECK_EQUAL(draft.tx.nLockTime, locktime);
+            BOOST_CHECK_EQUAL(draft.tx.vin[0].nSequence, rbf.value_or(true) ? CTxIn::SEQUENCE_FINAL - 2 : locktime ? CTxIn::MAX_SEQUENCE_NONFINAL : CTxIn::SEQUENCE_FINAL);
+        }
+    }
+    UniValue input = RPCInputs({ltc})[0];
+    input.pushKV("sequence", 12345);
+    UniValue inputs = RPCInputs({mweb});
+    inputs.push_back(input);
+    const TransactionDraft draft = TransactionDraft::FromRPC(inputs, outputs, 123, false);
+    BOOST_CHECK_EQUAL(draft.tx.vin[0].nSequence, 12345U);
+}
+
+// Reject malformed or conflicting MWEB input fields, duplicate payment/data
+// outputs, and array entries that contain more than one output.
+BOOST_AUTO_TEST_CASE(RPCRejectsInvalidMWEBInputsAndDuplicateOutputs)
+{
+    const CRecipient recipient{NewExternalMWEBAddress(), COIN, false};
+    const UniValue outputs = RPCOutputs({recipient});
+    auto check_input = [&](const UniValue& input, const std::string& message) {
+        UniValue inputs(UniValue::VARR);
+        inputs.push_back(input);
+        ExpectRPCError([&] { TransactionDraft::FromRPC(inputs, outputs, {}, false); }, RPC_INVALID_PARAMETER, message);
+    };
+    for (const std::string& id : {std::string{}, std::string(63, '0'), std::string(65, '0'), std::string(64, 'z')}) {
+        UniValue input(UniValue::VOBJ);
+        input.pushKV("mweb_out", id);
+        check_input(input, "Invalid parameter, mweb_out must be a 64-character hexadecimal string");
+    }
+    for (const std::string field : {"txid", "vout", "sequence", "weight"}) {
+        UniValue input(UniValue::VOBJ);
+        input.pushKV("mweb_out", InsecureRand256().GetHex());
+        input.pushKV(field, 0);
+        check_input(input, field == "txid" || field == "vout"
+            ? "Invalid parameter, specify either mweb_out or txid and vout"
+            : "Invalid parameter, sequence and weight do not apply to MWEB inputs");
+    }
+    for (bool as_object : {false, true}) {
+        ExpectRPCError([&] { TransactionDraft::FromRPC({}, RPCOutputs({recipient, recipient}, as_object), {}, false); },
+            RPC_INVALID_PARAMETER, "Invalid parameter, duplicated address: " + recipient.receiver.Encode());
+    }
+    UniValue data(UniValue::VOBJ);
+    data.pushKV("data", "00");
+    UniValue duplicate_data(UniValue::VARR);
+    duplicate_data.push_back(data);
+    duplicate_data.push_back(data);
+    ExpectRPCError([&] { TransactionDraft::FromRPC({}, duplicate_data, {}, false); },
+        RPC_INVALID_PARAMETER, "Invalid parameter, duplicate key: data");
+    UniValue multiple_keys(UniValue::VARR);
+    multiple_keys.push_back(RPCOutputs({recipient, {NewExternalLTCAddress(), COIN, false}}, true));
+    ExpectRPCError([&] { TransactionDraft::FromRPC({}, multiple_keys, {}, false); },
+        RPC_INVALID_PARAMETER, "Invalid parameter, key-value pair must contain exactly one key");
+}
+
+// Custom change must leave the caller's fee payer unchanged, even when
+// transparent recipients and change become pegouts. The returned position
+// identifies change within its layer; MWEB and pegout change are appended.
+BOOST_AUTO_TEST_CASE(RPCCustomChangeDoesNotShiftFeeSubtraction)
+{
+    const AnyWalletUTXO mweb_source = AddMWEBFunds(5 * COIN);
+    const AnyWalletUTXO ltc_source = SmallestLTCCoin();
+    const std::vector<CRecipient> requested{
+        {NewExternalMWEBAddress(), COIN, false},
+        {NewExternalLTCAddress(), COIN, false},
+    };
+    for (const AnyWalletUTXO& source : {ltc_source, mweb_source}) {
+        for (OutputType change_type : {OutputType::BECH32, OutputType::MWEB}) {
+            const CTxDestination change_address = NewWalletDestination(change_type);
+            for (int position : {0, 1}) {
+                BOOST_TEST_CONTEXT("MWEB input=" << source.IsMWEB() << ", MWEB change=" << (change_type == OutputType::MWEB) << ", position=" << position) {
+                    TransactionDraft draft = TransactionDraft::FromRPC(RPCInputs({source.GetID()}), RPCOutputs(requested), {}, false);
+                    CCoinControl control = CoinControl(false);
+                    control.destChange = change_address;
+                    const auto funding = draft.FundTransaction(m_wallet, position, false, {0}, control);
+                    BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, requested[0].receiver), COIN - funding.fee);
+                    BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, requested[1].receiver), COIN);
+                    BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, GenericAddress{change_address}), source.GetValue() - 2 * COIN);
+                    if (change_type == OutputType::MWEB) {
+                        BOOST_REQUIRE(funding.change_pos.IsMWEB());
+                        BOOST_CHECK_EQUAL(funding.change_pos.ToMWEB().idx, 1U);
+                        BOOST_CHECK(GenericAddress{*draft.tx.mweb_tx.outputs.at(funding.change_pos.ToMWEB().idx).address} == change_address);
+                    } else {
+                        BOOST_REQUIRE(funding.change_pos.IsPegout());
+                        BOOST_CHECK_EQUAL(funding.change_pos.ToPegout().idx, 1U);
+                        BOOST_CHECK(GenericAddress{draft.tx.mweb_tx.GetPegOutCoins().at(funding.change_pos.ToPegout().idx).GetScriptPubKey()} == change_address);
+                    }
+                    BOOST_CHECK_EQUAL(PaymentTotal(draft.tx) + funding.fee, source.GetValue());
+                    CheckSignedRoundTrip(draft);
+                }
+            }
+        }
+    }
+}
+
+// Funding failures preserve amounts and leave inputs unlocked; a successful
+// retry keeps the original fee payer and applies the requested coin locks.
+BOOST_AUTO_TEST_CASE(RPCFundingFailurePreservesRecipientsForRetry)
+{
+    const AnyWalletUTXO source = SmallestLTCCoin();
+    const std::vector<CRecipient> requested{
+        {NewExternalMWEBAddress(), COIN, false},
+        {NewExternalLTCAddress(), 2 * COIN, false},
+    };
+    auto too_small = requested;
+    too_small[0].nAmount = 1;
+    TransactionDraft tiny = TransactionDraft::FromRPC(RPCInputs({source.GetID()}), RPCOutputs(too_small), {}, false);
+    ExpectRPCError([&] { Fund(tiny, CoinControl(false), {0}, true); }, RPC_WALLET_ERROR,
+        "The transaction amount is too small to pay the fee");
+    BOOST_CHECK_EQUAL(RecipientAmount(tiny.tx, requested[0].receiver), 1);
+    BOOST_CHECK_EQUAL(RecipientAmount(tiny.tx, requested[1].receiver), 2 * COIN);
+    WITH_LOCK(m_wallet.cs_wallet, BOOST_CHECK(!m_wallet.IsLockedCoin(source.GetID())));
+
+    const AnyOutputID missing{mw::Hash::FromHex(InsecureRand256().GetHex())};
+    TransactionDraft missing_input = TransactionDraft::FromRPC(RPCInputs({missing}), RPCOutputs(requested), {}, false);
+    ExpectRPCError([&] { Fund(missing_input, CoinControl(), {0}, true); }, RPC_WALLET_ERROR,
+        "Unable to find UTXO for external input");
+    BOOST_REQUIRE_EQUAL(missing_input.tx.mweb_tx.inputs.size(), 1U);
+    BOOST_CHECK(missing_input.tx.mweb_tx.inputs[0].output_id == missing.ToMWEB());
+
+    TransactionDraft draft = TransactionDraft::FromRPC(RPCInputs({source.GetID()}), RPCOutputs(requested), 123, false);
+    ExpectRPCError([&] { Fund(draft, CoinControl(false), {0}, true, false); }, RPC_INVALID_PARAMETER,
+        "fundrawtransaction cannot return MWEB transaction hex; use walletcreatefundedpsbt for MWEB funding");
+    BOOST_REQUIRE_EQUAL(draft.tx.vin.size(), 1U);
+    BOOST_CHECK(draft.tx.vin[0].prevout == source.GetID().ToOutPoint());
+    BOOST_CHECK_EQUAL(draft.tx.nLockTime, 123U);
+    for (const CRecipient& recipient : requested) {
+        BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, recipient.receiver), recipient.nAmount);
+    }
+    WITH_LOCK(m_wallet.cs_wallet, BOOST_CHECK(!m_wallet.IsLockedCoin(source.GetID())));
+
+    const auto funding = FundSuccessfully(draft, CoinControl(false), {0}, true);
+    BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, requested[0].receiver), COIN - funding.fee);
+    BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, requested[1].receiver), 2 * COIN);
+    WITH_LOCK(m_wallet.cs_wallet, BOOST_CHECK(m_wallet.IsLockedCoin(source.GetID())));
+    // The draft now contains bridge/change outputs, so original RPC indexes
+    // must no longer be used for these new output positions.
+    const auto funded_recipients = draft.BuildRecipients({0});
+    BOOST_REQUIRE_GT(funded_recipients.size(), requested.size());
+    BOOST_CHECK(funded_recipients[0].fSubtractFeeFromAmount);
+    for (size_t i = 1; i < funded_recipients.size(); ++i) {
+        BOOST_CHECK(!funded_recipients[i].fSubtractFeeFromAmount);
+    }
+    CheckSignedRoundTrip(draft);
+}
+
+// Transparent raw-hex funding retains its original output-index convention.
+BOOST_AUTO_TEST_CASE(TransparentRawHexFundingKeepsRecipientIndexes)
+{
+    const AnyWalletUTXO source = SmallestLTCCoin();
+    const std::vector<CRecipient> recipients{
+        {NewExternalLTCAddress(), COIN, false},
+        {NewExternalLTCAddress(), 2 * COIN, false},
+    };
+    const auto rpc_draft = TransactionDraft::FromRPC(RPCInputs({source.GetID()}), RPCOutputs(recipients), 123, false);
+    for (int position : {0, 1, 2}) {
+        TransactionDraft draft = TransactionDraft::FromHex(rpc_draft.ToHex(), true, true);
+        const auto funding = draft.FundTransaction(m_wallet, position, false, {1}, CoinControl(false), false);
+        BOOST_CHECK(draft.tx.mweb_tx.IsNull());
+        BOOST_CHECK(funding.change_pos == size_t(position));
+        BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, recipients[0].receiver), COIN);
+        BOOST_CHECK_EQUAL(RecipientAmount(draft.tx, recipients[1].receiver), 2 * COIN - funding.fee);
+        BOOST_CHECK_EQUAL(draft.tx.nLockTime, 123U);
+        BOOST_CHECK_EQUAL(draft.tx.vin[0].nSequence, uint32_t{CTxIn::MAX_SEQUENCE_NONFINAL});
+        BOOST_CHECK_EQUAL(PaymentTotal(draft.tx) + funding.fee, source.GetValue());
+        CheckSignedRoundTrip(draft);
+    }
 }
 
 // Funding a single MWEB recipient with an exact-value transparent input leaves

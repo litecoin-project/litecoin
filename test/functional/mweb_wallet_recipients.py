@@ -7,7 +7,7 @@
 from decimal import Decimal
 
 from test_framework.test_framework import LitecoinTestFramework
-from test_framework.util import assert_equal
+from test_framework.util import assert_equal, assert_raises_rpc_error
 
 
 class MWEBWalletRecipientPolicyTest(LitecoinTestFramework):
@@ -33,11 +33,70 @@ class MWEBWalletRecipientPolicyTest(LitecoinTestFramework):
         ltc_coins = [coin for coin in sender.listunspent() if 'vout' in coin]
         assert len(ltc_coins) >= 2
 
+        self.test_selective_fee_subtraction(sender, receiver, ltc_coins[0])
         self.test_mixed_fee_subtraction(sender, receiver, ltc_coins[0])
         custom_change = self.test_custom_mweb_change(sender, receiver, ltc_coins[1])
         self.test_mixed_send_from_mweb(sender, receiver, custom_change)
         self.test_sendmany_mweb_recipients(sender, receiver)
         self.test_sendall_mixed_recipients(sender, receiver)
+
+    def test_selective_fee_subtraction(self, sender, receiver, coin):
+        self.log.info("send and walletcreatefundedpsbt charge the requested output index in either recipient order")
+        recipients = [
+            (receiver.getnewaddress(address_type='mweb'), Decimal('1')),
+            (receiver.getnewaddress(address_type='bech32'), Decimal('2')),
+        ]
+        inputs = [{'txid': coin['txid'], 'vout': coin['vout']}]
+        for ordered in (recipients, list(reversed(recipients))):
+            for outputs in ([{address: amount} for address, amount in ordered], dict(ordered)):
+                for fee_payer in (0, 1):
+                    for rpc in ('send', 'walletcreatefundedpsbt'):
+                        if rpc == 'send':
+                            result = sender.send(outputs=outputs, options={
+                                'inputs': inputs,
+                                'add_inputs': False,
+                                'add_to_wallet': False,
+                                'psbt': True,
+                                'fee_rate': 10,
+                                'subtract_fee_from_outputs': [fee_payer],
+                            })
+                            assert result['complete']
+                        else:
+                            result = sender.walletcreatefundedpsbt(inputs, outputs, 0, {
+                                'add_inputs': False,
+                                'fee_rate': 10,
+                                'subtractFeeFromOutputs': [fee_payer],
+                            })
+                        decoded = sender.decodepsbt(result['psbt'])
+                        fee = sender.analyzepsbt(result['psbt'])['fee']
+                        assert fee > 0
+                        for index, (address, amount) in enumerate(ordered):
+                            assert_equal(
+                                self.output_for_address(decoded, address)['amount'],
+                                amount - fee if index == fee_payer else amount,
+                            )
+                        if rpc == 'walletcreatefundedpsbt':
+                            assert_equal(fee, result['fee'])
+                            assert_equal(decoded['outputs'][result['changepos']]['amount'], coin['amount'] - Decimal('3'))
+                            processed = sender.walletprocesspsbt(result['psbt'])
+                            assert processed['complete']
+                            assert sender.finalizepsbt(processed['psbt'])['complete']
+
+        # Fee indexes count OP_RETURN as well as recipients, before change.
+        outputs = [{recipients[0][0]: Decimal('1')}, {'data': '010203'}, {recipients[1][0]: Decimal('2')}]
+        for selected, message in (([-1], 'negative position'), ([3], 'position too large'), ([0, 0], 'duplicated position')):
+            assert_raises_rpc_error(-8, message, sender.walletcreatefundedpsbt, inputs, outputs, 0, {
+                'add_inputs': False,
+                'subtractFeeFromOutputs': selected,
+            })
+        funded = sender.walletcreatefundedpsbt(inputs, outputs, 0, {
+            'add_inputs': False,
+            'fee_rate': 10,
+            'subtractFeeFromOutputs': [0],
+        })
+        decoded = sender.decodepsbt(funded['psbt'])
+        assert_equal(self.output_for_address(decoded, recipients[0][0])['amount'], Decimal('1') - funded['fee'])
+        assert_equal(self.output_for_address(decoded, recipients[1][0])['amount'], Decimal('2'))
 
     def test_mixed_fee_subtraction(self, sender, receiver, coin):
         self.log.info("walletcreatefundedpsbt splits fees across LTC and MWEB recipients")

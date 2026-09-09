@@ -458,7 +458,10 @@ std::optional<util::Error> TxBuilder::AddOutputs(const SelectionResult& selectio
         }
         have_fee += missing_fee;
 
-        if ((tx_type == TxType::PEGIN || tx_type == TxType::PEGIN_PEGOUT) && !m_change.change_position.IsMWEB()) {
+        // Fee subtraction may change either layer's recipient amounts. Keep
+        // the peg-in balanced even when change is on MWEB (for example, when
+        // a transparent recipient pays the fee).
+        if (tx_type == TxType::PEGIN || tx_type == TxType::PEGIN_PEGOUT) {
             error = UpdatePeginOutput();
             if (error) {
                 return error;

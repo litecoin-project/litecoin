@@ -8,6 +8,7 @@
 
 #include <optional>
 #include <string>
+#include <vector>
 
 // Forward Declarations
 class UniValue;
@@ -39,6 +40,11 @@ public:
     CTransaction ToTransaction() const;
     PartiallySignedTransaction ToPSBT(const CWallet& wallet) const;
     std::string ToHex(const int serialize_flags = 0) const;
+
+private:
+    // Map transparent-then-MWEB output positions back to the caller's RPC order.
+    // Empty for raw hex, directly constructed drafts, and already funded drafts.
+    std::vector<size_t> m_rpc_output_indices;
 };
 
 } // namespace wallet

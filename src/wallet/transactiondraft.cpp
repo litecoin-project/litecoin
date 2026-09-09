@@ -121,8 +121,11 @@ TransactionDraft TransactionDraft::FromRPC(const UniValue& inputs_in, const UniV
     // Duplicate checking
     std::set<CTxDestination> destinations;
     bool has_data{ false };
+    std::vector<size_t> mweb_output_indices;
 
-    for (const std::string& name_ : outputs.getKeys()) {
+    const auto& output_names = outputs.getKeys();
+    for (size_t output_index = 0; output_index < output_names.size(); ++output_index) {
+        const std::string& name_ = output_names[output_index];
         if (name_ == "data") {
             if (has_data) {
                 throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, duplicate key: data");
@@ -133,7 +136,7 @@ TransactionDraft TransactionDraft::FromRPC(const UniValue& inputs_in, const UniV
 
             CTxOut out(0, scriptPubKey);
             draft.tx.vout.push_back(std::move(out));
-            //draft.m_recipients.push_back(CRecipient{GenericAddress(scriptPubKey), 0, false});
+            draft.m_rpc_output_indices.push_back(output_index);
         }
         else {
             CTxDestination destination = DecodeDestination(name_);
@@ -153,13 +156,16 @@ TransactionDraft TransactionDraft::FromRPC(const UniValue& inputs_in, const UniV
                 mweb_output.amount = nAmount;
                 mweb_output.address = address.GetMWEBAddress();
                 draft.tx.mweb_tx.outputs.push_back(std::move(mweb_output));
+                mweb_output_indices.push_back(output_index);
             }
             else {
                 CTxOut out(nAmount, address.GetScript());
                 draft.tx.vout.push_back(std::move(out));
+                draft.m_rpc_output_indices.push_back(output_index);
             }
         }
     }
+    draft.m_rpc_output_indices.insert(draft.m_rpc_output_indices.end(), mweb_output_indices.begin(), mweb_output_indices.end());
 
     if (rbf.has_value() && rbf.value() && draft.tx.vin.size() > 0 && !SignalsOptInRBF(draft.ToTransaction())) {
         throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter combination: Sequence number(s) contradict replaceable option");
@@ -211,6 +217,9 @@ FundTransactionResult TransactionDraft::FundTransaction(CWallet& wallet, const i
 
     tx.mweb_tx = res->tx.mweb_tx;
     tx.vout = res->tx.vout;
+    // Funding can add change/bridge outputs and turn recipients into pegouts.
+    // The original RPC positions no longer describe these outputs.
+    m_rpc_output_indices.clear();
 
     // Add new txins while keeping original txin scriptSig/order.
     for (const AnyInput& tx_input : res->tx.GetInputs()) {
@@ -245,20 +254,24 @@ TransactionDraft TransactionDraft::FromHex(const std::string& hex, const bool tr
 std::vector<CRecipient> TransactionDraft::BuildRecipients(const std::set<int>& setSubtractFeeFromOutputs)
 {
     std::vector<CRecipient> recipients;
+    assert(m_rpc_output_indices.empty() || m_rpc_output_indices.size() == tx.vout.size() + tx.mweb_tx.outputs.size());
+    const auto subtract_fee = [&](size_t index) {
+        return setSubtractFeeFromOutputs.count(m_rpc_output_indices.empty() ? index : m_rpc_output_indices[index]) != 0;
+    };
 
     for (size_t i = 0; i < tx.vout.size(); i++) {
         const CTxOut& out = tx.vout[i];
         CRecipient recipient{};
         recipient.nAmount = out.nValue;
         recipient.receiver = out.scriptPubKey;
-        recipient.fSubtractFeeFromAmount = (setSubtractFeeFromOutputs.count(i) == 1);
+        recipient.fSubtractFeeFromAmount = subtract_fee(i);
         recipients.push_back(std::move(recipient));
     }
 
     for (size_t i = 0; i < tx.mweb_tx.outputs.size(); i++) {
         mw::MutableOutput& mweb_output = tx.mweb_tx.outputs[i];
         assert(mweb_output.amount.has_value() && mweb_output.address.has_value());
-        mweb_output.subtract_fee_from_amount = (setSubtractFeeFromOutputs.count(tx.vout.size() + i) == 1);
+        mweb_output.subtract_fee_from_amount = subtract_fee(tx.vout.size() + i);
 
         CRecipient recipient{*mweb_output.address, *mweb_output.amount, *mweb_output.subtract_fee_from_amount};
         recipients.push_back(std::move(recipient));
