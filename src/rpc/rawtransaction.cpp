@@ -1207,6 +1207,17 @@ static RPCHelpMan decodepsbt()
     }
     result.pushKV("unknown", std::move(unknowns));
 
+    CAmount total_in = 0;
+    CAmount total_out = 0;
+    bool have_all_amounts = true;
+    const auto add_amount = [&](CAmount& total, CAmount amount) {
+        if (MoneyRange(amount) && MoneyRange(total + amount)) {
+            total += amount;
+        } else {
+            have_all_amounts = false;
+        }
+    };
+
     // MWEB kernels
     UniValue kernels(UniValue::VARR);
     for (const PSBTKernel& kernel : psbtx.kernels) {
@@ -1230,6 +1241,9 @@ static RPCHelpMan decodepsbt()
 
         if (kernel.pegin_amount.has_value()) {
             kern.pushKV("pegin_amount", kernel.pegin_amount.value());
+            // The matching transparent bridge output is included in total_out.
+            // Credit its transfer into MWEB so it is not counted twice.
+            add_amount(total_in, *kernel.pegin_amount);
         }
 
         if (!kernel.pegouts.empty()) {
@@ -1237,6 +1251,7 @@ static RPCHelpMan decodepsbt()
             for (const PegOutCoin& pegout_coin : kernel.pegouts) {
                 UniValue pegout(UniValue::VOBJ);
                 pegout.pushKV("amount", pegout_coin.GetAmount());
+                add_amount(total_out, pegout_coin.GetAmount());
 
                 UniValue scriptPubKey(UniValue::VOBJ);
                 ScriptToUniv(pegout_coin.GetScriptPubKey(), /*out=*/scriptPubKey, /*include_hex=*/true, /*include_address=*/true);
@@ -1264,8 +1279,6 @@ static RPCHelpMan decodepsbt()
     result.pushKV("kernels", kernels);
 
     // inputs
-    CAmount total_in = 0;
-    bool have_all_utxos = true;
     UniValue inputs(UniValue::VARR);
     for (unsigned int i = 0; i < psbtx.inputs.size(); ++i) {
         const PSBTInput& input = psbtx.inputs[i];
@@ -1296,15 +1309,16 @@ static RPCHelpMan decodepsbt()
 
             have_a_utxo = true;
         }
-        if (have_a_utxo) {
-            if (MoneyRange(txout.nValue) && MoneyRange(total_in + txout.nValue)) {
-                total_in += txout.nValue;
+        if (input.IsMWEB()) {
+            if (input.mweb_amount.has_value()) {
+                add_amount(total_in, *input.mweb_amount);
             } else {
-                // Hack to just not show fee later
-                have_all_utxos = false;
+                have_all_amounts = false;
             }
+        } else if (have_a_utxo) {
+            add_amount(total_in, txout.nValue);
         } else {
-            have_all_utxos = false;
+            have_all_amounts = false;
         }
 
         // Partial sigs
@@ -1561,7 +1575,6 @@ static RPCHelpMan decodepsbt()
     result.pushKV("inputs", std::move(inputs));
 
     // outputs
-    CAmount output_value = 0;
     UniValue outputs(UniValue::VARR);
     for (unsigned int i = 0; i < psbtx.outputs.size(); ++i) {
         const PSBTOutput& output = psbtx.outputs[i];
@@ -1711,16 +1724,11 @@ static RPCHelpMan decodepsbt()
         outputs.push_back(std::move(out));
 
         // Fee calculation
-        if (MoneyRange(*output.amount) && MoneyRange(output_value + *output.amount)) {
-            output_value += *output.amount;
-        } else {
-            // Hack to just not show fee later
-            have_all_utxos = false;
-        }
+        add_amount(total_out, *output.amount);
     }
     result.pushKV("outputs", std::move(outputs));
-    if (have_all_utxos) {
-        result.pushKV("fee", ValueFromAmount(total_in - output_value));
+    if (have_all_amounts) {
+        result.pushKV("fee", ValueFromAmount(total_in - total_out));
     }
 
     return result;

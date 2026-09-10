@@ -12,12 +12,15 @@ from test_framework.psbt import (
     PSBT_GLOBAL_MWEB_TX_STEALTH_OFFSET,
     PSBT_GLOBAL_TX_MODIFIABLE,
     PSBT_IN_MWEB_ADDR_DESCRIPTOR,
+    PSBT_IN_MWEB_AMOUNT,
     PSBT_IN_MWEB_COMMIT,
     PSBT_IN_MWEB_EXTRA_DATA,
     PSBT_IN_MWEB_FEATURES,
     PSBT_IN_MWEB_INPUT_SIG,
     PSBT_IN_MWEB_OUTPUT_PUBKEY,
     PSBT_IN_MWEB_KEY_EXCHANGE_PK,
+    PSBT_IN_NON_WITNESS_UTXO,
+    PSBT_IN_WITNESS_UTXO,
     PSBT_KERN_EXTRA_DATA,
     PSBT_KERN_FEATURES,
     PSBT_KERN_PEGOUT,
@@ -74,6 +77,7 @@ class MWEBPsbtTest(LitecoinTestFramework):
         utxos = node1.listunspent(addresses=[node1_mweb_addr])
         assert_equal(len(utxos), 1)
 
+        self.test_decodepsbt_fees(node0, node1)
         self.test_mweb_raw_hex_rejected(node0, node1)
         self.test_mweb_psbtv0_creation_rejected(node0, node1)
 
@@ -129,6 +133,43 @@ class MWEBPsbtTest(LitecoinTestFramework):
         self.test_mweb_components_are_included_in_global_next(node0, node1)
         self.test_mweb_pegout_indexes_are_honored(node0, node1)
         self.workflow_tests(node0, node1)
+
+    def test_decodepsbt_fees(self, sender, receiver):
+        """Decode funded and signed fees across both layers; omit fees when any input amount is unknown."""
+        ltc_coin = next(coin for coin in sender.listunspent() if 'vout' in coin)
+        mweb_coin = next(coin for coin in sender.listunspent() if 'mweb_out' in coin)
+        ltc_input = {'txid': ltc_coin['txid'], 'vout': ltc_coin['vout']}
+        mweb_input = {'mweb_out': mweb_coin['mweb_out']}
+        ltc_output = {receiver.getnewaddress(address_type='bech32'): Decimal('1')}
+        mweb_output = {receiver.getnewaddress(address_type='mweb'): Decimal('1')}
+        cases = [
+            ('transparent', [ltc_input], [ltc_output]),
+            ('MWEB only', [mweb_input], [mweb_output]),
+            ('pegin', [ltc_input], [mweb_output]),
+            ('pegout', [mweb_input], [ltc_output]),
+            ('combined', [ltc_input, mweb_input], [ltc_output, mweb_output]),
+        ]
+        for name, inputs, outputs in cases:
+            self.log.info(f"decodepsbt reports the complete fee for {name} funding")
+            funded = sender.walletcreatefundedpsbt(inputs, outputs, 0, {'add_inputs': False, 'fee_rate': 10})
+            assert funded['fee'] > 0
+            decoded = receiver.decodepsbt(funded['psbt'])
+            assert_equal(decoded['fee'], funded['fee'])
+            assert_equal(decoded['fee'], receiver.analyzepsbt(funded['psbt'])['fee'])
+
+            signed = sender.walletprocesspsbt(funded['psbt'])
+            assert signed['complete']
+            assert_equal(receiver.decodepsbt(signed['psbt'])['fee'], funded['fee'])
+
+            for index, txin in enumerate(decoded['inputs']):
+                incomplete = PSBT.from_base64(funded['psbt'])
+                fields = incomplete.i[index].map
+                if 'mweb' in txin:
+                    del fields[PSBT_IN_MWEB_AMOUNT]
+                else:
+                    fields.pop(PSBT_IN_NON_WITNESS_UTXO, None)
+                    fields.pop(PSBT_IN_WITNESS_UTXO, None)
+                assert 'fee' not in receiver.decodepsbt(incomplete.to_base64())
 
     def test_mweb_raw_hex_rejected(self, node0, node1):
         self.log.info("Raw transaction hex RPCs reject unsupported MWEB workflows")

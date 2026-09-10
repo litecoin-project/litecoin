@@ -9,6 +9,7 @@
 #include <rpc/client.h>
 #include <rpc/server.h>
 #include <rpc/util.h>
+#include <test/util/psbt.h>
 #include <test/util/setup_common.h>
 #include <univalue.h>
 #include <util/time.h>
@@ -44,6 +45,142 @@ UniValue RPCTestingSetup::CallRPC(std::string args)
 
 
 BOOST_FIXTURE_TEST_SUITE(rpc_tests, RPCTestingSetup)
+
+namespace {
+
+// Build unsigned PSBTs with known amounts; fee display does not require signatures.
+PartiallySignedTransaction FeeDisplayPSBT(
+    const std::vector<CAmount>& ltc_inputs,
+    const std::vector<CAmount>& mweb_inputs,
+    const std::vector<CAmount>& ltc_outputs,
+    const std::vector<CAmount>& mweb_outputs,
+    const std::vector<PSBTKernel>& kernels)
+{
+    PartiallySignedTransaction psbt;
+    psbt.m_psbt_version = 2;
+    psbt.tx_version = 2;
+    for (CAmount amount : ltc_inputs) {
+        PSBTInput input(2);
+        input.prev_txid = uint256::ONE;
+        input.prev_out = psbt.inputs.size();
+        input.witness_utxo = CTxOut{amount, CScript{} << OP_TRUE};
+        psbt.inputs.push_back(input);
+    }
+    for (CAmount amount : mweb_inputs) {
+        PSBTInput input = psbt_test::MWEBInput(psbt_test::TestHash(psbt.inputs.size() + 1));
+        input.mweb_amount = amount;
+        psbt.inputs.push_back(input);
+    }
+    for (CAmount amount : ltc_outputs) {
+        PSBTOutput output(2);
+        output.amount = amount;
+        output.script = CScript{} << OP_TRUE;
+        psbt.outputs.push_back(output);
+    }
+    for (CAmount amount : mweb_outputs) {
+        PSBTOutput output(2);
+        output.amount = amount;
+        output.mweb_stealth_address = psbt_test::TestStealthAddress('1', '2');
+        psbt.outputs.push_back(output);
+    }
+    psbt.kernels = kernels;
+    return psbt;
+}
+
+PSBTKernel FeeDisplayKernel(CAmount fee, std::optional<CAmount> pegin = {}, const std::vector<CAmount>& pegouts = {})
+{
+    PSBTKernel kernel;
+    kernel.fee = fee;
+    kernel.pegin_amount = pegin;
+    for (CAmount amount : pegouts) {
+        kernel.pegouts.emplace_back(amount, CScript{} << OP_TRUE);
+    }
+    return kernel;
+}
+
+} // namespace
+
+// Fee display includes both input layers and every kernel transfer, counts
+// kernel fees only once, and still supports transparent PSBTv0 and PSBTv2.
+BOOST_AUTO_TEST_CASE(rpc_decodepsbt_mweb_fees)
+{
+    struct FeeCase {
+        const char* name;
+        PartiallySignedTransaction psbt;
+        CAmount expected_fee;
+    };
+    const std::vector<FeeCase> cases{
+        {"transparent", FeeDisplayPSBT({100'000}, {}, {90'000}, {}, {}), 10'000},
+        {"MWEB only", FeeDisplayPSBT({}, {100'000}, {}, {90'000}, {FeeDisplayKernel(10'000)}), 10'000},
+        {"pegin", FeeDisplayPSBT({100'000}, {}, {90'000}, {85'000}, {FeeDisplayKernel(5'000, 90'000)}), 15'000},
+        {"pegout", FeeDisplayPSBT({}, {100'000}, {}, {50'000}, {FeeDisplayKernel(5'000, {}, {20'000, 25'000})}), 5'000},
+        {"combined", FeeDisplayPSBT({100'000}, {50'000}, {90'000, 5'000}, {90'000}, {FeeDisplayKernel(10'000, 90'000, {40'000})}), 15'000},
+        {"multiple kernels", FeeDisplayPSBT({100'000}, {20'000, 30'000}, {30'000, 60'000}, {80'000},
+            {FeeDisplayKernel(2'000, 30'000, {7'000, 11'000}), FeeDisplayKernel(4'000, 60'000, {17'000, 19'000})}), 16'000},
+        {"zero fee", FeeDisplayPSBT({}, {0, 50'000}, {}, {50'000}, {FeeDisplayKernel(0)}), 0},
+    };
+    for (const FeeCase& test : cases) {
+        BOOST_TEST_CONTEXT(test.name) {
+            const UniValue decoded = CallRPC("decodepsbt " + EncodeBase64(psbt_test::Ser(test.psbt)));
+            BOOST_CHECK(decoded.exists("fee"));
+            if (decoded.exists("fee")) BOOST_CHECK_EQUAL(AmountFromValue(decoded["fee"]), test.expected_fee);
+        }
+    }
+
+    CMutableTransaction previous;
+    previous.vin.emplace_back();
+    previous.vout.emplace_back(100'000, CScript{} << OP_TRUE);
+    CMutableTransaction spending;
+    spending.vin.emplace_back(COutPoint{previous.GetHash(), 0});
+    spending.vout.emplace_back(90'000, CScript{} << OP_TRUE);
+    for (uint32_t version : {0U, 2U}) {
+        PartiallySignedTransaction psbt{spending, version};
+        psbt.inputs[0].non_witness_utxo = MakeTransactionRef(previous);
+        for (bool also_witness_utxo : {false, true}) {
+            if (also_witness_utxo) psbt.inputs[0].witness_utxo = previous.vout[0];
+            const UniValue decoded = CallRPC("decodepsbt " + EncodeBase64(psbt_test::Ser(psbt)));
+            BOOST_REQUIRE(decoded.exists("fee"));
+            BOOST_CHECK_EQUAL(AmountFromValue(decoded["fee"]), 10'000);
+        }
+    }
+}
+
+// Missing input amounts or out-of-range input/output/kernel amounts suppress
+// the fee field instead of displaying a misleading partial total.
+BOOST_AUTO_TEST_CASE(rpc_decodepsbt_fee_requires_known_amounts)
+{
+    const auto original = FeeDisplayPSBT({100'000}, {50'000}, {90'000}, {80'000}, {FeeDisplayKernel(10'000, 90'000, {50'000})});
+    for (int missing_input : {0, 1}) {
+        auto psbt = original;
+        if (missing_input == 0) {
+            psbt.inputs[0].witness_utxo.SetNull();
+        } else {
+            psbt.inputs[1].mweb_amount.reset();
+        }
+        BOOST_CHECK(!CallRPC("decodepsbt " + EncodeBase64(psbt_test::Ser(psbt))).exists("fee"));
+    }
+    for (CAmount amount : {CAmount{-1}, MAX_MONEY + 1}) {
+        for (int field : {0, 1, 2, 3, 4}) {
+            auto psbt = original;
+            if (field == 0) psbt.inputs[0].witness_utxo.nValue = amount;
+            if (field == 1) psbt.inputs[1].mweb_amount = amount;
+            if (field == 2) psbt.outputs[1].amount = amount;
+            if (field == 3) psbt.kernels[0].pegin_amount = amount;
+            if (field == 4) psbt.kernels[0].pegouts[0] = PegOutCoin{amount, CScript{} << OP_TRUE};
+            BOOST_CHECK(!CallRPC("decodepsbt " + EncodeBase64(psbt_test::Ser(psbt))).exists("fee"));
+        }
+    }
+    // Individual amounts may be valid while their aggregate exceeds MoneyRange.
+    for (bool inputs : {false, true}) {
+        auto psbt = original;
+        if (inputs) {
+            psbt.inputs[1].mweb_amount = MAX_MONEY;
+        } else {
+            psbt.kernels[0].pegouts[0] = PegOutCoin{MAX_MONEY, CScript{} << OP_TRUE};
+        }
+        BOOST_CHECK(!CallRPC("decodepsbt " + EncodeBase64(psbt_test::Ser(psbt))).exists("fee"));
+    }
+}
 
 BOOST_AUTO_TEST_CASE(rpc_rawparams)
 {

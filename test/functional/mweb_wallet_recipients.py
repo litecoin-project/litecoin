@@ -41,6 +41,7 @@ class MWEBWalletRecipientPolicyTest(LitecoinTestFramework):
         self.test_sendall_mixed_recipients(sender, receiver)
 
     def test_selective_fee_subtraction(self, sender, receiver, coin):
+        """Both RPCs charge the selected recipient and report the same fee through PSBT decoding and analysis."""
         self.log.info("send and walletcreatefundedpsbt charge the requested output index in either recipient order")
         recipients = [
             (receiver.getnewaddress(address_type='mweb'), Decimal('1')),
@@ -68,7 +69,8 @@ class MWEBWalletRecipientPolicyTest(LitecoinTestFramework):
                                 'subtractFeeFromOutputs': [fee_payer],
                             })
                         decoded = sender.decodepsbt(result['psbt'])
-                        fee = sender.analyzepsbt(result['psbt'])['fee']
+                        fee = decoded['fee']
+                        assert_equal(fee, sender.analyzepsbt(result['psbt'])['fee'])
                         assert fee > 0
                         for index, (address, amount) in enumerate(ordered):
                             assert_equal(
