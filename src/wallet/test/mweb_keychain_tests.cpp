@@ -6,11 +6,13 @@
 #include <key_io.h>
 #include <mweb/mweb_wallet.h>
 #include <mw/models/tx/Output.h>
+#include <psbt.h>
 #include <script/descriptor.h>
 #include <test/util/setup_common.h>
 #include <tinyformat.h>
 #include <util/system.h>
 #include <wallet/scriptpubkeyman.h>
+#include <wallet/test/psbt_test_utils.h>
 #include <wallet/wallet.h>
 #include <wallet/walletdb.h>
 
@@ -203,6 +205,71 @@ public:
         mw::WalletCoin coin;
         BOOST_REQUIRE(wallet.GetMWEBWalletCoin(output_id, coin));
         return coin;
+    }
+
+    mw::Keychain::Ptr ImportMWEBDescriptor(CWallet& wallet, const std::string& descriptor) const
+    {
+        FlatSigningProvider provider;
+        std::string error;
+        auto parsed = Parse(descriptor, provider, error, /*require_checksum=*/false);
+        BOOST_REQUIRE_MESSAGE(parsed, error);
+        const bool ranged = parsed->IsRange();
+        WalletDescriptor wallet_descriptor(std::move(parsed), 0, 0, ranged ? 10 : 1, 0);
+        LOCK(wallet.cs_wallet);
+        wallet.LoadMinVersion(FEATURE_MWEB);
+        auto* manager = wallet.AddWalletDescriptor(wallet_descriptor, provider, "", /*internal=*/false);
+        BOOST_REQUIRE(manager);
+        BOOST_REQUIRE(manager->GetMWEBKeychain());
+        return manager->GetMWEBKeychain();
+    }
+
+    // Exercise both wallet signing entry points with stored and recovered address metadata.
+    void CheckDescriptorSigning(CWallet& wallet, const StealthAddress& address) const
+    {
+        const mw::Output received = mw::Output::Create(
+            nullptr, SecretKey::Random(), SecretKey::Random(), address, 100'000, {});
+        BOOST_REQUIRE(Rewind(wallet, received));
+        const mw::WalletCoin original = GetCoin(wallet, received.GetOutputID());
+
+        for (int metadata = 0; metadata < 3; ++metadata) {
+            BOOST_TEST_CONTEXT("metadata variant " << metadata) {
+                mw::WalletCoin coin = original;
+                if (metadata > 0) coin.address.reset();
+                if (metadata > 1) coin.shared_secret.reset();
+                LOCK(wallet.cs_wallet);
+                wallet.GetMWWallet()->LoadToWallet(coin);
+
+                CMutableTransaction tx;
+                tx.mweb_tx.inputs.push_back(mw::MutableInput::FromOutput(received));
+                mw::MutableOutput output;
+                output.address = StealthAddress::Random();
+                output.amount = 90'000;
+                tx.mweb_tx.outputs.push_back(output);
+                mw::MutableKernel kernel;
+                kernel.fee = 10'000;
+                tx.mweb_tx.kernels.push_back(kernel);
+                PartiallySignedTransaction psbt(tx, 2);
+                // The updater supplies the key-exchange field; SetupFromTx omits it.
+                psbt.inputs[0].mweb_key_exchange_pubkey = received.GetKeyExchangePubKey();
+
+                const bool signed_raw = wallet.SignTransaction(tx);
+                BOOST_CHECK(signed_raw);
+                if (signed_raw) {
+                    BOOST_CHECK(tx.mweb_tx.IsFinal());
+                    BOOST_CHECK(!CTransaction{tx}.mweb_tx.m_transaction->Validate());
+                }
+
+                bool complete{false};
+                BOOST_CHECK(wallet.FillPSBT(psbt, complete, SIGHASH_ALL) == TransactionError::OK);
+                BOOST_CHECK(complete);
+                if (complete) {
+                    const auto finalized = FinalizePSBT(psbt);
+                    BOOST_REQUIRE(finalized);
+                    BOOST_CHECK(!CTransaction{*finalized}.mweb_tx.m_transaction->Validate());
+                    BOOST_CHECK(psbt.inputs[0].mweb_output_pubkey == received.GetReceiverPubKey());
+                }
+            }
+        }
     }
 };
 
@@ -496,7 +563,9 @@ BOOST_AUTO_TEST_CASE(InactiveDescriptorKeychainRemainsDiscoverable)
     BOOST_REQUIRE(inactive_keychain);
     const CKeyID inactive_master_id = MasterScanKeyId(inactive_keychain);
     BOOST_CHECK(inactive_master_id != active_master_id);
-    BOOST_CHECK(wallet.GetMWWallet()->GetKeychain(inactive_master_id) == inactive_keychain);
+    const auto inactive_keychains = wallet.GetMWWallet()->GetKeychains(inactive_master_id);
+    BOOST_REQUIRE_EQUAL(inactive_keychains.size(), 1U);
+    BOOST_CHECK(inactive_keychains[0] == inactive_keychain);
 
     const StealthAddress inactive_address = inactive_keychain->DeriveAddress(ADDRESS_INDEX);
     const mw::Output received = mw::Output::Create(
@@ -529,6 +598,147 @@ BOOST_AUTO_TEST_CASE(InactiveDescriptorKeychainRemainsDiscoverable)
     BOOST_REQUIRE(active_sender_key);
     BOOST_CHECK(*active_sender_key == active_keychain->GetSenderSigningKey(0));
     BOOST_CHECK_EQUAL(ReadSenderIndex(wallet, active_master_id), 1U);
+}
+
+// Different spend branches sharing a scan key must each sign raw transactions and PSBTs, even when their coin address needs recovery.
+BOOST_AUTO_TEST_CASE(SharedScanDescriptorsSignTheirOwnOutputs)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    WITH_LOCK(wallet.cs_wallet, wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS));
+    const auto first = test::MWEBTestKeys::Create('1', '2');
+    const auto second = test::MWEBTestKeys::Create('1', '3');
+    ImportMWEBDescriptor(wallet, first.Descriptor(7));
+    ImportMWEBDescriptor(wallet, second.Descriptor(7));
+
+    CheckDescriptorSigning(wallet, first.Address(7));
+    CheckDescriptorSigning(wallet, second.Address(7));
+}
+
+// A watch-only manager must not mask a signing manager for the same address, including direct-subaddress imports without master spend keys.
+BOOST_AUTO_TEST_CASE(SharedScanSigningSkipsWatchOnlyManagers)
+{
+    KeypoolArgGuard keypool_size{10};
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    WITH_LOCK(wallet.cs_wallet, wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS));
+    const auto keys = test::MWEBTestKeys::Create();
+    const std::string scan = EncodeSecret(test::MWEBTestKeys::ToCKey(keys.scan_secret));
+    const std::string spend = EncodeSecret(test::MWEBTestKeys::ToCKey(keys.master_spend_secret));
+    const std::string spend_pubkey = PublicKey::From(keys.master_spend_secret).ToHex();
+    const auto watch = ImportMWEBDescriptor(wallet, strprintf("mweb(%s,%s,7)", scan, spend_pubkey));
+    const auto ranged = ImportMWEBDescriptor(wallet, strprintf("mweb(%s,%s,*)", scan, spend));
+    mw::WalletCoin coin;
+    coin.output_id = mw::Hash::ValueOf(7);
+    coin.amount = 100'000;
+    coin.address_index = 7;
+    coin.master_scan_key_id = PublicKey::From(keys.scan_secret).GetID();
+    coin.shared_secret = test::TestSecret('4');
+    StealthAddress address;
+    BOOST_REQUIRE(wallet.GetMWWallet()->GetStealthAddress(coin, address));
+    BOOST_CHECK(address == keys.Address(7));
+    {
+        LOCK(wallet.cs_wallet);
+        wallet.GetMWWallet()->LoadToWallet(coin);
+        CMutableTransaction tx;
+        tx.mweb_tx.inputs.push_back(mw::MutableInput::FromWalletCoin(coin));
+        BOOST_REQUIRE(wallet.CompleteMWEBInputData(tx, {}));
+        BOOST_REQUIRE(tx.mweb_tx.inputs[0].spend_key);
+        BOOST_CHECK(PublicKey::From(*tx.mweb_tx.inputs[0].spend_key) == keys.OutputPubKey(7, *coin.shared_secret));
+    }
+
+    const auto direct = ImportMWEBDescriptor(wallet, strprintf("mweb(%s,%s)", scan,
+        EncodeSecret(test::MWEBTestKeys::ToCKey(keys.SubaddressSpendSecret(8)))));
+    BOOST_CHECK(!watch->HasSpendSecret());
+    BOOST_CHECK(!direct->HasSpendPubKey());
+    CheckDescriptorSigning(wallet, keys.Address(7));
+    CheckDescriptorSigning(wallet, keys.Address(8));
+
+    const CKeyID scan_id = PublicKey::From(keys.scan_secret).GetID();
+    test::MockMWEBKeyStore keystore;
+    // Force the non-signing candidate first regardless of manager allocation order.
+    keystore.m_keychains[scan_id] = {watch, ranged, direct};
+    for (uint32_t index : {7U, 8U}) {
+        const SecretKey shared_secret = test::TestSecret('4');
+        PSBTInput input(2);
+        input.mweb_output_id = mw::Hash::ValueOf(index);
+        input.mweb_output_pubkey = keys.OutputPubKey(index, shared_secret);
+        input.mweb_shared_secret = shared_secret;
+        // A public-spend descriptor must select a wallet manager without any wallet coin.
+        input.mweb_address_descriptor = strprintf("mweb(%s,%s,%u)", scan, spend_pubkey, index);
+        const auto result = ResolveMWEBInputKeys(input, keystore);
+        BOOST_REQUIRE(result);
+        BOOST_REQUIRE(result->has_value());
+        BOOST_CHECK(PublicKey::From(**result) == *input.mweb_output_pubkey);
+    }
+
+    // The direct descriptor must also work without a ranged manager that could derive its key.
+    keystore.m_keychains[scan_id] = {watch, direct};
+    PSBTInput input(2);
+    input.mweb_output_id = mw::Hash::ValueOf(8);
+    input.mweb_shared_secret = test::TestSecret('4');
+    input.mweb_output_pubkey = keys.OutputPubKey(8, *input.mweb_shared_secret);
+    input.mweb_address_descriptor = strprintf("mweb(%s,%s)", scan, keys.Address(8).GetSpendPubKey().ToHex());
+    const auto result = ResolveMWEBInputKeys(input, keystore);
+    BOOST_REQUIRE(result);
+    BOOST_REQUIRE(result->has_value());
+    BOOST_CHECK(PublicKey::From(**result) == *input.mweb_output_pubkey);
+
+    // The shared scan secret alone remains insufficient when no manager holds the spend key.
+    keystore.m_keychains[scan_id] = {watch};
+    const auto watch_only = ResolveMWEBInputKeys(input, keystore);
+    BOOST_REQUIRE(watch_only);
+    BOOST_CHECK(!watch_only->has_value());
+}
+
+// Shared scan IDs must not guess an address or spend key when neither the stored coin nor its input identifies the spend branch.
+BOOST_AUTO_TEST_CASE(SharedScanSigningRequiresUnambiguousCoinData)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    WITH_LOCK(wallet.cs_wallet, wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS));
+    const auto first = test::MWEBTestKeys::Create('1', '2');
+    const auto second = test::MWEBTestKeys::Create('1', '3');
+    const auto first_chain = ImportMWEBDescriptor(wallet, first.Descriptor(7));
+    const auto second_chain = ImportMWEBDescriptor(wallet, second.Descriptor(7));
+    const CKeyID scan_id = PublicKey::From(first.scan_secret).GetID();
+    mw::WalletCoin coin;
+    coin.output_id = mw::Hash::ValueOf(7);
+    coin.amount = 100'000;
+    coin.address_index = 7;
+    coin.master_scan_key_id = scan_id;
+    coin.shared_secret = test::TestSecret('4');
+    LOCK(wallet.cs_wallet);
+    wallet.GetMWWallet()->LoadToWallet(coin);
+
+    StealthAddress address;
+    BOOST_CHECK(!wallet.GetMWWallet()->GetStealthAddress(coin, address));
+    CMutableTransaction tx;
+    tx.mweb_tx.inputs.push_back(mw::MutableInput::FromWalletCoin(coin));
+    BOOST_REQUIRE(wallet.CompleteMWEBInputData(tx, {}));
+    BOOST_CHECK(!tx.mweb_tx.inputs[0].spend_key);
+
+    test::MockMWEBKeyStore keystore;
+    keystore.m_keychains[scan_id] = {first_chain, second_chain};
+    keystore.m_coins[coin.output_id] = coin;
+    PSBTInput input(2);
+    input.mweb_output_id = coin.output_id;
+    const auto unresolved = ResolveMWEBInputKeys(input, keystore);
+    BOOST_REQUIRE(unresolved);
+    BOOST_CHECK(!unresolved->has_value());
+    BOOST_CHECK(input.mweb_shared_secret == coin.shared_secret);
+
+    // Supplying the actual output pubkey resolves the ambiguity in either path.
+    const PublicKey output_pubkey = second.OutputPubKey(7, *coin.shared_secret);
+    tx.mweb_tx.inputs[0].output_pubkey = output_pubkey;
+    BOOST_REQUIRE(wallet.CompleteMWEBInputData(tx, {}));
+    BOOST_REQUIRE(tx.mweb_tx.inputs[0].spend_key);
+    BOOST_CHECK(PublicKey::From(*tx.mweb_tx.inputs[0].spend_key) == output_pubkey);
+    input.mweb_output_pubkey = output_pubkey;
+    const auto resolved = ResolveMWEBInputKeys(input, keystore);
+    BOOST_REQUIRE(resolved);
+    BOOST_REQUIRE(resolved->has_value());
+    BOOST_CHECK(PublicKey::From(**resolved) == output_pubkey);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

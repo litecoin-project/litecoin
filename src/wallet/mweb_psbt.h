@@ -14,6 +14,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <vector>
 
 //! Key material extracted from a single-address MWEB descriptor string.
 struct MWEBAddressDescriptorData
@@ -33,7 +34,7 @@ public:
     virtual ~MWEBSigningKeyStore() = default;
     virtual std::optional<mw::WalletCoin> GetWalletCoin(const mw::Hash& output_id) const = 0;
     virtual mw::Keychain::Ptr GetActiveKeychain() const = 0;
-    virtual mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_key_id) const = 0;
+    virtual std::vector<mw::Keychain::Ptr> GetKeychains(const CKeyID& master_scan_key_id) const = 0;
     virtual std::optional<std::string> InferAddressDescriptor(const mw::WalletCoin& coin) const = 0;
 };
 

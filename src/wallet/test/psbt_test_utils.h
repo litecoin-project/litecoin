@@ -31,7 +31,7 @@ class MockMWEBKeyStore final : public MWEBSigningKeyStore
 {
 public:
     std::map<mw::Hash, mw::WalletCoin> m_coins;
-    std::map<CKeyID, mw::Keychain::Ptr> m_keychains;
+    std::map<CKeyID, std::vector<mw::Keychain::Ptr>> m_keychains;
     mw::Keychain::Ptr m_active_keychain;
     std::optional<std::string> m_inferred_descriptor;
 
@@ -49,10 +49,10 @@ public:
         return m_active_keychain;
     }
 
-    mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_key_id) const override
+    std::vector<mw::Keychain::Ptr> GetKeychains(const CKeyID& master_scan_key_id) const override
     {
         const auto it = m_keychains.find(master_scan_key_id);
-        return it == m_keychains.end() ? nullptr : it->second;
+        return it == m_keychains.end() ? std::vector<mw::Keychain::Ptr>{} : it->second;
     }
 
     std::optional<std::string> InferAddressDescriptor(const mw::WalletCoin&) const override

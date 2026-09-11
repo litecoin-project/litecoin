@@ -113,26 +113,25 @@ void CommitMWEBTxToPSBT(PartiallySignedTransaction& psbtx, const CMutableTransac
     psbtx.mweb_stealth_offset = mtx.mweb_tx.stealth_offset.IsNull() ? std::nullopt : std::make_optional(mtx.mweb_tx.stealth_offset);
 }
 
-//! Resolve the keychain for an input, preferring the coin's known master scan
-//! key over one recovered from the descriptor's scan secret.
-mw::Keychain::Ptr ResolveKeychain(const MWEBSigningKeyStore& keystore, const std::optional<mw::WalletCoin>& coin, const std::optional<MWEBAddressDescriptorData>& descriptor_data)
+//! Resolve all candidate keychains, preferring the coin's known scan key ID.
+std::vector<mw::Keychain::Ptr> ResolveKeychains(const MWEBSigningKeyStore& keystore, const std::optional<mw::WalletCoin>& coin, const std::optional<MWEBAddressDescriptorData>& descriptor_data)
 {
     if (coin && coin->master_scan_key_id.has_value()) {
-        return keystore.GetKeychain(coin->master_scan_key_id.value());
+        return keystore.GetKeychains(coin->master_scan_key_id.value());
     }
     if (descriptor_data && descriptor_data->scan_secret) {
-        const mw::Keychain::Ptr keychain = keystore.GetKeychain(PublicKey::From(*descriptor_data->scan_secret).GetID());
-        if (keychain) {
-            return keychain;
+        auto keychains = keystore.GetKeychains(PublicKey::From(*descriptor_data->scan_secret).GetID());
+        if (!keychains.empty()) {
+            return keychains;
         }
     }
     if (coin) {
         // Released v21 coins did not store a keychain ID. Legacy wallets had
         // one loaded keychain, whose ScriptPubKeyMan still holds the coin's
         // encrypted subaddress key even if sethdseed later rotated the chain.
-        return keystore.GetActiveKeychain();
+        if (const auto keychain = keystore.GetActiveKeychain()) return {keychain};
     }
-    return nullptr;
+    return {};
 }
 
 //! Resolve the input's shared secret: from the input's own field, then the
@@ -187,7 +186,7 @@ void PopulateInputFromWalletCoin(PSBTInput& input, const mw::WalletCoin& coin)
 
 //! Derive the input's spend key into signing-local state. Wallet coins retain
 //! only recovery metadata and never provide a cached output spend key.
-ResolvedSpendKey ResolveSpendKey(const PSBTInput& input, const std::optional<mw::WalletCoin>& coin, const mw::Keychain::Ptr& keychain, const std::optional<MWEBAddressDescriptorData>& descriptor_data, const std::optional<SecretKey>& shared_secret)
+ResolvedSpendKey ResolveSpendKey(const PSBTInput& input, const std::optional<mw::WalletCoin>& coin, const std::vector<mw::Keychain::Ptr>& keychains, const std::optional<MWEBAddressDescriptorData>& descriptor_data, const std::optional<SecretKey>& shared_secret)
 {
     if (descriptor_data && descriptor_data->subaddress_spend_secret && shared_secret) {
         const SecretKey spend_key = mw::DeriveOutputSpendKey(*descriptor_data->subaddress_spend_secret, *shared_secret);
@@ -196,7 +195,7 @@ ResolvedSpendKey ResolveSpendKey(const PSBTInput& input, const std::optional<mw:
         }
     }
 
-    if (keychain) {
+    for (const auto& keychain : keychains) {
         std::optional<SecretKey> candidate_shared_secret = shared_secret;
         if (!candidate_shared_secret && input.mweb_key_exchange_pubkey) {
             candidate_shared_secret = mw::RecoverSharedSecret(*input.mweb_key_exchange_pubkey, keychain->GetScanSecret());
@@ -214,6 +213,10 @@ ResolvedSpendKey ResolveSpendKey(const PSBTInput& input, const std::optional<mw:
         if (!spend_coin.address && input.mweb_output_pubkey) {
             const StealthAddress recovered_address = mw::RecoverSubaddress(*input.mweb_output_pubkey, *candidate_shared_secret, keychain->GetScanSecret());
             spend_coin.address = recovered_address;
+        }
+        if (keychains.size() > 1 && !spend_coin.address && !input.mweb_output_pubkey) {
+            // A scan key and index alone cannot identify the owning spend branch.
+            return {std::nullopt, candidate_shared_secret};
         }
 
         if (spend_coin.address && spend_coin.address_index == mw::UNKNOWN_INDEX) {
@@ -298,8 +301,9 @@ util::Result<std::optional<SecretKey>> ResolveMWEBInputKeys(PSBTInput& input, co
         descriptor_data = std::move(parsed_descriptor.value());
     }
 
-    const mw::Keychain::Ptr keychain = ResolveKeychain(keystore, coin, descriptor_data);
-    const std::optional<SecretKey> shared_secret = ResolveSharedSecret(input, coin, keychain, descriptor_data);
+    const auto keychains = ResolveKeychains(keystore, coin, descriptor_data);
+    // Candidates selected by scan key ID all recover the same shared secret.
+    const std::optional<SecretKey> shared_secret = ResolveSharedSecret(input, coin, keychains.empty() ? nullptr : keychains.front(), descriptor_data);
 
     if (descriptor_data && descriptor_data->scan_secret && shared_secret && input.mweb_output_pubkey) {
         // Check that the address derivable from the input's output pubkey and shared secret matches the address the descriptor claims the input belongs to.
@@ -309,7 +313,7 @@ util::Result<std::optional<SecretKey>> ResolveMWEBInputKeys(PSBTInput& input, co
         }
     }
 
-    const ResolvedSpendKey resolved = ResolveSpendKey(input, coin, keychain, descriptor_data, shared_secret);
+    const ResolvedSpendKey resolved = ResolveSpendKey(input, coin, keychains, descriptor_data, shared_secret);
     if (resolved.shared_secret) {
         input.mweb_shared_secret = resolved.shared_secret;
     }

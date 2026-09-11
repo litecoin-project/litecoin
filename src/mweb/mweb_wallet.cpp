@@ -166,13 +166,21 @@ bool Wallet::GetStealthAddress(const mw::WalletCoin& coin, StealthAddress& addre
     }
 
     if (coin.master_scan_key_id.has_value()) {
-        mw::Keychain::Ptr keychain = GetKeychain(coin.master_scan_key_id.value());
-        if (keychain && keychain->HasSpendPubKey()) {
-            address = keychain->DeriveAddress(coin.address_index);
-            return true;
+        std::optional<StealthAddress> derived_address;
+        for (const auto& keychain : GetKeychains(*coin.master_scan_key_id)) {
+            if (!keychain->HasSpendPubKey()) {
+                return false;
+            }
+            const StealthAddress candidate = keychain->DeriveAddress(coin.address_index);
+            if (derived_address && *derived_address != candidate) {
+                // The scan key and index do not identify a unique spend branch.
+                return false;
+            }
+            derived_address = candidate;
         }
-
-        return false;
+        if (!derived_address) return false;
+        address = *derived_address;
+        return true;
     }
 
     return GetStealthAddress(coin.address_index, address);
@@ -320,14 +328,15 @@ std::vector<mw::Keychain::Ptr> Wallet::GetAllKeychains() const
     return keychains;
 }
 
-mw::Keychain::Ptr Wallet::GetKeychain(const CKeyID& master_scan_keyid) const
+std::vector<mw::Keychain::Ptr> Wallet::GetKeychains(const CKeyID& master_scan_keyid) const
 {
+    std::vector<mw::Keychain::Ptr> keychains;
     for (const auto& keychain : GetAllKeychains()) {
         if (PublicKey::From(keychain->GetScanSecret()).GetID() == master_scan_keyid) {
-            return keychain;
+            keychains.push_back(keychain);
         }
     }
-    return nullptr;
+    return keychains;
 }
 
 std::optional<SecretKey> Wallet::GetRewindKey() const

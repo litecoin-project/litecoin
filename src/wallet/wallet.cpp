@@ -2612,36 +2612,44 @@ static std::optional<SecretKey> DeriveMWEBSpendKey(const CWallet& wallet, const 
         return std::nullopt;
     }
 
-    const mw::Keychain::Ptr keychain = coin.master_scan_key_id
-        ? mweb_wallet->GetKeychain(*coin.master_scan_key_id)
-        : mweb_wallet->GetActiveKeychain();
-    if (!keychain) {
-        return std::nullopt;
-    }
+    const std::vector<mw::Keychain::Ptr> keychains = coin.master_scan_key_id
+        ? mweb_wallet->GetKeychains(*coin.master_scan_key_id)
+        : std::vector<mw::Keychain::Ptr>{mweb_wallet->GetActiveKeychain()};
+    for (const auto& keychain : keychains) {
+        if (!keychain) continue;
 
-    mw::WalletCoin spend_coin = coin;
-    if (!spend_coin.shared_secret && input.shared_secret) {
-        spend_coin.shared_secret = input.shared_secret;
-    }
-    if (!spend_coin.shared_secret && input.key_exchange_pubkey) {
-        spend_coin.shared_secret = mw::RecoverSharedSecret(*input.key_exchange_pubkey, keychain->GetScanSecret());
-    }
-
-    if (!spend_coin.address && spend_coin.shared_secret && input.output_pubkey) {
-        const StealthAddress recovered_address = mw::RecoverSubaddress(*input.output_pubkey, *spend_coin.shared_secret, keychain->GetScanSecret());
-        spend_coin.address = recovered_address;
-    }
-
-    if (spend_coin.address && spend_coin.address_index == mw::UNKNOWN_INDEX) {
-        const std::optional<uint32_t> address_index = keychain->LookupAddressIndex(*spend_coin.address);
-        if (address_index) {
-            spend_coin.address_index = *address_index;
+        mw::WalletCoin spend_coin = coin;
+        if (!spend_coin.shared_secret && input.shared_secret) {
+            spend_coin.shared_secret = input.shared_secret;
         }
-    }
+        if (!spend_coin.shared_secret && input.key_exchange_pubkey) {
+            spend_coin.shared_secret = mw::RecoverSharedSecret(*input.key_exchange_pubkey, keychain->GetScanSecret());
+        }
 
-    const std::optional<SecretKey> spend_key = keychain->CalculateOutputSpendKey(spend_coin);
-    if (spend_key && (!input.output_pubkey || PublicKey::From(*spend_key) == *input.output_pubkey)) {
-        return spend_key;
+        if (!spend_coin.address && spend_coin.shared_secret && input.output_pubkey) {
+            spend_coin.address = mw::RecoverSubaddress(*input.output_pubkey, *spend_coin.shared_secret, keychain->GetScanSecret());
+        }
+        if (keychains.size() > 1 && !spend_coin.address && !input.output_pubkey) {
+            // Multiple managers may cover the same spend branch. Only use the
+            // index when every candidate derives the same address.
+            StealthAddress address;
+            if (!mweb_wallet->GetStealthAddress(spend_coin, address)) {
+                return std::nullopt;
+            }
+            spend_coin.address = address;
+        }
+
+        if (spend_coin.address && spend_coin.address_index == mw::UNKNOWN_INDEX) {
+            const std::optional<uint32_t> address_index = keychain->LookupAddressIndex(*spend_coin.address);
+            if (address_index) {
+                spend_coin.address_index = *address_index;
+            }
+        }
+
+        const std::optional<SecretKey> spend_key = keychain->CalculateOutputSpendKey(spend_coin);
+        if (spend_key && (!input.output_pubkey || PublicKey::From(*spend_key) == *input.output_pubkey)) {
+            return spend_key;
+        }
     }
 
     return std::nullopt;

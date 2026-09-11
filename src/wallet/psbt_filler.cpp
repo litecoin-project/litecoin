@@ -64,10 +64,10 @@ public:
         return mweb_wallet ? mweb_wallet->GetActiveKeychain() : nullptr;
     }
 
-    mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_key_id) const override
+    std::vector<mw::Keychain::Ptr> GetKeychains(const CKeyID& master_scan_key_id) const override
     {
         const std::shared_ptr<MWEB::Wallet>& mweb_wallet = m_wallet.GetMWWallet();
-        return mweb_wallet ? mweb_wallet->GetKeychain(master_scan_key_id) : nullptr;
+        return mweb_wallet ? mweb_wallet->GetKeychains(master_scan_key_id) : std::vector<mw::Keychain::Ptr>{};
     }
 
     std::optional<std::string> InferAddressDescriptor(const mw::WalletCoin& coin) const override

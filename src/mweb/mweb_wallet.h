@@ -72,7 +72,8 @@ public:
     bool SaveStagedCoinsToWallet(const std::set<mw::Hash>& output_ids) EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
 
     mw::Keychain::Ptr GetActiveKeychain() const;
-    mw::Keychain::Ptr GetKeychain(const CKeyID& master_scan_keyid) const;
+    // A scan key can be shared by descriptors with different spend keys.
+    std::vector<mw::Keychain::Ptr> GetKeychains(const CKeyID& master_scan_keyid) const;
     std::optional<SecretKey> GetRewindKey() const;
     util::Result<SecretKey> GenerateSenderKey() EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
     void LoadNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t next_index) EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
