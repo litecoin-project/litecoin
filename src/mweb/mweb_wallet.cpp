@@ -16,6 +16,23 @@
 using namespace MWEB;
 
 namespace {
+// For owned outputs, the scan-key ID identifies the recipient, even when the wallet also knows the sender.
+void SetRecipientScanKeyId(mw::WalletCoin& coin, const std::vector<mw::Keychain::Ptr>& keychains)
+{
+    if (!coin.IsMine() || !coin.address || !coin.address->GetSpendPubKey().IsValid() || !coin.address->GetScanPubKey().IsValid()) {
+        return;
+    }
+
+    for (const auto& keychain : keychains) {
+        if (coin.address->GetSpendPubKey().Mul(keychain->GetScanSecret()) != coin.address->GetScanPubKey()) {
+            continue;
+        }
+
+        coin.master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
+        return;
+    }
+}
+
 void MergeMissingMetadata(mw::WalletCoin& target, const mw::WalletCoin& source)
 {
     if (source.IsMine() && !target.IsMine()) {
@@ -120,9 +137,11 @@ bool Wallet::RewindOutput(const mw::Output& output)
     return SaveCoin(coin) && owned;
 }
 
-bool Wallet::SaveCoin(const mw::WalletCoin& coin)
+bool Wallet::SaveCoin(const mw::WalletCoin& wallet_coin)
 {
     AssertLockHeld(m_pWallet->cs_wallet);
+    mw::WalletCoin coin = wallet_coin;
+    SetRecipientScanKeyId(coin, GetAllKeychains());
     wallet::WalletBatch batch(m_pWallet->GetDatabase());
 
     // WalletCoin v4 is intentionally unreadable by released pre-v24 versions.

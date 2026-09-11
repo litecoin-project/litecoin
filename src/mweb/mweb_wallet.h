@@ -79,7 +79,7 @@ public:
     void LoadNextSenderKeyIndex(const CKeyID& master_scan_keyid, uint64_t next_index) EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
 
 private:
-    // Persists a metadata-only coin after gating older spend-key-caching versions.
+    // Binds owned coins to their recipient scan keys and gates older spend-key-caching versions.
     // In-memory state is updated only after the database write succeeds.
     bool SaveCoin(const mw::WalletCoin& coin) EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
 

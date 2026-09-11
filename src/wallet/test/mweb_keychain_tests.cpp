@@ -239,37 +239,52 @@ public:
                 LOCK(wallet.cs_wallet);
                 wallet.GetMWWallet()->LoadToWallet(coin);
 
-                CMutableTransaction tx;
-                tx.mweb_tx.inputs.push_back(mw::MutableInput::FromOutput(received));
-                mw::MutableOutput output;
-                output.address = StealthAddress::Random();
-                output.amount = 90'000;
-                tx.mweb_tx.outputs.push_back(output);
-                mw::MutableKernel kernel;
-                kernel.fee = 10'000;
-                tx.mweb_tx.kernels.push_back(kernel);
-                PartiallySignedTransaction psbt(tx, 2);
-                // The updater supplies the key-exchange field; SetupFromTx omits it.
-                psbt.inputs[0].mweb_key_exchange_pubkey = received.GetKeyExchangePubKey();
-
-                const bool signed_raw = wallet.SignTransaction(tx);
-                BOOST_CHECK(signed_raw);
-                if (signed_raw) {
-                    BOOST_CHECK(tx.mweb_tx.IsFinal());
-                    BOOST_CHECK(!CTransaction{tx}.mweb_tx.m_transaction->Validate());
-                }
-
-                bool complete{false};
-                BOOST_CHECK(wallet.FillPSBT(psbt, complete, SIGHASH_ALL) == TransactionError::OK);
-                BOOST_CHECK(complete);
-                if (complete) {
-                    const auto finalized = FinalizePSBT(psbt);
-                    BOOST_REQUIRE(finalized);
-                    BOOST_CHECK(!CTransaction{*finalized}.mweb_tx.m_transaction->Validate());
-                    BOOST_CHECK(psbt.inputs[0].mweb_output_pubkey == received.GetReceiverPubKey());
-                }
+                CheckCoinSigning(wallet, received);
             }
         }
+    }
+
+    // Spend the stored coin through both wallet signing paths and validate the finalized transactions.
+    void CheckCoinSigning(CWallet& wallet, const mw::Output& received) const
+    {
+        LOCK(wallet.cs_wallet);
+        CMutableTransaction tx;
+        tx.mweb_tx.inputs.push_back(mw::MutableInput::FromOutput(received));
+        mw::MutableOutput output;
+        output.address = StealthAddress::Random();
+        output.amount = 90'000;
+        tx.mweb_tx.outputs.push_back(output);
+        mw::MutableKernel kernel;
+        kernel.fee = 10'000;
+        tx.mweb_tx.kernels.push_back(kernel);
+        PartiallySignedTransaction psbt(tx, 2);
+        // The updater supplies the key-exchange field; SetupFromTx omits it.
+        psbt.inputs[0].mweb_key_exchange_pubkey = received.GetKeyExchangePubKey();
+
+        const bool signed_raw = wallet.SignTransaction(tx);
+        BOOST_CHECK(signed_raw);
+        if (signed_raw) {
+            BOOST_CHECK(tx.mweb_tx.IsFinal());
+            BOOST_CHECK(!CTransaction{tx}.mweb_tx.m_transaction->Validate());
+        }
+
+        bool complete{false};
+        BOOST_CHECK(wallet.FillPSBT(psbt, complete, SIGHASH_ALL) == TransactionError::OK);
+        BOOST_CHECK(complete);
+        if (complete) {
+            const auto finalized = FinalizePSBT(psbt);
+            BOOST_REQUIRE(finalized);
+            BOOST_CHECK(!CTransaction{*finalized}.mweb_tx.m_transaction->Validate());
+            BOOST_CHECK(psbt.inputs[0].mweb_output_pubkey == received.GetReceiverPubKey());
+        }
+    }
+
+    // Read the durable coin independently of the wallet's in-memory metadata.
+    mw::WalletCoin ReadPersistedCoin(CWallet& wallet, const mw::Hash& output_id) const
+    {
+        mw::WalletCoin coin;
+        BOOST_REQUIRE(wallet.GetDatabase().MakeBatch()->Read(std::make_pair(DBKeys::COIN, output_id), coin));
+        return coin;
     }
 };
 
@@ -739,6 +754,73 @@ BOOST_AUTO_TEST_CASE(SharedScanSigningRequiresUnambiguousCoinData)
     BOOST_REQUIRE(resolved);
     BOOST_REQUIRE(resolved->has_value());
     BOOST_CHECK(PublicKey::From(**resolved) == output_pubkey);
+}
+
+// A payment to another keychain retains the recipient's scan ID, the sender's history, and both raw and PSBT spending capability.
+BOOST_AUTO_TEST_CASE(SelfPaymentBetweenKeychainsRemainsSpendable)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    WITH_LOCK(wallet.cs_wallet, wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS));
+    const auto first = test::MWEBTestKeys::Create('1', '2');
+    const auto second = test::MWEBTestKeys::Create('3', '4');
+    const auto first_chain = ImportMWEBDescriptor(wallet, first.Descriptor(7));
+    const auto second_chain = ImportMWEBDescriptor(wallet, second.Descriptor(7));
+
+    for (const auto& sender : {first_chain, second_chain}) {
+        const auto recipient = sender == first_chain ? second_chain : first_chain;
+        const auto address = recipient->DeriveAddress(7);
+        const SecretKey sender_key = sender->GetSenderSigningKey(0);
+        const mw::Output output = mw::Output::Create(nullptr, sender_key, sender->GetRewindKey(), address, 100'000, {});
+        BOOST_REQUIRE(Rewind(wallet, output));
+
+        mw::WalletCoin expected;
+        BOOST_REQUIRE(recipient->RewindOutput(output, expected));
+        expected.sender_key = sender_key;
+        BOOST_CHECK(GetCoin(wallet, output.GetOutputID()) == expected);
+        BOOST_CHECK(ReadPersistedCoin(wallet, output.GetOutputID()) == expected);
+        BOOST_CHECK_EQUAL(ReadSenderIndex(wallet, MasterScanKeyId(sender)), 1U);
+        CheckCoinSigning(wallet, output);
+
+        BOOST_REQUIRE(Rewind(wallet, output));
+        BOOST_CHECK(GetCoin(wallet, output.GetOutputID()) == expected);
+        BOOST_CHECK(ReadPersistedCoin(wallet, output.GetOutputID()) == expected);
+    }
+}
+
+// Committing a staged payment to another keychain's change address binds it to the recipient before sender rewind runs.
+BOOST_AUTO_TEST_CASE(SelfPaymentToAnotherKeychainsChangeRemainsSpendable)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    WITH_LOCK(wallet.cs_wallet, wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS));
+    const auto sender = ImportMWEBDescriptor(wallet, test::MWEBTestKeys::Create('1', '2').Descriptor(7));
+    const auto recipient = ImportMWEBDescriptor(wallet, test::MWEBTestKeys::Create('3', '4').Descriptor(mw::CHANGE_INDEX));
+    const auto address = recipient->DeriveAddress(mw::CHANGE_INDEX);
+    const SecretKey sender_key = sender->GetSenderSigningKey(0);
+    mw::WalletCoin staged;
+    BlindingFactor blind;
+    const mw::Output output = mw::Output::Create(&blind, sender_key, sender->GetRewindKey(), address, 100'000, {});
+    staged.output_id = output.GetOutputID();
+    staged.amount = 100'000;
+    staged.blind = blind;
+    staged.sender_key = sender_key;
+    {
+        LOCK(wallet.cs_wallet);
+        wallet.GetMWWallet()->StageWalletCoins({{staged.output_id, staged}});
+        wallet.GetMWWallet()->StageOutputAddresses({{staged.output_id, address}});
+        BOOST_REQUIRE(wallet.GetMWWallet()->SaveStagedCoinsToWallet({staged.output_id}));
+    }
+
+    mw::WalletCoin expected;
+    BOOST_REQUIRE(recipient->RewindOutput(output, expected));
+    expected.sender_key = sender_key;
+    BOOST_CHECK(GetCoin(wallet, output.GetOutputID()) == expected);
+    CheckCoinSigning(wallet, output);
+    BOOST_REQUIRE(Rewind(wallet, output));
+    BOOST_CHECK(GetCoin(wallet, output.GetOutputID()) == expected);
+    BOOST_CHECK(ReadPersistedCoin(wallet, output.GetOutputID()) == expected);
+    CheckCoinSigning(wallet, output);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
