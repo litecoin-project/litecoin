@@ -20,6 +20,9 @@
 #include <unordered_map>
 #include <vector>
 
+struct bilingual_str;
+
+#ifdef ENABLE_WALLET
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic push
 #pragma GCC diagnostic ignored "-Wsuggest-override"
@@ -28,8 +31,17 @@
 #if defined(__GNUC__) && !defined(__clang__)
 #pragma GCC diagnostic pop
 #endif
-
-struct bilingual_str;
+#else
+// Forward declarations when wallet is disabled
+class Db;
+class DbEnv;
+class DbTxn;
+class Dbc;
+class Dbt;
+// Stub definitions for Berkeley DB constants when wallet is disabled
+#define DB_FILE_ID_LEN 20
+#define DB_TXN_WRITE_NOSYNC 0
+#endif
 
 static const unsigned int DEFAULT_WALLET_DBLOGSIZE = 100;
 static const bool DEFAULT_WALLET_PRIVDB = true;
@@ -51,7 +63,13 @@ private:
     std::string strPath;
 
 public:
+#ifdef ENABLE_WALLET
     std::unique_ptr<DbEnv> dbenv;
+#else
+    // When wallet is disabled, use raw pointer to avoid needing full definition
+    // Note: This is only for header parsing - actual usage requires ENABLE_WALLET
+    DbEnv* dbenv;
+#endif
     std::map<std::string, std::reference_wrapper<BerkeleyDatabase>> m_databases;
     std::unordered_map<std::string, WalletDatabaseFileId> m_fileids;
     std::condition_variable_any m_db_in_use;
@@ -73,6 +91,7 @@ public:
     void CloseDb(const std::string& strFile);
     void ReloadDbEnv();
 
+#ifdef ENABLE_WALLET
     DbTxn* TxnBegin(int flags = DB_TXN_WRITE_NOSYNC)
     {
         DbTxn* ptxn = nullptr;
@@ -81,6 +100,10 @@ public:
             return nullptr;
         return ptxn;
     }
+#else
+    // Declaration only when wallet is disabled (implementation would be in .cpp if needed)
+    DbTxn* TxnBegin(int flags = DB_TXN_WRITE_NOSYNC);
+#endif
 };
 
 /** Get BerkeleyEnvironment and database filename given a wallet path. */
@@ -159,7 +182,12 @@ public:
     std::shared_ptr<BerkeleyEnvironment> env;
 
     /** Database pointer. This is initialized lazily and reset during flushes, so it can be null. */
+#ifdef ENABLE_WALLET
     std::unique_ptr<Db> m_db;
+#else
+    // When wallet is disabled, use raw pointer to avoid needing full definition
+    Db* m_db;
+#endif
 
     std::string strFile;
 
@@ -173,7 +201,14 @@ class BerkeleyBatch : public DatabaseBatch
     /** RAII class that automatically cleanses its data on destruction */
     class SafeDbt final
     {
+#ifdef ENABLE_WALLET
         Dbt m_dbt;
+#else
+        // When wallet is disabled, use a pointer to avoid needing full definition
+        // Note: This class is only used when ENABLE_WALLET is defined, so this branch
+        // is only for header parsing purposes
+        Dbt* m_dbt_ptr;
+#endif
 
     public:
         // construct Dbt with internally-managed data
