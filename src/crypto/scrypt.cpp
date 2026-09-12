@@ -28,6 +28,9 @@
  */
 
 #include <crypto/scrypt.h>
+#ifdef __APPLE__
+#include <sys/endian.h>
+#endif
 
 #include <stdlib.h>
 #include <stdint.h>
@@ -43,7 +46,7 @@
 #include <cpuid.h>
 #endif
 #endif
-#ifndef __FreeBSD__
+#if !defined(__FreeBSD__) && !defined(__APPLE__)
 static inline uint32_t be32dec(const void *pp)
 {
 	const uint8_t *p = (uint8_t const *)pp;
@@ -59,8 +62,7 @@ static inline void be32enc(void *pp, uint32_t x)
 	p[1] = (x >> 16) & 0xff;
 	p[0] = (x >> 24) & 0xff;
 }
-
-#endif
+#endif /* !defined(__FreeBSD__) && !defined(__APPLE__) */
 typedef struct HMAC_SHA256Context {
 	SHA256_CTX ictx;
 	SHA256_CTX octx;
