@@ -52,6 +52,7 @@ struct CTxMemPoolModifiedEntry {
     uint64_t GetMWEBWeightWithAncestors() const { return nMWEBWeightWithAncestors; }
     CAmount GetModFeesWithAncestors() const { return nModFeesWithAncestors; }
     size_t GetTxSize() const { return iter->GetTxSize(); }
+    size_t GetMWEBWeight() const { return iter->GetMWEBWeight(); }
     const CTransaction& GetTx() const { return iter->GetTx(); }
 
     CTxMemPool::txiter iter;

@@ -436,7 +436,7 @@ void BlockAssembler::addPackageTxs(const CTxMemPool& mempool, int& nPackagesSele
         }
 
         if (packageFees < blockMinFeeRate.GetFee(packageSize, packageMWEBWeight)) {
-            // Everything else we might consider has a lower fee rate
+            // No remaining candidate has a higher MWEB-adjusted fee rate.
             return;
         }
 

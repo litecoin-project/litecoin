@@ -7,6 +7,7 @@
 #define BITCOIN_TXMEMPOOL_H
 
 #include <atomic>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
@@ -23,6 +24,7 @@
 #include <indirectmap.h>
 #include <policy/feerate.h>
 #include <policy/packages.h>
+#include <policy/policy.h>
 #include <primitives/transaction.h>
 #include <random.h>
 #include <sync.h>
@@ -284,7 +286,8 @@ public:
 
 /** \class CompareTxMemPoolEntryByAncestorScore
  *
- *  Sort an entry by min(score/size of entry's tx, score/size with all ancestors).
+ * Sort by the minimum of the transaction's and its ancestor package's fee
+ * rates after subtracting their required MWEB fees.
  */
 class CompareTxMemPoolEntryByAncestorFee
 {
@@ -311,18 +314,35 @@ public:
     template <typename T>
     void GetModFeeAndSize(const T &a, double &mod_fee, double &size) const
     {
+        const auto [tx_fee, tx_size] = GetFeeAndSize(a.GetModifiedFee(), a.GetTxSize(), a.GetMWEBWeight());
+        const auto [ancestor_fee, ancestor_size] = GetFeeAndSize(a.GetModFeesWithAncestors(), a.GetSizeWithAncestors(), a.GetMWEBWeightWithAncestors());
+
         // Compare feerate with ancestors to feerate of the transaction, and
         // return the fee/size for the min.
-        double f1 = (double)a.GetModifiedFee() * a.GetSizeWithAncestors();
-        double f2 = (double)a.GetModFeesWithAncestors() * a.GetTxSize();
+        const double f1 = tx_fee * ancestor_size;
+        const double f2 = ancestor_fee * tx_size;
 
         if (f1 > f2) {
-            mod_fee = a.GetModFeesWithAncestors();
-            size = a.GetSizeWithAncestors();
+            mod_fee = ancestor_fee;
+            size = ancestor_size;
         } else {
-            mod_fee = a.GetModifiedFee();
-            size = a.GetTxSize();
+            mod_fee = tx_fee;
+            size = tx_size;
         }
+    }
+
+private:
+    static std::pair<double, double> GetFeeAndSize(CAmount fee, uint64_t size, uint64_t mweb_weight)
+    {
+        // Convert before subtracting so even extreme negative priority deltas cannot overflow.
+        const double effective_fee = static_cast<double>(fee) - static_cast<double>(BASE_MWEB_FEE) * mweb_weight;
+        if (size == 0) {
+            // With no canonical bytes, covering the MWEB charge (including exactly)
+            // satisfies any canonical fee floor. Use a nonzero denominator so the
+            // cross-products above never multiply zero by infinity.
+            return {effective_fee >= 0 ? std::numeric_limits<double>::infinity() : -std::numeric_limits<double>::infinity(), 1};
+        }
+        return {effective_fee, static_cast<double>(size)};
     }
 };
 

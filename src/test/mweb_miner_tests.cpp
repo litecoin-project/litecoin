@@ -15,6 +15,7 @@
 #include <mw/node/BlockValidator.h>
 #include <mw/node/CoinsView.h>
 #include <node/miner.h>
+#include <policy/policy.h>
 #include <script/standard.h>
 #include <test/util/setup_common.h>
 #include <txmempool.h>
@@ -26,6 +27,7 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <limits>
 #include <memory>
 #include <optional>
 #include <utility>
@@ -53,6 +55,18 @@ CMutableTransaction WithMWEB(const mw::Transaction::CPtr& mweb_tx)
 CMutableTransaction WithMWEB(const test::Tx& tx)
 {
     return WithMWEB(tx.GetTransaction());
+}
+
+// Create a canonical spend with a chosen output count to vary its mining size.
+CTransactionRef CanonicalTx(const std::vector<COutPoint>& inputs, const CAmount amount,
+                            const CAmount fee, const size_t outputs = 1)
+{
+    CMutableTransaction tx;
+    for (const auto& input : inputs) tx.vin.emplace_back(input);
+    const CAmount count = static_cast<CAmount>(outputs);
+    tx.vout.assign(outputs, CTxOut{(amount - fee) / count, CScript() << OP_TRUE});
+    tx.vout.front().nValue += (amount - fee) % count;
+    return MakeTransactionRef(std::move(tx));
 }
 
 // A signed, zero-value kernel adds an exact amount of weight without thousands
@@ -278,10 +292,11 @@ public:
         Queue(tx, canonical_fee);
     }
 
-    std::unique_ptr<node::CBlockTemplate> Assemble()
+    // Build and validate a complete template using the requested mining fee floor.
+    std::unique_ptr<node::CBlockTemplate> Assemble(const CFeeRate& min_fee_rate = CFeeRate{0})
     {
         node::BlockAssembler::Options options;
-        options.blockMinFeeRate = CFeeRate{0};
+        options.blockMinFeeRate = min_fee_rate;
         return node::BlockAssembler{m_node.chainman->ActiveChainstate(), m_node.mempool.get(), options}
             .CreateNewBlock(CScript() << OP_TRUE);
     }
@@ -740,6 +755,263 @@ BOOST_AUTO_TEST_CASE(assembler_includes_parent_child_package)
     BOOST_CHECK(block->block.vtx[1]->GetHash() == parent->GetHash());
     BOOST_CHECK_EQUAL(block->vTxFees[1], 0);
     BOOST_CHECK_EQUAL(block->vTxFees[0], -10 * MWEB_FEE);
+}
+
+// Canonical and MWEB transactions at the mining floor sort ahead of a hybrid with a higher gross fee rate but insufficient fees.
+BOOST_AUTO_TEST_CASE(assembler_orders_by_mweb_adjusted_fee)
+{
+    PrepareAssembler();
+    const CFeeRate min_fee{20'000};
+    const auto rejected = MakeTransactionRef(WithMWEB(Pegin(FUNDING_AMOUNT, 0)));
+    const CAmount rejected_fee = min_fee.GetFee(GetVirtualTransactionSize(*rejected), rejected->mweb_tx.GetMWEBWeight()) - 1;
+    QueueFunded(rejected, rejected_fee);
+    CheckCandidate(*Assemble(min_fee), {}, 0, 0);
+
+    const auto canonical_input = COutPoint{InsecureRand256(), 0};
+    const CAmount canonical_fee = min_fee.GetFee(GetVirtualTransactionSize(*CanonicalTx({canonical_input}, COIN, 0)));
+    const auto canonical = CanonicalTx({canonical_input}, COIN, canonical_fee);
+    QueueFunded(canonical, canonical_fee);
+
+    CMutableTransaction pegin = WithMWEB(Pegin(2 * COIN, 0));
+    pegin.vout.insert(pegin.vout.end(), 20, CTxOut{COIN, CScript() << OP_TRUE});
+    const auto eligible_mweb = MakeTransactionRef(pegin);
+    const CAmount mweb_fee = min_fee.GetFee(GetVirtualTransactionSize(*eligible_mweb), eligible_mweb->mweb_tx.GetMWEBWeight());
+    QueueFunded(eligible_mweb, mweb_fee);
+    {
+        LOCK(m_node.mempool->cs);
+        const auto& order = m_node.mempool->mapTx.get<ancestor_score>();
+        BOOST_REQUIRE(order.rbegin()->GetTx().GetHash() == rejected->GetHash());
+        BOOST_REQUIRE_GE(rejected_fee, CFeeRate{DEFAULT_MIN_RELAY_TX_FEE}.GetFee(
+            GetVirtualTransactionSize(*rejected), rejected->mweb_tx.GetMWEBWeight()));
+    }
+
+    const auto block = Assemble(min_fee);
+    BOOST_REQUIRE_EQUAL(block->block.vtx.size(), 4U);
+    const auto first = eligible_mweb->GetHash() < canonical->GetHash() ? eligible_mweb : canonical;
+    const auto second = first == eligible_mweb ? canonical : eligible_mweb;
+    BOOST_CHECK(block->block.vtx[1]->GetHash() == first->GetHash());
+    BOOST_CHECK(block->block.vtx[2]->GetHash() == second->GetHash());
+    CheckCandidate(*block, {eligible_mweb}, 2 * COIN, 0);
+    BOOST_CHECK_EQUAL(block->vTxFees[0], -(canonical_fee + mweb_fee));
+}
+
+// After a parent is selected, its underpaying child sorts behind an unrelated transaction that meets the mining floor.
+BOOST_AUTO_TEST_CASE(assembler_orders_modified_mweb_packages)
+{
+    PrepareAssembler();
+    const CFeeRate min_fee{20'000};
+    const auto parent_mweb = Pegin(FUNDING_AMOUNT, 0);
+    CMutableTransaction parent_tx = WithMWEB(parent_mweb);
+    parent_tx.vout.emplace_back(COIN, CScript() << OP_TRUE);
+    const auto parent = MakeTransactionRef(parent_tx);
+    QueueFunded(parent, COIN);
+
+    CMutableTransaction child_tx = WithMWEB(Spend(parent_mweb.GetOutputs().front(), 0));
+    child_tx.vin.emplace_back(parent->GetHash(), 1);
+    child_tx.vout.emplace_back(COIN, CScript() << OP_TRUE);
+    const auto child_without_fee = MakeTransactionRef(child_tx);
+    const CAmount child_fee = min_fee.GetFee(GetVirtualTransactionSize(*child_without_fee), child_without_fee->mweb_tx.GetMWEBWeight()) - 1;
+    child_tx.vout.front().nValue -= child_fee;
+    const auto child = MakeTransactionRef(child_tx);
+    Queue(child, child_fee);
+
+    const COutPoint independent_input{InsecureRand256(), 0};
+    const CAmount independent_fee = min_fee.GetFee(GetVirtualTransactionSize(*CanonicalTx({independent_input}, COIN, 0)));
+    const auto independent = CanonicalTx({independent_input}, COIN, independent_fee);
+    QueueFunded(independent, independent_fee);
+    {
+        LOCK(m_node.mempool->cs);
+        BOOST_REQUIRE(m_node.mempool->mapTx.get<ancestor_score>().begin()->GetTx().GetHash() == parent->GetHash());
+        node::CTxMemPoolModifiedEntry modified{Queue(child)};
+        node::update_for_parent_inclusion{Queue(parent)}(modified);
+        BOOST_REQUIRE_LT(modified.nModFeesWithAncestors, min_fee.GetFee(modified.nSizeWithAncestors, modified.nMWEBWeightWithAncestors));
+        BOOST_REQUIRE(CompareTxMemPoolEntryByAncestorFee{}(node::CTxMemPoolModifiedEntry{Queue(independent)}, modified));
+    }
+
+    const auto block = Assemble(min_fee);
+    BOOST_REQUIRE_EQUAL(block->block.vtx.size(), 4U);
+    BOOST_CHECK(block->block.vtx[1]->GetHash() == parent->GetHash());
+    BOOST_CHECK(block->block.vtx[2]->GetHash() == independent->GetHash());
+    CheckCandidate(*block, {parent}, FUNDING_AMOUNT, 0);
+    BOOST_CHECK_EQUAL(block->vTxFees[0], -(COIN + independent_fee));
+}
+
+// A sibling pays for a shared MWEB ancestor before another child is selected, with earlier ancestor removals preserved.
+BOOST_AUTO_TEST_CASE(assembler_reorders_children_after_ancestor_inclusion)
+{
+    PrepareAssembler();
+    const CFeeRate min_fee{20'000};
+    for (const bool earlier_ancestor : {false, true}) {
+        m_node.mempool->clear();
+        const auto make_parent = [&](CAmount amount) {
+            CMutableTransaction tx = WithMWEB(Pegin(amount, 0));
+            tx.vout.insert(tx.vout.end(), 2, CTxOut{COIN, CScript() << OP_TRUE});
+            const auto parent = MakeTransactionRef(tx);
+            QueueFunded(parent, 0);
+            return parent;
+        };
+        const auto parent = make_parent(FUNDING_AMOUNT);
+        std::vector<COutPoint> child_inputs{{parent->GetHash(), 1}};
+        std::vector<CTransactionRef> expected;
+        CTransactionRef first_parent;
+        if (earlier_ancestor) {
+            first_parent = make_parent(2 * FUNDING_AMOUNT);
+            child_inputs.emplace_back(first_parent->GetHash(), 1);
+            const auto first_sibling = CanonicalTx({COutPoint{first_parent->GetHash(), 2}}, COIN, COIN / 2);
+            Queue(first_sibling, COIN / 2);
+            expected = {first_parent, first_sibling};
+        }
+
+        const CAmount child_amount = COIN * child_inputs.size();
+        const CAmount child_fee = min_fee.GetFee(GetVirtualTransactionSize(*parent) +
+            GetVirtualTransactionSize(*CanonicalTx(child_inputs, child_amount, 0)), parent->mweb_tx.GetMWEBWeight()) - 1;
+        const auto child = CanonicalTx(child_inputs, child_amount, child_fee);
+        Queue(child, child_fee);
+        const COutPoint sibling_input{parent->GetHash(), 2};
+        const CAmount sibling_fee = min_fee.GetFee(GetVirtualTransactionSize(*parent) +
+            GetVirtualTransactionSize(*CanonicalTx({sibling_input}, COIN, 0, 100)), parent->mweb_tx.GetMWEBWeight());
+        const auto sibling = CanonicalTx({sibling_input}, COIN, sibling_fee, 100);
+        Queue(sibling, sibling_fee);
+        {
+            LOCK(m_node.mempool->cs);
+            node::CTxMemPoolModifiedEntry remaining{Queue(child)};
+            if (first_parent) node::update_for_parent_inclusion{Queue(first_parent)}(remaining);
+            BOOST_REQUIRE(CompareTxMemPoolEntryByAncestorFee{}(node::CTxMemPoolModifiedEntry{Queue(sibling)}, remaining));
+        }
+
+        const auto block = Assemble(min_fee);
+        expected.insert(expected.end(), {parent, sibling, child});
+        BOOST_REQUIRE_EQUAL(block->block.vtx.size(), expected.size() + 2);
+        for (size_t i = 0; i < expected.size(); ++i) {
+            BOOST_CHECK(block->block.vtx[i + 1]->GetHash() == expected[i]->GetHash());
+        }
+        const std::vector<CTransactionRef> accepted_mweb = earlier_ancestor ?
+            std::vector<CTransactionRef>{first_parent, parent} : std::vector<CTransactionRef>{parent};
+        CheckCandidate(*block, accepted_mweb, (earlier_ancestor ? 3 : 1) * FUNDING_AMOUNT, 0);
+        BOOST_CHECK_EQUAL(block->vTxFees[0], -(child_fee + sibling_fee + (earlier_ancestor ? COIN / 2 : 0)));
+    }
+}
+
+// Zero-size transfers at or above their MWEB charge precede finite-rate candidates, while a one-litoshi deficit sorts last.
+BOOST_AUTO_TEST_CASE(assembler_orders_zero_vsize_fee_boundaries)
+{
+    const auto funding = test::TxBuilder().AddPeginKernel(3 * FUNDING_AMOUNT)
+        .AddOutput(FUNDING_AMOUNT, m_sender_key, m_address)
+        .AddOutput(FUNDING_AMOUNT, m_sender_key, m_address)
+        .AddOutput(FUNDING_AMOUNT, m_sender_key, m_address).Build();
+    FundMWEB(funding);
+    PrepareAssembler();
+    std::vector<CTransactionRef> transfers;
+    for (const auto& output : funding.GetOutputs()) {
+        transfers.push_back(MakeTransactionRef(WithMWEB(Spend(output))));
+    }
+    std::sort(transfers.begin(), transfers.end(), [](const auto& a, const auto& b) { return a->GetHash() < b->GetHash(); });
+    const auto rejected = transfers[0];
+    const auto exact = transfers[1];
+    const auto surplus = transfers[2];
+    const CFeeRate min_fee{20'000};
+    const COutPoint canonical_input{InsecureRand256(), 0};
+    const CAmount canonical_fee = min_fee.GetFee(GetVirtualTransactionSize(*CanonicalTx({canonical_input}, COIN, 0)));
+    const auto canonical = CanonicalTx({canonical_input}, COIN, canonical_fee);
+    const auto low_fee = CanonicalTx({COutPoint{InsecureRand256(), 0}}, COIN, 0);
+    QueueFunded(canonical, canonical_fee);
+    QueueFunded(low_fee, 0);
+    {
+        LOCK(m_node.mempool->cs);
+        for (size_t i = 0; i < transfers.size(); ++i) {
+            const auto entry = Queue(transfers[i]);
+            BOOST_REQUIRE_EQUAL(entry->GetTxSize(), 0U);
+            const CAmount required = CFeeRate{0}.GetFee(0, entry->GetMWEBWeight());
+            m_node.mempool->PrioritiseTransaction(transfers[i]->GetHash(), required - entry->GetFee() + CAmount(i) - 1);
+        }
+        const std::vector<CTransactionRef> expected{exact, surplus, canonical, low_fee, rejected};
+        const auto& order = m_node.mempool->mapTx.get<ancestor_score>();
+        BOOST_REQUIRE_EQUAL(order.size(), expected.size());
+        size_t index = 0;
+        for (const auto& entry : order) BOOST_CHECK(entry.GetTx().GetHash() == expected[index++]->GetHash());
+
+        // Check both representations and all pairs, including the zero-surplus versus finite-zero distinction.
+        const CompareTxMemPoolEntryByAncestorFee compare;
+        for (size_t i = 0; i < expected.size(); ++i) {
+            const auto a = Queue(expected[i]);
+            BOOST_CHECK(!compare(*a, *a));
+            for (size_t j = 0; j < expected.size(); ++j) {
+                const auto b = Queue(expected[j]);
+                BOOST_CHECK_EQUAL(compare(*a, *b), i < j);
+                BOOST_CHECK_EQUAL(compare(node::CTxMemPoolModifiedEntry{a}, node::CTxMemPoolModifiedEntry{b}), i < j);
+            }
+        }
+    }
+    const auto block = Assemble(min_fee);
+    CheckCandidate(*block, {exact, surplus}, 3 * FUNDING_AMOUNT - 2 * MWEB_FEE, 2 * MWEB_FEE);
+    BOOST_REQUIRE_EQUAL(block->block.vtx.size(), 3U);
+    BOOST_CHECK(block->block.vtx[1]->GetHash() == canonical->GetHash());
+    BOOST_CHECK_EQUAL(block->vTxFees[0], -(canonical_fee + 2 * MWEB_FEE));
+
+    // A zero canonical mining floor also includes the zero-fee canonical transaction, but not the MWEB deficit.
+    const auto zero_floor = Assemble();
+    CheckCandidate(*zero_floor, {exact, surplus}, 3 * FUNDING_AMOUNT - 2 * MWEB_FEE, 2 * MWEB_FEE);
+    BOOST_REQUIRE_EQUAL(zero_floor->block.vtx.size(), 4U);
+    BOOST_CHECK(zero_floor->block.vtx[2]->GetHash() == low_fee->GetHash());
+}
+
+// A pure MWEB package needs its full MWEB charge, and a child cannot reuse fees assigned to an already selected parent.
+BOOST_AUTO_TEST_CASE(assembler_includes_zero_vsize_package_at_fee_floor)
+{
+    const auto funding = Pegin(FUNDING_AMOUNT, 0);
+    FundMWEB(funding);
+    PrepareAssembler();
+    // A nonzero fee avoids cancelling the commitments of a same-amount self-transfer.
+    const CAmount parent_fee{1};
+    const auto parent_mweb = Spend(funding.GetOutputs().front(), parent_fee);
+    const auto parent = MakeTransactionRef(WithMWEB(parent_mweb));
+    const auto draft_child = MakeTransactionRef(WithMWEB(Spend(parent_mweb.GetOutputs().front())));
+    const CAmount fee = CFeeRate{0}.GetFee(0, parent->mweb_tx.GetMWEBWeight() + draft_child->mweb_tx.GetMWEBWeight()) - parent_fee;
+    const auto child = MakeTransactionRef(WithMWEB(Spend(parent_mweb.GetOutputs().front(), fee)));
+    Queue(parent);
+    Queue(child);
+    {
+        LOCK(m_node.mempool->cs);
+        BOOST_REQUIRE_EQUAL(Queue(child)->GetSizeWithAncestors(), 0U);
+        BOOST_REQUIRE_EQUAL(Queue(child)->GetModFeesWithAncestors(), CFeeRate{0}.GetFee(0, Queue(child)->GetMWEBWeightWithAncestors()));
+        BOOST_REQUIRE(m_node.mempool->mapTx.get<ancestor_score>().begin()->GetTx().GetHash() == child->GetHash());
+    }
+    const CFeeRate min_fee{20'000};
+    m_node.mempool->PrioritiseTransaction(child->GetHash(), -1);
+    CheckCandidate(*Assemble(min_fee), {}, FUNDING_AMOUNT, 0);
+    m_node.mempool->PrioritiseTransaction(child->GetHash(), 1);
+    const auto block = Assemble(min_fee);
+    CheckCandidate(*block, {parent, child}, FUNDING_AMOUNT - parent_fee - fee, parent_fee + fee);
+    BOOST_CHECK_EQUAL(block->vTxFees[0], -(parent_fee + fee));
+
+    // Keep the package's total priority unchanged, but make the parent pay and the child fall below its own minimum.
+    m_node.mempool->PrioritiseTransaction(parent->GetHash(), 3 * fee);
+    m_node.mempool->PrioritiseTransaction(child->GetHash(), -3 * fee);
+    const auto prioritised = Assemble(min_fee);
+    CheckCandidate(*prioritised, {parent}, FUNDING_AMOUNT - parent_fee, parent_fee);
+    BOOST_CHECK_EQUAL(prioritised->vTxFees[0], -parent_fee);
+}
+
+// Extreme negative prioritization stays below ordinary candidates even after subtracting MWEB charges, in both indexes.
+BOOST_AUTO_TEST_CASE(ancestor_score_handles_extreme_negative_prioritisation)
+{
+    const auto hybrid = MakeTransactionRef(WithMWEB(Pegin(FUNDING_AMOUNT, 0)));
+    const auto pure = MakeTransactionRef(WithMWEB(Spend(Pegin().GetOutputs().front(), 0)));
+    const auto canonical = CanonicalTx({COutPoint{InsecureRand256(), 0}}, COIN, 0);
+    LOCK(m_node.mempool->cs);
+    const auto hybrid_entry = Queue(hybrid);
+    const auto pure_entry = Queue(pure);
+    const auto canonical_entry = Queue(canonical);
+    for (const auto& tx : {hybrid, pure}) {
+        m_node.mempool->PrioritiseTransaction(tx->GetHash(), std::numeric_limits<CAmount>::min());
+    }
+    const CompareTxMemPoolEntryByAncestorFee compare;
+    BOOST_CHECK(compare(*canonical_entry, *hybrid_entry));
+    BOOST_CHECK(compare(*hybrid_entry, *pure_entry));
+    BOOST_CHECK(compare(*canonical_entry, *pure_entry));
+    BOOST_CHECK(compare(node::CTxMemPoolModifiedEntry{canonical_entry}, node::CTxMemPoolModifiedEntry{hybrid_entry}));
+    BOOST_CHECK(compare(node::CTxMemPoolModifiedEntry{hybrid_entry}, node::CTxMemPoolModifiedEntry{pure_entry}));
+    BOOST_CHECK(m_node.mempool->mapTx.get<ancestor_score>().begin()->GetTx().GetHash() == canonical->GetHash());
 }
 
 // An invalid peg-in and its MWEB descendant are skipped while an unrelated valid transaction still gets mined.
