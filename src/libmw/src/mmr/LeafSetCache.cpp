@@ -1,7 +1,13 @@
 #include <mw/mmr/LeafSet.h>
 #include <mw/crypto/Hasher.h>
+#include <memusage.h>
 
 using namespace mmr;
+
+size_t LeafSetCache::DynamicMemoryUsage() const noexcept
+{
+    return memusage::DynamicUsage(m_modifiedBytes);
+}
 
 void LeafSetCache::ApplyUpdates(
     const uint32_t /*file_index*/,
@@ -18,7 +24,7 @@ void LeafSetCache::ApplyUpdates(
 void LeafSetCache::Flush(const uint32_t file_index)
 {
     m_pBacked->ApplyUpdates(file_index, m_nextLeafIdx, m_modifiedBytes);
-    m_modifiedBytes.clear();
+    decltype(m_modifiedBytes){}.swap(m_modifiedBytes);
 }
 
 void LeafSetCache::ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const

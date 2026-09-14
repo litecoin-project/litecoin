@@ -5,6 +5,7 @@
 #include <mw/node/CoinsView.h>
 #include <mw/exceptions/ValidationException.h>
 #include <mw/models/tx/MutableTx.h>
+#include <memusage.h>
 
 #include <test_framework/Miner.h>
 #include <test_framework/TestMWEB.h>
@@ -13,6 +14,52 @@
 using namespace mw;
 
 BOOST_FIXTURE_TEST_SUITE(TestCoinsView, MWEBTestingSetup)
+
+// Coin accounting includes optional fields, extra data, and proof capacity, and retains spent coins until their actions are flushed.
+BOOST_AUTO_TEST_CASE(CoinsViewCache_MemoryUsage_Payloads)
+{
+    auto base = mw::CoinsViewDB::Open(m_path_root, nullptr, GetDB());
+    mw::CoinsViewCache plain(base);
+    mw::CoinsViewCache padded(base);
+    const auto tx = test::Tx::CreatePegIn(5'000'000);
+    const auto& output = tx.GetOutputs().front().GetOutput();
+    plain.AddCoin(1, output);
+
+    auto proof_bytes = output.GetRangeProof()->vec();
+    proof_bytes.reserve(2048);
+    const auto proof = std::make_shared<RangeProof>(std::move(proof_bytes));
+    std::vector<uint8_t> extra_data(1024, 0x42);
+    extra_data.reserve(4096); // The cached coin copies the data, so its capacity may differ.
+    const auto& message = output.GetOutputMessage();
+    const mw::Output padded_output{output.GetCommitment(), output.GetSenderPubKey(), output.GetReceiverPubKey(),
+        mw::OutputMessage{uint8_t(message.features | mw::OutputMessage::EXTRA_DATA_FEATURE_BIT),
+            message.standard_fields, std::move(extra_data)}, proof, output.GetSignature()};
+    padded.AddCoin(1, padded_output);
+    const auto coin = padded.GetCoin(padded_output.GetOutputID());
+    BOOST_REQUIRE(coin);
+    const size_t extra_usage = memusage::DynamicUsage(coin->GetOutput().GetExtraData()) +
+        memusage::DynamicUsage(proof->vec()) - memusage::DynamicUsage(output.GetRangeProof()->vec());
+    BOOST_CHECK_EQUAL(padded.DynamicMemoryUsage() - plain.DynamicMemoryUsage(), extra_usage);
+
+    mw::CoinsViewCache without_standard_fields(base);
+    const mw::Output nonstandard_output{output.GetCommitment(), output.GetSenderPubKey(), output.GetReceiverPubKey(),
+        mw::OutputMessage{mw::OutputMessage::EXTRA_DATA_FEATURE_BIT, std::nullopt, padded_output.GetExtraData()},
+        proof, output.GetSignature()};
+    without_standard_fields.AddCoin(1, nonstandard_output);
+    BOOST_REQUIRE(message.standard_fields);
+    const size_t standard_usage = memusage::DynamicUsage(message.standard_fields->key_exchange_pubkey.vec()) +
+        memusage::DynamicUsage(message.standard_fields->masked_nonce.vec());
+    BOOST_CHECK_EQUAL(padded.DynamicMemoryUsage() - without_standard_fields.DynamicMemoryUsage(), standard_usage);
+
+    const size_t added_usage = padded.DynamicMemoryUsage();
+    padded.SpendCoin(padded_output.GetOutputID());
+    BOOST_CHECK_GT(padded.DynamicMemoryUsage(), added_usage);
+    BOOST_CHECK(!padded.GetCoin(padded_output.GetOutputID()));
+    padded.AddCoin(2, padded_output);
+    BOOST_CHECK_GT(padded.DynamicMemoryUsage(), added_usage + sizeof(mw::Coin) + extra_usage);
+    BOOST_REQUIRE(padded.GetCoin(padded_output.GetOutputID()));
+    BOOST_CHECK_EQUAL(padded.GetCoin(padded_output.GetOutputID())->GetBlockHeight(), 2);
+}
 
 BOOST_AUTO_TEST_CASE(CoinsViewCache_ApplyBlock_InputCommitmentMismatch)
 {

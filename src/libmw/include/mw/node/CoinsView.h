@@ -89,6 +89,9 @@ public:
 
     explicit CoinsViewCache(const ICoinsView::Ptr& pBase);
 
+    // Estimate allocations retained by this cache layer, excluding its backing view.
+    size_t DynamicMemoryUsage() const noexcept;
+
     bool IsCache() const noexcept final { return true; }
 
     mw::Coin::CPtr GetCoin(const mw::Hash& output_id) const noexcept final;

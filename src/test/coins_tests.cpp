@@ -92,6 +92,7 @@ class CCoinsViewCacheTest : public CCoinsViewCache
 public:
     explicit CCoinsViewCacheTest(CCoinsView* _base) : CCoinsViewCache(_base) {}
 
+    // Recompute canonical allocations and include the separately accounted MWEB cache layer.
     void SelfTest() const
     {
         // Manually recompute the dynamic usage of the whole data, and compare it.
@@ -101,6 +102,7 @@ public:
             ret += entry.second.coin.DynamicMemoryUsage();
             ++count;
         }
+        ret += memusage::DynamicUsage(mweb_view) + (mweb_view ? mweb_view->DynamicMemoryUsage() : 0);
         BOOST_CHECK_EQUAL(GetCacheSize(), count);
         BOOST_CHECK_EQUAL(DynamicMemoryUsage(), ret);
     }

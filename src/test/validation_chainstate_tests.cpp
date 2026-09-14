@@ -12,11 +12,34 @@
 #include <uint256.h>
 #include <validation.h>
 
+#include <test_framework/TxBuilder.h>
+
 #include <vector>
 
 #include <boost/test/unit_test.hpp>
 
 BOOST_FIXTURE_TEST_SUITE(validation_chainstate_tests, ChainTestingSetup)
+
+// MWEB outputs alone must raise cache pressure, while spare cache or mempool space still permits normal operation.
+BOOST_AUTO_TEST_CASE(mweb_cache_memory_pressure)
+{
+    LOCK(cs_main);
+    auto& chainstate = m_node.chainman->InitializeChainstate(m_node.mempool.get());
+    chainstate.InitCoinsDB(1 << 20, true, false);
+    chainstate.InitCoinsCache(1 << 20);
+    auto& coins = chainstate.CoinsTip();
+    const size_t budget = 2 * coins.DynamicMemoryUsage() + RangeProof::SIZE;
+    BOOST_CHECK(chainstate.GetCoinsCacheSizeState(budget, 0) == CoinsCacheSizeState::OK);
+
+    const auto tx = test::TxBuilder().AddOutput(COIN).AddOutput(COIN).AddPeginKernel(2 * COIN).Build();
+    for (const auto& output : tx.GetOutputs()) coins.GetMWEBCacheView()->AddCoin(1, output.GetOutput());
+    BOOST_CHECK_EQUAL(coins.GetCacheSize(), 0U);
+    BOOST_CHECK(chainstate.GetCoinsCacheSizeState(budget, 0) == CoinsCacheSizeState::CRITICAL);
+    const size_t usage = coins.DynamicMemoryUsage();
+    BOOST_CHECK(chainstate.GetCoinsCacheSizeState(usage, 0) == CoinsCacheSizeState::LARGE);
+    BOOST_CHECK(chainstate.GetCoinsCacheSizeState(2 * usage, 0) == CoinsCacheSizeState::OK);
+    BOOST_CHECK(chainstate.GetCoinsCacheSizeState(budget, m_node.mempool->DynamicMemoryUsage() + 2 * usage) == CoinsCacheSizeState::OK);
+}
 
 //! Test resizing coins-related Chainstate caches during runtime.
 //!

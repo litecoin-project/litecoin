@@ -45,7 +45,8 @@ bool CCoinsViewBacked::GetMWEBCoin(const mw::Hash& output_id, mw::Coin::CPtr& co
 CCoinsViewCache::CCoinsViewCache(CCoinsView* baseIn) : CCoinsViewBacked(baseIn), cachedCoinsUsage(0), mweb_view(baseIn->GetMWEBView() ? std::make_shared<mw::CoinsViewCache>(baseIn->GetMWEBView()) : nullptr) { }
 
 size_t CCoinsViewCache::DynamicMemoryUsage() const {
-    return memusage::DynamicUsage(cacheCoins) + cachedCoinsUsage;
+    return memusage::DynamicUsage(cacheCoins) + cachedCoinsUsage +
+        memusage::DynamicUsage(mweb_view) + (mweb_view ? mweb_view->DynamicMemoryUsage() : 0);
 }
 
 CCoinsMap::iterator CCoinsViewCache::FetchCoin(const COutPoint &outpoint) const {

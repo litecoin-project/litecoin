@@ -199,6 +199,8 @@ public:
         : m_pBase(pBacked), m_firstLeaf(pBacked->GetNextLeafIdx()){ }
     virtual ~PMMRCache() = default;
 
+    size_t DynamicMemoryUsage() const noexcept;
+
     mmr::LeafIndex AddLeaf(const mmr::Leaf& leaf) final;
 
     mmr::Leaf GetLeaf(const mmr::LeafIndex& leafIdx) const final;
@@ -222,4 +224,5 @@ private:
     mmr::LeafIndex m_firstLeaf;
     std::vector<mmr::Leaf> m_leaves;
     std::vector<mw::Hash> m_nodes;
+    size_t m_cachedUsage{0}; // Leaf payloads and hashes, excluding the outer vectors.
 };

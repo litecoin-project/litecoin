@@ -1,11 +1,18 @@
 #include <mw/mmr/MMR.h>
 #include <mw/mmr/MMRUtil.h>
+#include <memusage.h>
 
 using namespace mmr;
+
+size_t PMMRCache::DynamicMemoryUsage() const noexcept
+{
+    return memusage::DynamicUsage(m_leaves) + memusage::DynamicUsage(m_nodes) + m_cachedUsage;
+}
 
 LeafIndex PMMRCache::AddLeaf(const Leaf& leaf)
 {
     m_nodes.push_back(leaf.GetHash());
+    m_cachedUsage += memusage::DynamicUsage(m_nodes.back().vec());
 
     auto rightHash = leaf.GetHash();
     auto nextIdx = leaf.GetNodeIndex().GetNext();
@@ -14,10 +21,13 @@ LeafIndex PMMRCache::AddLeaf(const Leaf& leaf)
         rightHash = MMRUtil::CalcParentHash(nextIdx, leftHash, rightHash);
 
         m_nodes.push_back(rightHash);
+        m_cachedUsage += memusage::DynamicUsage(m_nodes.back().vec());
         nextIdx = nextIdx.GetNext();
     }
 
     m_leaves.push_back(leaf);
+    m_cachedUsage += memusage::DynamicUsage(m_leaves.back().vec()) +
+        memusage::DynamicUsage(m_leaves.back().GetHash().vec());
     return leaf.GetLeafIndex();
 }
 
@@ -62,14 +72,22 @@ void PMMRCache::Rewind(const uint64_t numLeaves)
         m_firstLeaf = nextLeaf;
         m_leaves.clear();
         m_nodes.clear();
+        m_cachedUsage = 0;
     } else if (!m_leaves.empty()) {
         const uint64_t keepLeaves = nextLeaf.Get() - m_firstLeaf.Get();
         if (keepLeaves < m_leaves.size()) {
+            for (size_t i = keepLeaves; i < m_leaves.size(); ++i) {
+                m_cachedUsage -= memusage::DynamicUsage(m_leaves[i].vec()) +
+                    memusage::DynamicUsage(m_leaves[i].GetHash().vec());
+            }
             m_leaves.resize(static_cast<size_t>(keepLeaves));
         }
 
         const uint64_t numNodes = GetNumNodes() - m_firstLeaf.GetPosition();
         if (m_nodes.size() > numNodes) {
+            for (size_t i = numNodes; i < m_nodes.size(); ++i) {
+                m_cachedUsage -= memusage::DynamicUsage(m_nodes[i].vec());
+            }
             m_nodes.erase(m_nodes.begin() + numNodes, m_nodes.end());
         }
     }
@@ -91,6 +109,8 @@ void PMMRCache::Flush(const uint32_t file_index, CDBBatch* pBatch)
 {
     m_pBase->BatchWrite(file_index, m_firstLeaf, m_leaves, pBatch);
     m_firstLeaf = GetNextLeafIdx();
-    m_leaves.clear();
-    m_nodes.clear();
+    // Drop retained capacity after publishing; rewinds still account for it.
+    decltype(m_leaves){}.swap(m_leaves);
+    decltype(m_nodes){}.swap(m_nodes);
+    m_cachedUsage = 0;
 }

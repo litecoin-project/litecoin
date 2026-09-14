@@ -3,12 +3,50 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <mw/mmr/MMR.h>
+#include <memusage.h>
 
 #include <test_framework/TestMWEB.h>
 
 using namespace mmr;
 
 BOOST_FIXTURE_TEST_SUITE(TestMMR, MWEBTestingSetup)
+
+// Rewinds release removed leaf payloads and hash bytes but retain vector capacity; flushing releases that capacity and preserves the MMR.
+BOOST_AUTO_TEST_CASE(PMMRCache_MemoryUsage)
+{
+    auto disk = PMMR::Open('O', m_path_root / "mmr", 0, GetDB(), nullptr);
+    auto parent = std::make_shared<PMMRCache>(disk);
+    PMMRCache child(parent);
+    const size_t empty_usage = child.DynamicMemoryUsage();
+    std::vector<uint8_t> first(32, 1), second(64, 2), third(96, 3);
+    third.reserve(1024); // Accounting must measure the stored copy.
+    child.Add(first);
+    child.Add(second);
+    const auto root = child.Root();
+    child.Add(third);
+    const size_t full_usage = child.DynamicMemoryUsage();
+    const size_t third_usage = memusage::DynamicUsage(child.GetLeaf(LeafIndex::At(2)).vec());
+    const size_t hash_usage = memusage::DynamicUsage(child.GetHash(Index::At(0)).vec());
+    BOOST_CHECK_GT(full_usage, memusage::DynamicUsage(first) + memusage::DynamicUsage(second) + third_usage + 7 * hash_usage);
+    BOOST_CHECK_EQUAL(parent->DynamicMemoryUsage(), empty_usage);
+    child.Rewind(2);
+    BOOST_CHECK_EQUAL(child.DynamicMemoryUsage(), full_usage - third_usage - 2 * hash_usage);
+    BOOST_CHECK(child.Root() == root);
+    child.Rewind(0);
+    BOOST_CHECK_EQUAL(child.DynamicMemoryUsage(), full_usage - third_usage -
+        memusage::DynamicUsage(first) - memusage::DynamicUsage(second) - 7 * hash_usage);
+    BOOST_CHECK_GT(child.DynamicMemoryUsage(), empty_usage);
+    child.Add(first);
+    child.Add(second);
+    child.Flush(0, nullptr);
+    BOOST_CHECK_EQUAL(child.DynamicMemoryUsage(), empty_usage);
+    BOOST_CHECK_GT(parent->DynamicMemoryUsage(), empty_usage);
+    BOOST_CHECK(child.Root() == root);
+    BOOST_CHECK(parent->Root() == root);
+    parent->Flush(1, nullptr);
+    BOOST_CHECK_EQUAL(parent->DynamicMemoryUsage(), empty_usage);
+    BOOST_CHECK(disk->Root() == root);
+}
 
 BOOST_AUTO_TEST_CASE(MMRTest)
 {

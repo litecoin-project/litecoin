@@ -9,6 +9,35 @@
 
 BOOST_FIXTURE_TEST_SUITE(TestMMRLeafSetCache, MWEBTestingSetup)
 
+// Rewriting one leafset byte does not accumulate memory, and nested flushes release storage while preserving bits.
+BOOST_AUTO_TEST_CASE(LeafSetCache_MemoryUsage)
+{
+    auto disk = LeafSet::Open(m_path_root, 0);
+    auto parent = std::make_shared<LeafSetCache>(disk);
+    const size_t empty_usage = parent->DynamicMemoryUsage();
+    parent->Add(mmr::LeafIndex::At(0));
+    const size_t one_byte_usage = parent->DynamicMemoryUsage();
+    BOOST_CHECK_GT(one_byte_usage, empty_usage);
+    parent->Add(mmr::LeafIndex::At(1));
+    parent->Remove(mmr::LeafIndex::At(0));
+    BOOST_CHECK_EQUAL(parent->DynamicMemoryUsage(), one_byte_usage);
+    LeafSetCache child(parent);
+    BOOST_CHECK_EQUAL(child.DynamicMemoryUsage(), empty_usage);
+    child.Add(mmr::LeafIndex::At(8));
+    BOOST_CHECK_EQUAL(parent->DynamicMemoryUsage(), one_byte_usage);
+    const auto root = child.Root();
+    child.Flush(0);
+    BOOST_CHECK_EQUAL(child.DynamicMemoryUsage(), empty_usage);
+    BOOST_CHECK_GT(parent->DynamicMemoryUsage(), one_byte_usage);
+    BOOST_CHECK(parent->Root() == root);
+    parent->Flush(1);
+    BOOST_CHECK_EQUAL(parent->DynamicMemoryUsage(), empty_usage);
+    BOOST_CHECK(disk->Root() == root);
+    BOOST_CHECK(!disk->Contains(mmr::LeafIndex::At(0)));
+    BOOST_CHECK(disk->Contains(mmr::LeafIndex::At(1)));
+    BOOST_CHECK(disk->Contains(mmr::LeafIndex::At(8)));
+}
+
 BOOST_AUTO_TEST_CASE(LeafSetCacheTest)
 {
     {

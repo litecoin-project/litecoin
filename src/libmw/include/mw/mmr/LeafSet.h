@@ -81,6 +81,8 @@ public:
     LeafSetCache(const ILeafSet::Ptr& pBacked)
         : ILeafSet(pBacked->GetNextLeafIdx()), m_pBacked(pBacked) { }
 
+    size_t DynamicMemoryUsage() const noexcept;
+
     uint8_t GetByte(const uint64_t byteIdx) const final;
     void SetByte(const uint64_t byteIdx, const uint8_t value) final;
     void ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const final;

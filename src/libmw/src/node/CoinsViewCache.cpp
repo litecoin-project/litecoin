@@ -14,6 +14,24 @@ CoinsViewCache::CoinsViewCache(const ICoinsView::Ptr& pBase)
       m_pOutputPMMR(std::make_unique<PMMRCache>(pBase->GetOutputPMMR())),
       m_pUpdates(std::make_shared<CoinsViewUpdates>()) {}
 
+size_t CoinsViewCache::DynamicMemoryUsage() const noexcept
+{
+    const auto header = GetBestHeader();
+    size_t usage = memusage::DynamicUsage(header);
+    if (header) {
+        usage += memusage::DynamicUsage(header->GetOutputRoot().vec()) +
+            memusage::DynamicUsage(header->GetKernelRoot().vec()) +
+            memusage::DynamicUsage(header->GetLeafsetRoot().vec()) +
+            memusage::DynamicUsage(header->GetKernelOffset().vec()) +
+            memusage::DynamicUsage(header->GetStealthOffset().vec()) +
+            memusage::DynamicUsage(header->GetHash().vec());
+    }
+    return usage +
+        memusage::DynamicUsage(m_pUpdates) + m_pUpdates->DynamicMemoryUsage() +
+        memusage::DynamicUsage(m_pLeafSet) + m_pLeafSet->DynamicMemoryUsage() +
+        memusage::DynamicUsage(m_pOutputPMMR) + m_pOutputPMMR->DynamicMemoryUsage();
+}
+
 Coin::CPtr CoinsViewCache::GetCoin(const mw::Hash& output_id) const noexcept
 {
     Coin::CPtr pCoin = m_pBase->GetCoin(output_id);

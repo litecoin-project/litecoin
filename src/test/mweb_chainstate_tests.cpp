@@ -316,6 +316,61 @@ BOOST_AUTO_TEST_CASE(canonical_only_view_handles_mweb_lookups)
     CheckMissing(cache, tx.GetOutputs().front());
 }
 
+// Each cache charges its own MWEB changes; nested and disk flushes transfer state and release local allocations.
+BOOST_AUTO_TEST_CASE(mweb_memory_accounting_follows_cache_lifecycle)
+{
+    const size_t empty_usage = m_cache->DynamicMemoryUsage();
+    const auto deposit = m_txs.Pegin();
+    Apply(*m_cache, {deposit});
+    const size_t funded_usage = m_cache->DynamicMemoryUsage();
+    BOOST_CHECK_GT(funded_usage, empty_usage + sizeof(mw::Coin) + RangeProof::SIZE);
+    BOOST_CHECK_EQUAL(m_cache->GetCacheSize(), 0U);
+
+    CCoinsViewCache child(m_cache.get());
+    const size_t child_empty_usage = child.DynamicMemoryUsage();
+    BOOST_CHECK_LT(child_empty_usage, funded_usage);
+    CheckCoin(child, deposit.GetOutputs().front(), 100);
+    BOOST_CHECK_EQUAL(child.DynamicMemoryUsage(), child_empty_usage);
+    const auto spend = m_txs.Spend(deposit.GetOutputs().front());
+    const auto applied = Apply(child, {spend});
+    BOOST_CHECK_GT(child.DynamicMemoryUsage(), child_empty_usage + sizeof(mw::Coin) + RangeProof::SIZE);
+    BOOST_CHECK_EQUAL(m_cache->DynamicMemoryUsage(), funded_usage);
+
+    BOOST_REQUIRE(child.Flush());
+    BOOST_CHECK_EQUAL(child.DynamicMemoryUsage(), child_empty_usage);
+    BOOST_CHECK_GT(m_cache->DynamicMemoryUsage(), funded_usage);
+    CheckMissing(*m_cache, deposit.GetOutputs().front());
+    CheckCoin(*m_cache, spend.GetOutputs().front(), 101);
+    CheckRoots(*m_cache, applied.block->GetHeader());
+
+    BOOST_REQUIRE(m_cache->Flush());
+    BOOST_CHECK_EQUAL(m_cache->DynamicMemoryUsage(), child_empty_usage);
+    m_cache->ReallocateCache();
+    BOOST_CHECK_EQUAL(m_cache->DynamicMemoryUsage(), child_empty_usage);
+    CheckCoin(*m_cache, spend.GetOutputs().front(), 101);
+    CheckRoots(*m_cache, applied.block->GetHeader());
+
+    CCoinsView canonical_only;
+    child.SetBackend(canonical_only);
+    BOOST_CHECK_EQUAL(child.DynamicMemoryUsage(), CCoinsViewCache(&canonical_only).DynamicMemoryUsage());
+}
+
+// Undoing the first MWEB block keeps pending actions charged until the null-header state is flushed.
+BOOST_AUTO_TEST_CASE(mweb_memory_accounting_after_undo)
+{
+    const size_t empty_usage = m_cache->DynamicMemoryUsage();
+    const auto deposit = m_txs.Pegin();
+    const auto applied = Apply(*m_cache, {deposit});
+    m_cache->GetMWEBCacheView()->UndoBlock(applied.undo);
+    BOOST_CHECK_GT(m_cache->DynamicMemoryUsage(), empty_usage + sizeof(mw::Coin) + RangeProof::SIZE);
+    CheckMissing(*m_cache, deposit.GetOutputs().front());
+    CheckRoots(*m_cache, nullptr);
+    BOOST_REQUIRE(m_cache->Flush());
+    BOOST_CHECK_EQUAL(m_cache->DynamicMemoryUsage(), empty_usage);
+    CheckMissing(*m_db, deposit.GetOutputs().front());
+    CheckRoots(*m_db, nullptr);
+}
+
 // A child cache exposes newly connected MWEB and canonical coins without publishing either to the database.
 BOOST_AUTO_TEST_CASE(unflushed_changes_are_visible_only_in_cache)
 {
@@ -547,7 +602,7 @@ BOOST_AUTO_TEST_CASE(rewinding_first_mweb_block_persists_empty_state)
     CheckMissing(*m_db, tx.GetOutputs().front());
 }
 
-// A late commitment failure must roll back tentative MWEB spends and additions, allowing the valid block to be retried.
+// A late commitment failure preserves cached coins, roots, and accounted memory, allowing the valid block to be retried.
 BOOST_AUTO_TEST_CASE(failed_mweb_apply_is_atomic)
 {
     const auto deposit = m_txs.Pegin();
@@ -556,8 +611,10 @@ BOOST_AUTO_TEST_CASE(failed_mweb_apply_is_atomic)
     const auto valid = mw::CoinsViewCache(m_cache->GetMWEBView()).BuildNextBlock(101, {spend.GetTransaction()});
     const auto bad_header = mw::MutHeader{valid->GetHeader()}.SetOutputRoot(mw::Hash{}).Build();
     const auto invalid = std::make_shared<mw::Block>(bad_header, valid->GetTxBody());
+    const size_t usage = m_cache->DynamicMemoryUsage();
     BOOST_CHECK_EXCEPTION(m_cache->GetMWEBCacheView()->ApplyBlock(invalid), ValidationException,
         [](const auto& error) { return error.GetType() == EConsensusError::MMR_MISMATCH; });
+    BOOST_CHECK_EQUAL(m_cache->DynamicMemoryUsage(), usage);
     CheckCoin(*m_cache, deposit.GetOutputs().front(), 100);
     CheckMissing(*m_cache, spend.GetOutputs().front());
     CheckRoots(*m_cache, first.block->GetHeader());
@@ -567,7 +624,7 @@ BOOST_AUTO_TEST_CASE(failed_mweb_apply_is_atomic)
     CheckRoots(*m_cache, valid->GetHeader());
 }
 
-// An MWEB flush failure must not publish a new database tip or coins, and the database must refuse later flushes on that instance.
+// A failed MWEB write retains pending allocations, leaves the database tip unchanged, and prevents later flushes on that instance.
 BOOST_AUTO_TEST_CASE(failed_mweb_flush_does_not_publish_and_latches_failure)
 {
     const auto first_tx = m_txs.Pegin();
@@ -580,7 +637,9 @@ BOOST_AUTO_TEST_CASE(failed_mweb_flush_does_not_publish_and_latches_failure)
     const auto second_tx = m_txs.Pegin(2 * COIN);
     const auto second = Apply(*m_cache, {second_tx});
     const auto canonical = AddCanonical(*m_cache);
+    const size_t usage = m_cache->GetMWEBCacheView()->DynamicMemoryUsage();
     BOOST_CHECK(!m_cache->Flush());
+    BOOST_CHECK_EQUAL(m_cache->GetMWEBCacheView()->DynamicMemoryUsage(), usage);
     BOOST_CHECK(m_db->GetBestBlock() == first.Hash());
     BOOST_CHECK(m_db->GetHeadBlocks().empty());
     BOOST_CHECK(!m_db->HaveCoin(canonical));
