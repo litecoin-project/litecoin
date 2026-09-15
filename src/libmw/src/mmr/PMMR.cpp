@@ -11,18 +11,24 @@ PMMR::Ptr PMMR::Open(
     const FilePath& mmr_dir,
     const uint32_t file_index,
     CDBWrapper* pDBWrapper,
-    const PruneList::CPtr& pPruneList)
+    const PruneList::CPtr& pPruneList,
+    const uint64_t minimum_leaves)
 {
     auto pHashFile = AppendOnlyFile::Load(
         GetPath(mmr_dir, dbPrefix, file_index)
     );
-    return std::make_shared<PMMR>(
+    auto mmr = std::make_shared<PMMR>(
         dbPrefix,
         mmr_dir,
         pHashFile,
         pDBWrapper,
         pPruneList
     );
+    if (pHashFile->GetSize() % mw::Hash::size() != 0) {
+        ThrowFile_F("Invalid MWEB hash file size: {}", GetPath(mmr_dir, dbPrefix, file_index));
+    }
+    mmr->m_minimumLeaves = minimum_leaves;
+    return mmr;
 }
 
 FilePath PMMR::GetPath(const FilePath& dir, const char prefix, const uint32_t file_index)
@@ -69,6 +75,10 @@ mw::Hash PMMR::GetHash(const Index& idx) const
 {
     uint64_t pos = idx.GetPosition();
     if (m_pPruneList) {
+        if (m_pPruneList->IsCompacted(idx)) {
+            ThrowNotFound_F("MMR hash at position {} has been compacted", pos);
+        }
+
         pos -= m_pPruneList->GetShift(idx);
     }
 
@@ -97,6 +107,10 @@ uint64_t PMMR::GetNumNodes() const noexcept
 
 void PMMR::Rewind(const uint64_t numLeaves)
 {
+    if (numLeaves < m_minimumLeaves) {
+        throw std::runtime_error("Cannot rewind MWEB PMMR below the compaction horizon");
+    }
+
     LeafIndex next_leaf_idx = LeafIndex::At(numLeaves);
     uint64_t pos = next_leaf_idx.GetPosition();
     if (m_pPruneList) {
@@ -104,6 +118,67 @@ void PMMR::Rewind(const uint64_t numLeaves)
     }
 
     m_pHashFile->Rewind(pos * mw::Hash::size());
+}
+
+PMMR::Ptr PMMR::Compact(const uint32_t file_index, const BitSet& compacted, const uint64_t minimum_leaves) const
+{
+    if (GetPath(m_dir, m_dbPrefix, file_index) == m_pHashFile->GetPath()) {
+        throw std::runtime_error("MWEB compaction requires a new file generation");
+    }
+
+    if (!m_leaves.empty() || !m_leafMap.empty() || minimum_leaves < m_minimumLeaves || minimum_leaves > GetNumLeaves()) {
+        throw std::runtime_error("MWEB compaction requires a flushed MMR and a forward horizon");
+    }
+
+    const BitSet empty;
+    const BitSet& previous = m_pPruneList ? m_pPruneList->GetCompacted() : empty;
+    const uint64_t horizon_nodes = LeafIndex::At(minimum_leaves).GetPosition();
+    for (uint64_t pos = 0; pos < std::max(previous.size(), compacted.size()); ++pos) {
+        if ((previous.test(pos) && !compacted.test(pos)) || (pos >= horizon_nodes && compacted.test(pos))) {
+            throw std::runtime_error("Invalid MWEB compaction mask");
+        }
+    }
+
+    auto prune = PruneList::Create(m_dir);
+    prune->Commit(file_index, compacted);
+
+    File output(GetPath(m_dir, m_dbPrefix, file_index));
+    output.Write({}); // Truncate any orphan from an interrupted attempt.
+    constexpr size_t CHUNK_SIZE{1024 * 1024};
+    std::vector<uint8_t> retained;
+    retained.reserve(CHUNK_SIZE);
+    uint64_t logical = 0;
+    size_t written = 0;
+    for (uint64_t offset = 0; offset < m_pHashFile->GetSize();) {
+        const auto bytes = m_pHashFile->Read(offset, std::min<uint64_t>(CHUNK_SIZE, m_pHashFile->GetSize() - offset));
+        for (size_t i = 0; i < bytes.size(); i += mw::Hash::size()) {
+            while (previous.test(logical)) ++logical;
+            if (!compacted.test(logical)) {
+                retained.insert(retained.end(), bytes.begin() + i, bytes.begin() + i + mw::Hash::size());
+            }
+            ++logical;
+        }
+        if (!retained.empty()) {
+            output.Write(written, retained, false);
+            written += retained.size();
+            retained.clear();
+        }
+        offset += bytes.size();
+    }
+    output.Commit();
+
+    auto result = Open(m_dbPrefix, m_dir, file_index, m_pDatabase, prune, minimum_leaves);
+    if (result->GetNumLeaves() != GetNumLeaves() || result->Root() != Root()) {
+        throw std::runtime_error("MWEB compaction changed the output MMR");
+    }
+    return result;
+}
+
+void PMMR::Adopt(PMMR& replacement) noexcept
+{
+    m_pHashFile.swap(replacement.m_pHashFile);
+    m_pPruneList.swap(replacement.m_pPruneList);
+    std::swap(m_minimumLeaves, replacement.m_minimumLeaves);
 }
 
 void PMMR::BatchWrite(

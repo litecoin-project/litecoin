@@ -72,6 +72,13 @@ public:
     const File& GetFile() const noexcept { return m_file; }
     File& GetFile() noexcept { return m_file; }
 
+    void Swap(MemMap& other) noexcept
+    {
+        m_file.Swap(other.m_file);
+        m_mmap.swap(other.m_mmap);
+        std::swap(m_mapped, other.m_mapped);
+    }
+
 private:
     File m_file;
     mio::mmap_source m_mmap;

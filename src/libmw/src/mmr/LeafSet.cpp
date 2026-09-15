@@ -96,6 +96,24 @@ void LeafSet::Cleanup(const uint32_t current_file_index) const
     }
 }
 
+LeafSet::Ptr LeafSet::Copy(const uint32_t file_index) const
+{
+    if (!m_modifiedBytes.empty()) {
+        throw std::runtime_error("Cannot copy an unflushed MWEB leafset");
+    }
+
+    const auto path = GetPath(m_dir, file_index);
+    if (path == m_mmap.GetFile().GetPath()) {
+        throw std::runtime_error("MWEB leafset copy requires a new file generation");
+    } else if (path.IsDirectory()) {
+        ThrowFile_F("MWEB leafset destination is a directory: {}", path);
+    }
+
+    m_mmap.GetFile().CopyTo(path);
+    File(path).Commit();
+    return Open(m_dir, file_index);
+}
+
 void LeafSet::ReadBytes(const uint64_t byteIdx, const uint64_t numBytes, std::vector<uint8_t>& out) const
 {
     out.assign(numBytes, 0);

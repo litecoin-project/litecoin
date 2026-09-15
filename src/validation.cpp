@@ -1684,6 +1684,14 @@ void Chainstate::InitCoinsDB(
 
     // MWEB: Initialize MWEB node APIs
     CBlockIndex* pindex = m_chainman.m_blockman.LookupBlockIndex(CoinsDB().GetBestBlock());
+    if (pindex == nullptr) {
+        // A partial canonical flush leaves MWEB at the old durable tip until
+        // ReplayBlocks completes the transition. Open that file generation.
+        const auto heads = CoinsDB().GetHeadBlocks();
+        if (heads.size() == 2) {
+            pindex = m_chainman.m_blockman.LookupBlockIndex(heads[1]);
+        }
+    }
 
     mw::CoinsViewDB::Ptr mweb_dbview = mw::CoinsViewDB::Open(
         FilePath{gArgs.GetDataDirNet()},
@@ -2721,6 +2729,46 @@ bool Chainstate::FlushStateToDisk(
                    (bool)fFlushForPrune);
         }
     }
+
+    // Compact only history whose block/undo data has already been pruned. A
+    // connect/disconnect can flush before UpdateTip(), so wait until the live
+    // chain, cache and durable tip agree before constructing a historical view.
+    if (fPruneMode && m_blockman.m_have_pruned && m_chain.Tip() &&
+            CoinsDB().GetBestBlock() == m_chain.Tip()->GetBlockHash() &&
+            CoinsTip().GetBestBlock() == m_chain.Tip()->GetBlockHash()) {
+        CBlockIndex* horizon = m_chain.Tip();
+        while (horizon->pprev && (horizon->nStatus & BLOCK_HAVE_DATA) && (horizon->nStatus & BLOCK_HAVE_UNDO)) {
+            horizon = horizon->pprev;
+        }
+        const auto mweb = CoinsDB().GetMWEBView();
+        if (horizon->mweb_header && mweb && mweb->NeedsCompaction(horizon->nHeight)) {
+            LOG_TIME_MILLIS_WITH_CATEGORY("compact spent MWEB history", BCLog::BENCH);
+            LeafSetCache historical(mweb->GetLeafSet());
+            auto header = mweb->GetBestHeader();
+            for (const CBlockIndex* index = m_chain.Tip(); index != horizon; index = index->pprev) {
+                if (!index->mweb_header) {
+                    continue;
+                }
+
+                CBlockUndo undo;
+                if (!header || *header != *index->mweb_header || !UndoReadFromDisk(undo, index) || !undo.mwundo) {
+                    return AbortNode(state, "Failed to read undo for the MWEB compaction horizon");
+                }
+                // Only leaf membership is needed. Release each block's undo
+                // after use instead of caching all restored full outputs.
+                std::vector<mmr::LeafIndex> restored;
+                restored.reserve(undo.mwundo->GetCoinsSpent().size());
+                for (const auto& coin : undo.mwundo->GetCoinsSpent()) restored.push_back(coin->GetLeafIndex());
+                header = undo.mwundo->GetPreviousHeader();
+                historical.Rewind(header ? header->GetNumTXOs() : 0, restored);
+            }
+            if (!header || *header != *horizon->mweb_header) {
+                return AbortNode(state, "Inconsistent MWEB compaction horizon");
+            }
+            mweb->Compact(horizon->mweb_header, historical.ToBitSet());
+        }
+    }
+
     if (full_flush_completed) {
         // Update best block in wallet (so we can detect restored wallets).
         GetMainSignals().ChainStateFlushed(m_chain.GetLocator());

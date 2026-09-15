@@ -72,6 +72,10 @@ public:
     /// Cleanup any old MMR files that no longer reflect the latest flushed state.
     /// </summary>
     virtual void Compact() const = 0;
+    // The caller supplies the leafset at an active-chain horizon that it no longer needs to rewind past.
+    virtual void Compact(const mw::Header::CPtr& horizon, const BitSet& retained_leaves) = 0;
+    virtual std::optional<int32_t> GetCompactionHeight() const noexcept = 0;
+    virtual bool NeedsCompaction(int32_t height) const = 0;
 
     virtual MMRInfo GetNextMMRInfo(CDBBatch* pBatch) const = 0;
     virtual void SaveMMRInfo(CDBBatch* pBatch, const MMRInfo& mmr_info) = 0;
@@ -121,6 +125,9 @@ public:
         const mw::Header::CPtr& pHeader
     ) final;
     void Compact() const final { m_pBase->Compact(); }
+    void Compact(const mw::Header::CPtr& horizon, const BitSet& retained_leaves) final;
+    std::optional<int32_t> GetCompactionHeight() const noexcept final { return m_pBase->GetCompactionHeight(); }
+    bool NeedsCompaction(int32_t height) const final { return m_pBase->NeedsCompaction(height); }
     MMRInfo GetNextMMRInfo(CDBBatch*) const final { return {}; }
     void SaveMMRInfo(CDBBatch*, const MMRInfo&) final {}
 
@@ -188,6 +195,9 @@ public:
         const mw::Header::CPtr& pHeader
     ) final;
     void Compact() const final;
+    void Compact(const mw::Header::CPtr& horizon, const BitSet& retained_leaves) final;
+    std::optional<int32_t> GetCompactionHeight() const noexcept final { return m_compactedHeight; }
+    bool NeedsCompaction(int32_t height) const final;
     MMRInfo GetNextMMRInfo(CDBBatch* pBatch) const final;
     void SaveMMRInfo(CDBBatch* pBatch, const MMRInfo& mmr_info) final;
 
@@ -198,11 +208,13 @@ public:
 
 private:
     CoinsViewDB(
+        const FilePath& datadir,
         const mw::Header::CPtr& pBestHeader,
         CDBWrapper* pDBWrapper,
         const LeafSet::Ptr& pLeafSet,
         const PMMR::Ptr& pOutputPMMR
     ) : ICoinsView(pBestHeader, pDBWrapper),
+        m_datadir(datadir),
         m_pLeafSet(pLeafSet),
         m_pOutputPMMR(pOutputPMMR) { }
 
@@ -211,6 +223,8 @@ private:
     mw::Coin::CPtr SpendCoin(CoinDB& coinDB, const mw::Hash& output_id);
     mw::Coin::CPtr GetCoin(const CoinDB& coinDB, const mw::Hash& output_id) const;
 
+    FilePath m_datadir;
+    std::optional<int32_t> m_compactedHeight;
     LeafSet::Ptr m_pLeafSet;
     PMMR::Ptr m_pOutputPMMR;
 };

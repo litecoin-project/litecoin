@@ -67,6 +67,10 @@ mw::Hash PMMRCache::GetHash(const Index& idx) const
 
 void PMMRCache::Rewind(const uint64_t numLeaves)
 {
+    if (numLeaves < GetMinimumLeaves()) {
+        throw std::runtime_error("Cannot rewind MWEB PMMR cache below the compaction horizon");
+    }
+
     LeafIndex nextLeaf = LeafIndex::At(numLeaves);
     if (nextLeaf <= m_firstLeaf) {
         m_firstLeaf = nextLeaf;

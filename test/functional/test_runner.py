@@ -288,6 +288,7 @@ BASE_SCRIPTS = [
     'mweb_rewind_activation.py',
     'mweb_consensus.py',
     'mweb_dbcrash.py',
+    'mweb_spent_history.py',
     'mweb_duplicate_pegin.py',
     'mweb_p2p.py',
     'mweb_p2p_mutated_block_submitblock.py',

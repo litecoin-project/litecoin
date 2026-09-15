@@ -62,6 +62,8 @@ public:
     ) final;
     void Flush(const uint32_t file_index);
     void Cleanup(const uint32_t current_file_index) const;
+    Ptr Copy(uint32_t file_index) const;
+    void Adopt(LeafSet& replacement) noexcept { m_mmap.Swap(replacement.m_mmap); }
 
 private:
     LeafSet(FilePath dir, MemMap&& mmap, const mmr::LeafIndex& nextLeafIdx)

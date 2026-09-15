@@ -9,6 +9,11 @@
 #include <mw/crypto/Blinds.h>
 #include <mw/crypto/Hasher.h>
 #include <mw/crypto/KeyDerivation.h>
+#include <mw/db/LeafDB.h>
+#include <mw/db/MMRInfoDB.h>
+#include <mw/mmr/MMRUtil.h>
+#include <mw/mmr/PruneList.h>
+#include <mw/mmr/Segment.h>
 #include <mw/models/tx/MutableTx.h>
 #include <mw/node/CoinsView.h>
 #include <node/blockstorage.h>
@@ -29,6 +34,8 @@
 #include <boost/test/unit_test.hpp>
 
 #include <memory>
+#include <algorithm>
+#include <limits>
 #include <stdexcept>
 #include <utility>
 #include <vector>
@@ -136,6 +143,40 @@ AppliedBlock Apply(CCoinsViewCache& view, const std::vector<test::Tx>& transacti
     return {block, undo};
 }
 
+struct SpentHistory
+{
+    std::vector<test::TxOutput> deposits;
+    AppliedBlock first;
+    AppliedBlock horizon;
+    BitSet retained;
+    AppliedBlock tip;
+    test::Tx recent;
+};
+
+std::vector<mmr::Segment> Segments(const mw::ICoinsView& view)
+{
+    std::vector<mmr::Segment> result;
+    const auto leaves = view.GetLeafSet()->ToBitSet();
+    for (uint64_t i = 0; i < leaves.size(); ++i) {
+        if (!leaves.test(i)) continue;
+        for (const uint16_t count : {1, 2, 1000}) {
+            result.push_back(mmr::SegmentFactory::Assemble(*view.GetOutputPMMR(), *view.GetLeafSet(), mmr::LeafIndex::At(i), count));
+        }
+    }
+    return result;
+}
+
+void CheckSegments(const std::vector<mmr::Segment>& before, const mw::ICoinsView& view)
+{
+    const auto after = Segments(view);
+    BOOST_REQUIRE_EQUAL(before.size(), after.size());
+    for (size_t i = 0; i < before.size(); ++i) {
+        BOOST_CHECK(before[i].leaves == after[i].leaves);
+        BOOST_CHECK(before[i].hashes == after[i].hashes);
+        BOOST_CHECK(before[i].lower_peak == after[i].lower_peak);
+    }
+}
+
 // A real LevelDB plus MWEB MMR/leafset files, with the same paired cache used by
 // chainstate. Reopening releases both views before opening the committed state.
 class MWEBViewTestingSetup : public BasicTestingSetup
@@ -159,6 +200,27 @@ public:
         return outpoint;
     }
 
+    SpentHistory PopulateSpentHistory()
+    {
+        std::vector<test::Tx> txs;
+        std::vector<test::TxOutput> deposits;
+        for (int i = 0; i < 4; ++i) {
+            txs.push_back(m_txs.Pegin());
+            deposits.push_back(txs.back().GetOutputs().front());
+        }
+        const auto first = Apply(*m_cache, txs);
+        const auto view = m_cache->GetMWEBView();
+        std::sort(deposits.begin(), deposits.end(), [&](const auto& a, const auto& b) {
+            return view->GetCoin(a.GetOutputID())->GetLeafIndex() < view->GetCoin(b.GetOutputID())->GetLeafIndex();
+        });
+        const auto horizon = Apply(*m_cache, {m_txs.Spend(deposits[0]), m_txs.Spend(deposits[1])});
+        const auto retained = view->GetLeafSet()->ToBitSet();
+        const auto recent = m_txs.Spend(deposits[2]);
+        const auto tip = Apply(*m_cache, {recent});
+        BOOST_REQUIRE(m_cache->Flush());
+        return {deposits, first, horizon, retained, tip, recent};
+    }
+
     Transactions m_txs;
     std::unique_ptr<CCoinsViewDB> m_db;
     std::unique_ptr<CCoinsViewCache> m_cache;
@@ -180,6 +242,9 @@ public:
     IMMR::Ptr GetOutputPMMR() const noexcept override { return m_base->GetOutputPMMR(); }
     bool HasCoinInCache(const mw::Hash& id) const noexcept override { return m_base->HasCoinInCache(id); }
     void Compact() const override { m_base->Compact(); }
+    void Compact(const mw::Header::CPtr& horizon, const BitSet& leaves) override { m_base->Compact(horizon, leaves); }
+    std::optional<int32_t> GetCompactionHeight() const noexcept override { return m_base->GetCompactionHeight(); }
+    bool NeedsCompaction(int32_t height) const override { return m_base->NeedsCompaction(height); }
     MMRInfo GetNextMMRInfo(CDBBatch* batch) const override { return m_base->GetNextMMRInfo(batch); }
     void SaveMMRInfo(CDBBatch* batch, const MMRInfo& info) override { m_base->SaveMMRInfo(batch, info); }
 private:
@@ -305,6 +370,252 @@ public:
 } // namespace
 
 BOOST_FIXTURE_TEST_SUITE(mweb_chainstate_tests, MWEBViewTestingSetup)
+
+// Compaction removes old spent leaves while preserving recent undo, all light-client proofs and restartable forward operation.
+BOOST_AUTO_TEST_CASE(spent_history_compaction_lifecycle)
+{
+    const auto history = PopulateSpentHistory();
+    const auto tip_proofs = Segments(*m_cache->GetMWEBView());
+    const auto horizon_proofs = [&] {
+        mw::CoinsViewCache historical(m_cache->GetMWEBView());
+        historical.UndoBlock(history.tip.undo);
+        return Segments(historical);
+    }();
+    const auto before = MMRInfoDB(m_db->GetDB()).GetLatest();
+    BOOST_REQUIRE(before);
+    m_cache->GetMWEBView()->Compact(history.horizon.block->GetHeader(), history.retained);
+    auto info = MMRInfoDB(m_db->GetDB()).GetLatest();
+    BOOST_REQUIRE(info);
+    BOOST_CHECK_EQUAL(info->version, 2);
+    BOOST_CHECK_EQUAL(info->compacted->GetHeight(), 101);
+    BOOST_CHECK_EQUAL(info->compacted->GetNumTXOs(), 6U);
+    BOOST_CHECK(!info->cleanup_pending);
+    BOOST_CHECK(*info->compacted == *history.horizon.block->GetHeader());
+    BOOST_CHECK(!File(PMMR::GetPath(m_path_root / "mweb", 'O', before->index)).Exists());
+    LeafDB leaves('O', m_db->GetDB());
+    BOOST_CHECK(!leaves.Get(mmr::LeafIndex::At(0)));
+    BOOST_CHECK(!leaves.Get(mmr::LeafIndex::At(1)));
+    for (uint64_t i = 2; i < 7; ++i) BOOST_CHECK(leaves.Get(mmr::LeafIndex::At(i)));
+    CheckRoots(*m_cache, history.tip.block->GetHeader());
+    CheckSegments(tip_proofs, *m_cache->GetMWEBView());
+    {
+        mw::CoinsViewCache historical(m_cache->GetMWEBView());
+        historical.UndoBlock(history.tip.undo);
+        CheckSegments(horizon_proofs, historical);
+    }
+    m_cache->GetMWEBView()->Compact(history.horizon.block->GetHeader(), history.retained);
+    BOOST_CHECK_EQUAL(MMRInfoDB(m_db->GetDB()).GetLatest()->index, info->index);
+
+    Reopen(history.tip.block->GetHeader());
+    CheckRoots(*m_cache, history.tip.block->GetHeader());
+    CheckSegments(tip_proofs, *m_cache->GetMWEBView());
+    m_cache->GetMWEBCacheView()->UndoBlock(history.tip.undo);
+    m_cache->SetBestBlock(history.horizon.Hash());
+    CheckCoin(*m_cache, history.deposits[2], 100);
+    CheckSegments(horizon_proofs, *m_cache->GetMWEBView());
+    BOOST_CHECK_THROW(m_cache->GetMWEBCacheView()->UndoBlock(history.horizon.undo), std::runtime_error);
+    CheckRoots(*m_cache, history.horizon.block->GetHeader());
+    CheckCoin(*m_cache, history.deposits[2], 100);
+    BOOST_REQUIRE(m_cache->Flush());
+    Reopen(history.horizon.block->GetHeader());
+    const auto replacement = Apply(*m_cache, {history.recent});
+    BOOST_CHECK(replacement.Hash() == history.tip.Hash());
+    BOOST_REQUIRE(m_cache->Flush());
+    const auto retained = m_cache->GetMWEBView()->GetLeafSet()->ToBitSet();
+    m_cache->GetMWEBView()->Compact(replacement.block->GetHeader(), retained);
+    BOOST_CHECK(!LeafDB('O', m_db->GetDB()).Get(mmr::LeafIndex::At(2)));
+    BOOST_CHECK(!PruneList::GetPath(m_path_root / "mweb", info->compact_index).Exists());
+    Reopen(replacement.block->GetHeader());
+    CheckSegments(tip_proofs, *m_cache->GetMWEBView());
+    CheckCoin(*m_cache, history.recent.GetOutputs().front(), 102);
+}
+
+// Failure before metadata publication leaves old files and leaf rows intact; restarting ignores and safely replaces orphan files.
+BOOST_AUTO_TEST_CASE(spent_history_compaction_unpublished_generation)
+{
+    const auto history = PopulateSpentHistory();
+    const auto before = MMRInfoDB(m_db->GetDB()).GetLatest();
+    const auto target = LeafSet::GetPath(m_path_root / "mweb", before->index + 1);
+    target.CreateDir();
+    BOOST_CHECK_THROW(m_cache->GetMWEBView()->Compact(history.horizon.block->GetHeader(), history.retained), FileException);
+    BOOST_CHECK_EQUAL(MMRInfoDB(m_db->GetDB()).GetLatest()->index, before->index);
+    BOOST_CHECK(LeafDB('O', m_db->GetDB()).Get(mmr::LeafIndex::At(0)));
+    BOOST_CHECK(!m_cache->GetMWEBView()->GetCompactionHeight());
+    CheckRoots(*m_cache, history.tip.block->GetHeader());
+    Reopen(history.tip.block->GetHeader());
+    CheckRoots(*m_cache, history.tip.block->GetHeader());
+    target.Remove();
+    m_cache->GetMWEBView()->Compact(history.horizon.block->GetHeader(), history.retained);
+    BOOST_CHECK(!LeafDB('O', m_db->GetDB()).Get(mmr::LeafIndex::At(0)));
+    CheckRoots(*m_cache, history.tip.block->GetHeader());
+}
+
+// A crash after publishing the new generation but during leaf deletion resumes cleanup without recompacting the files.
+BOOST_AUTO_TEST_CASE(spent_history_compaction_resumes_leaf_cleanup)
+{
+    const auto history = PopulateSpentHistory();
+    auto info = *MMRInfoDB(m_db->GetDB()).GetLatest();
+    ++info.index;
+    info.version = 2;
+    info.compact_index = info.index;
+    info.compacted = *history.horizon.block->GetHeader();
+    info.cleanup_pending = true;
+    auto view = m_db->GetMWEBView();
+    auto mmr = std::dynamic_pointer_cast<PMMR>(view->GetOutputPMMR())->Compact(
+        info.index, MMRUtil::BuildCompactBitSet(6, history.retained), 6);
+    auto leafset = std::dynamic_pointer_cast<LeafSet>(view->GetLeafSet())->Copy(info.index);
+    CDBBatch interrupted(*m_db->GetDB());
+    MMRInfoDB(m_db->GetDB(), &interrupted).Save(info);
+    LeafDB('O', m_db->GetDB(), &interrupted).Remove({mmr::LeafIndex::At(0)});
+    BOOST_REQUIRE(m_db->GetDB()->WriteBatch(interrupted, true));
+    mmr.reset();
+    leafset.reset();
+    view.reset();
+    Reopen(history.tip.block->GetHeader());
+    BOOST_CHECK(m_cache->GetMWEBView()->NeedsCompaction(101));
+    BOOST_CHECK(LeafDB('O', m_db->GetDB()).Get(mmr::LeafIndex::At(1)));
+    m_cache->GetMWEBView()->Compact(history.horizon.block->GetHeader(), history.retained);
+    BOOST_CHECK(!LeafDB('O', m_db->GetDB()).Get(mmr::LeafIndex::At(1)));
+    BOOST_CHECK(!m_cache->GetMWEBView()->NeedsCompaction(101));
+    BOOST_CHECK_EQUAL(MMRInfoDB(m_db->GetDB()).GetLatest()->index, info.index);
+    CheckRoots(*m_cache, history.tip.block->GetHeader());
+}
+
+// Missing compacted files fail closed on restart instead of silently treating pruned hash offsets as a complete MMR.
+BOOST_AUTO_TEST_CASE(spent_history_compaction_missing_files)
+{
+    const auto history = PopulateSpentHistory();
+    m_cache->GetMWEBView()->Compact(history.horizon.block->GetHeader(), history.retained);
+    const auto info = MMRInfoDB(m_db->GetDB()).GetLatest();
+    m_cache.reset();
+    m_db->SetMWEBView(nullptr);
+    const auto path = PruneList::GetPath(m_path_root / "mweb", info->compact_index);
+    const auto bytes = File(path).ReadBytes();
+    path.Remove();
+    BOOST_CHECK_THROW(mw::CoinsViewDB::Open(m_path_root / "mweb", history.tip.block->GetHeader(), m_db->GetDB()), FileException);
+    File(path).Write(bytes);
+    const auto hash_path = PMMR::GetPath(m_path_root / "mweb", 'O', info->index);
+    hash_path.Remove();
+    BOOST_CHECK_THROW(mw::CoinsViewDB::Open(m_path_root / "mweb", history.tip.block->GetHeader(), m_db->GetDB()), dbwrapper_error);
+    BOOST_CHECK(!hash_path.Exists());
+}
+
+// Unreadable or missing metadata for an existing MWEB tip cannot silently open a fresh, uncompacted generation.
+BOOST_AUTO_TEST_CASE(spent_history_compaction_corrupt_metadata)
+{
+    const auto history = PopulateSpentHistory();
+    m_cache->GetMWEBView()->Compact(history.horizon.block->GetHeader(), history.retained);
+    const auto info = MMRInfoDB(m_db->GetDB()).GetLatest();
+    m_cache.reset();
+    m_db->SetMWEBView(nullptr);
+    const std::string key = "M" + std::to_string(std::numeric_limits<uint32_t>::max());
+    for (const bool missing : {false, true}) {
+        if (missing) BOOST_REQUIRE(m_db->GetDB()->Erase(key));
+        else BOOST_REQUIRE(m_db->GetDB()->Write(key, uint8_t{2})); // Truncated version 2 record.
+        BOOST_CHECK_THROW(mw::CoinsViewDB::Open(m_path_root / "mweb", history.tip.block->GetHeader(), m_db->GetDB()), dbwrapper_error);
+        BOOST_CHECK(!PMMR::GetPath(m_path_root / "mweb", 'O', 0).Exists());
+        MMRInfoDB(m_db->GetDB()).Save(*info);
+    }
+    Reopen(history.tip.block->GetHeader());
+    CheckRoots(*m_cache, history.tip.block->GetHeader());
+}
+
+// Deleting more than one batch of synthetic spent leaf records preserves the remaining leaf and the published MMR root.
+BOOST_AUTO_TEST_CASE(spent_history_compaction_multiple_delete_batches)
+{
+    constexpr uint64_t NUM_LEAVES{10002};
+    const auto header = [&] {
+        const auto view = m_db->GetMWEBView();
+        PMMRCache cache(view->GetOutputPMMR());
+        for (uint64_t i = 0; i < NUM_LEAVES; ++i) cache.Add(std::vector<uint8_t>(32, i % 251));
+        CDBBatch batch(*m_db->GetDB());
+        cache.Flush(1, &batch);
+        const auto leafset = std::dynamic_pointer_cast<LeafSet>(view->GetLeafSet());
+        leafset->Add(mmr::LeafIndex::At(NUM_LEAVES - 1));
+        leafset->Flush(1);
+        const auto header = std::make_shared<mw::Header>(100, cache.Root(), mw::Hash{}, leafset->Root(),
+            BlindingFactor{}, BlindingFactor{}, NUM_LEAVES, 0);
+        MMRInfoDB(m_db->GetDB(), &batch).Save(MMRInfo{0, 1, header->GetHash(), 0, std::nullopt});
+        batch.Write(uint8_t{'B'}, uint256{header->GetHash().vec()});
+        BOOST_REQUIRE(m_db->GetDB()->WriteBatch(batch, true));
+        return header;
+    }();
+    Reopen(header);
+    m_cache->GetMWEBView()->Compact(header, m_cache->GetMWEBView()->GetLeafSet()->ToBitSet());
+    const auto info = MMRInfoDB(m_db->GetDB()).GetLatest();
+    BOOST_CHECK(!info->cleanup_pending);
+    LeafDB leaves('O', m_db->GetDB());
+    for (uint64_t i = 0; i < NUM_LEAVES - 1; ++i) BOOST_CHECK(!leaves.Get(mmr::LeafIndex::At(i)));
+    BOOST_CHECK(leaves.Get(mmr::LeafIndex::At(NUM_LEAVES - 1)));
+    Reopen(header);
+    CheckRoots(*m_cache, header);
+}
+
+// A height boundary still prevents disconnecting empty blocks when the MMR leaf count does not change.
+BOOST_AUTO_TEST_CASE(spent_history_compaction_empty_blocks)
+{
+    const auto first = Apply(*m_cache, {});
+    const auto horizon = Apply(*m_cache, {});
+    const auto tip = Apply(*m_cache, {});
+    BOOST_CHECK_THROW(m_cache->GetMWEBView()->Compact(horizon.block->GetHeader(), BitSet{}), std::runtime_error);
+    BOOST_REQUIRE(m_cache->Flush());
+    m_cache->GetMWEBView()->Compact(horizon.block->GetHeader(), BitSet{});
+    Reopen(tip.block->GetHeader());
+    m_cache->GetMWEBCacheView()->UndoBlock(tip.undo);
+    CheckRoots(*m_cache, horizon.block->GetHeader());
+    BOOST_CHECK_THROW(m_cache->GetMWEBCacheView()->UndoBlock(horizon.undo), std::runtime_error);
+    CheckRoots(*m_cache, horizon.block->GetHeader());
+    m_cache->SetBestBlock(horizon.Hash());
+    BOOST_REQUIRE(m_cache->Flush());
+    BOOST_CHECK_THROW(m_cache->GetMWEBView()->Compact(first.block->GetHeader(), BitSet{}), std::runtime_error);
+    const auto deposit = m_txs.Pegin();
+    const auto next = Apply(*m_cache, {deposit});
+    BOOST_REQUIRE(m_cache->Flush());
+    Reopen(next.block->GetHeader());
+    CheckCoin(*m_cache, deposit.GetOutputs().front(), 102);
+}
+
+// Full compaction headers round-trip, while legacy empty hashes retain their encoding and unsupported populated hashes are rejected.
+BOOST_AUTO_TEST_CASE(spent_history_metadata_versions)
+{
+    const auto header = Apply(*m_cache, {m_txs.Pegin()}).block->GetHeader();
+    for (const uint8_t version : {0, 1, 2}) {
+        for (const bool populated : {false, true}) {
+            MMRInfo info{version, 7, header->GetHash(), populated ? 4U : 0U, std::nullopt};
+            CDataStream expected(SER_NETWORK, PROTOCOL_VERSION);
+            expected << info.version << info.index << info.pruned << info.compact_index;
+            if (version == 2) {
+                if (populated) info.compacted = *header;
+                info.cleanup_pending = populated;
+                expected << info.compacted << info.cleanup_pending;
+            } else {
+                const std::optional<mw::Hash> legacy = populated ? std::make_optional(header->GetHash()) : std::nullopt;
+                expected << legacy;
+                if (populated) {
+                    MMRInfo decoded;
+                    BOOST_CHECK_THROW(expected >> decoded, std::ios_base::failure);
+                    continue;
+                }
+            }
+            const auto bytes = info.Serialized();
+            BOOST_REQUIRE_EQUAL(bytes.size(), expected.size());
+            BOOST_CHECK(std::equal(bytes.begin(), bytes.end(), UCharCast(expected.data())));
+            const auto decoded = MMRInfo::Deserialize(bytes);
+            BOOST_CHECK_EQUAL(decoded.version, version);
+            BOOST_CHECK_EQUAL(decoded.index, info.index);
+            BOOST_CHECK_EQUAL(decoded.compact_index, info.compact_index);
+            BOOST_CHECK(decoded.pruned == info.pruned);
+            BOOST_REQUIRE_EQUAL(decoded.compacted.has_value(), populated);
+            if (populated) {
+                BOOST_CHECK(decoded.compacted->Serialized() == header->Serialized());
+                BOOST_CHECK(decoded.compacted->GetHash() == header->GetHash());
+                BOOST_CHECK_EQUAL(decoded.compacted->GetHeight(), header->GetHeight());
+                BOOST_CHECK_EQUAL(decoded.compacted->GetNumTXOs(), header->GetNumTXOs());
+            }
+            BOOST_CHECK_EQUAL(decoded.cleanup_pending, info.cleanup_pending);
+        }
+    }
+}
 
 // Views without an MWEB backend answer MWEB lookups as missing instead of dereferencing a nonexistent cache.
 BOOST_AUTO_TEST_CASE(canonical_only_view_handles_mweb_lookups)
@@ -822,12 +1133,17 @@ BOOST_FIXTURE_TEST_CASE(arbitrary_fork_view_connects_multiple_blocks_without_pub
     CheckMissing(State().CoinsTip(), second_spend.GetOutputs().front());
 }
 
-// An interrupted flush replays real blocks from the persisted old MWEB header and publishes matching canonical and MWEB tips.
+// An interrupted flush after compaction opens the old durable MWEB generation and replays to matching canonical and MWEB tips.
 BOOST_FIXTURE_TEST_CASE(replay_interrupted_flush_restores_mweb_and_canonical_state, MWEBChainstateTestingSetup)
 {
     const auto deposit = m_txs.Pegin();
     const auto first = Mine({FundPegin(deposit)});
     Flush();
+    {
+        LOCK(cs_main);
+        const auto mweb = State().CoinsDB().GetMWEBView();
+        mweb->Compact(first.index->mweb_header, mweb->GetLeafSet()->ToBitSet());
+    }
     const auto withdrawal = m_txs.Spend(deposit.GetOutputs().front(), {{COIN, P2WSH_OP_TRUE}});
     const auto second = Mine({MakeTransactionRef(Wrap(withdrawal))});
     {

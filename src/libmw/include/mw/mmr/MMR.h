@@ -69,6 +69,7 @@ public:
     /// </summary>
     /// <returns>The number of (pruned and unpruned) leaves in the MMR.</returns>
     virtual uint64_t GetNumLeaves() const noexcept = 0;
+    virtual uint64_t GetMinimumLeaves() const noexcept { return 0; }
 
     /// <summary>
     /// "Rewinds" the MMR to the given number of leaves.
@@ -143,7 +144,8 @@ public:
         const FilePath& mmr_dir,
         const uint32_t file_index,
         CDBWrapper* pDBWrapper,
-        const std::shared_ptr<const PruneList>& pPruneList
+        const std::shared_ptr<const PruneList>& pPruneList,
+        uint64_t minimum_leaves = 0
     );
 
     PMMR(const char dbPrefix,
@@ -169,6 +171,7 @@ public:
     mmr::LeafIndex GetNextLeafIdx() const noexcept final;
 
     uint64_t GetNumLeaves() const noexcept final;
+    uint64_t GetMinimumLeaves() const noexcept final { return m_minimumLeaves; }
     uint64_t GetNumNodes() const noexcept;
     void Rewind(const uint64_t numLeaves) final;
 
@@ -180,6 +183,11 @@ public:
     ) final;
     void Cleanup(const uint32_t current_file_index) const;
 
+    // Write a separate generation without changing the live MMR or its database.
+    Ptr Compact(uint32_t file_index, const BitSet& compacted, uint64_t minimum_leaves) const;
+    // Publish an already durable generation without invalidating caches backed by this object.
+    void Adopt(PMMR& replacement) noexcept;
+
 private:
     char m_dbPrefix;
     FilePath m_dir;
@@ -188,6 +196,7 @@ private:
     std::map<mmr::LeafIndex, size_t> m_leafMap;
     CDBWrapper* m_pDatabase;
     PruneList::CPtr m_pPruneList;
+    uint64_t m_minimumLeaves{0};
 };
 
 class PMMRCache : public IMMR
@@ -206,6 +215,7 @@ public:
     mmr::Leaf GetLeaf(const mmr::LeafIndex& leafIdx) const final;
     mmr::LeafIndex GetNextLeafIdx() const noexcept final;
     uint64_t GetNumLeaves() const noexcept final { return GetNextLeafIdx().Get(); }
+    uint64_t GetMinimumLeaves() const noexcept final { return m_pBase->GetMinimumLeaves(); }
     mw::Hash GetHash(const mmr::Index& idx) const final;
 
     void Rewind(const uint64_t numLeaves) final;

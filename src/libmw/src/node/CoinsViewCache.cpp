@@ -135,6 +135,11 @@ void CoinsViewCache::AddTx(const mw::Transaction::CPtr& pTx)
 void CoinsViewCache::UndoBlock(const mw::BlockUndo::CPtr& pUndo)
 {
     assert(pUndo != nullptr);
+    const auto previous = pUndo->GetPreviousHeader();
+    const auto compacted = GetCompactionHeight();
+    if (compacted && (!previous || previous->GetHeight() < *compacted)) {
+        throw std::runtime_error("Cannot rewind MWEB chainstate below the compaction horizon");
+    }
 
     std::vector<mmr::LeafIndex> leavesToAdd;
     for (const mw::Coin::CPtr& coinToAdd : pUndo->GetCoinsSpent()) {
@@ -302,4 +307,13 @@ void CoinsViewCache::Flush(CDBBatch* pBatch)
     m_pBase->SaveMMRInfo(pBatch, mmr_info);
 
     m_pUpdates->Clear();
+}
+
+void CoinsViewCache::Compact(const mw::Header::CPtr& horizon, const BitSet& retained_leaves)
+{
+    if (!m_pUpdates->GetActions().empty() || GetBestHeader() != m_pBase->GetBestHeader()) {
+        throw std::runtime_error("Cannot compact an unflushed MWEB coins cache");
+    }
+
+    m_pBase->Compact(horizon, retained_leaves);
 }

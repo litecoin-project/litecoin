@@ -14,6 +14,7 @@ public:
     void Create();
 
     const FilePath& GetPath() const noexcept { return m_path; }
+    void Swap(File& other) noexcept { m_path.Swap(other.m_path); }
     size_t GetSize() const;
     bool Exists() const;
 

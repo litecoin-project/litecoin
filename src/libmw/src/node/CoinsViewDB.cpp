@@ -2,13 +2,17 @@
 
 #include <mw/db/CoinDB.h>
 #include <mw/db/MMRInfoDB.h>
+#include <mw/db/LeafDB.h>
 #include <mw/exceptions/ValidationException.h>
 #include <mw/mmr/PruneList.h>
+#include <mw/mmr/MMRUtil.h>
+#include <mw/crypto/Hasher.h>
 
 #include "CoinActions.h"
 
 #include <span.h>
 #include <streams.h>
+#include <util/strencodings.h>
 #include <algorithm>
 #include <limits>
 
@@ -20,6 +24,25 @@ static constexpr uint8_t MWEB_DB_FORMAT_RAW_VALUES{1};
 static constexpr size_t MWEB_DB_MIGRATION_BATCH_SIZE{10000};
 const std::string MWEB_DB_FORMAT_KEY{"mweb/db_format"};
 const std::string MWEB_DB_MIGRATION_PROGRESS_KEY{"mweb/db_migration_progress"};
+
+void CleanupPruneLists(const FilePath& dir, const uint32_t current_index)
+{
+    // Publication can precede a crash that leaves older, nonconsecutive prune
+    // generations behind. Only the file named by current metadata is live.
+    for (const auto& entry : fs::directory_iterator(fs::u8path(dir.ToString()))) {
+        const auto name = entry.path().filename().u8string();
+        if (name.size() < 14 || name.compare(0, 4, "prun") != 0 || name.compare(name.size() - 4, 4, ".dat") != 0) {
+            continue;
+        }
+
+        uint32_t index;
+        if (ParseUInt32(name.substr(4, name.size() - 8), &index)) {
+            if (name == StringUtil::Format("prun{:0>6}.dat", index) && index < current_index && entry.is_regular_file()) {
+                FilePath(entry.path()).Remove();
+            }
+        }
+    }
+}
 
 class DBStringKey
 {
@@ -281,15 +304,48 @@ CoinsViewDB::Ptr CoinsViewDB::Open(
     MigrateMWEBDBValueFormat(pDBWrapper);
 
     auto current_mmr_info = MMRInfoDB(pDBWrapper, nullptr).GetLatest();
-    uint32_t file_index = current_mmr_info ? current_mmr_info->index : 0;
-    uint32_t compact_index = current_mmr_info ? current_mmr_info->compact_index : 0;
+    if (pBestHeader && !current_mmr_info) {
+        throw dbwrapper_error("Missing or unreadable MWEB MMR metadata");
+    }
+
+    if (current_mmr_info) {
+        if (current_mmr_info->version > 2 ||
+            (current_mmr_info->compacted && current_mmr_info->version < 2) ||
+            (current_mmr_info->compact_index != 0 && !current_mmr_info->compacted)) {
+            throw dbwrapper_error("Unsupported MWEB compaction metadata");
+        }
+    }
+
+    const uint32_t file_index = current_mmr_info ? current_mmr_info->index : 0;
+    const uint32_t compact_index = current_mmr_info ? current_mmr_info->compact_index : 0;
+
+    if (current_mmr_info && current_mmr_info->compacted) {
+        FilePath leafset_path = LeafSet::GetPath(datadir, file_index);
+        if (compact_index == 0 || compact_index > file_index || current_mmr_info->compacted->GetHeight() < 0 ||
+            !leafset_path.IsFile() || !PMMR::GetPath(datadir, 'O', file_index).IsFile() || File(leafset_path).GetSize() < 8) {
+            throw dbwrapper_error("Missing compacted MWEB files or invalid horizon");
+        }
+    }
 
     auto pLeafSet = LeafSet::Open(datadir, file_index);
     auto pPruneList = PruneList::Open(datadir, compact_index);
-    auto pOutputMMR = PMMR::Open('O', datadir, file_index, pDBWrapper, pPruneList);
-    auto pView = new CoinsViewDB(pBestHeader, pDBWrapper, pLeafSet, pOutputMMR);
+    const uint64_t minimum_leaves = current_mmr_info && current_mmr_info->compacted ? current_mmr_info->compacted->GetNumTXOs() : 0;
+    auto pOutputMMR = PMMR::Open('O', datadir, file_index, pDBWrapper, pPruneList, minimum_leaves);
+    auto pView = std::shared_ptr<CoinsViewDB>(new CoinsViewDB(datadir, pBestHeader, pDBWrapper, pLeafSet, pOutputMMR));
+    if (current_mmr_info && current_mmr_info->compacted) {
+        pView->m_compactedHeight = current_mmr_info->compacted->GetHeight();
+        if (!pBestHeader || pBestHeader->GetHeight() < *pView->m_compactedHeight ||
+                pBestHeader->GetNumTXOs() < minimum_leaves ||
+                pBestHeader->GetNumTXOs() != pOutputMMR->GetNumLeaves() ||
+                pBestHeader->GetNumTXOs() != pLeafSet->GetNextLeafIdx().Get() ||
+                pBestHeader->GetOutputRoot() != pOutputMMR->Root() ||
+                pBestHeader->GetLeafsetRoot() != pLeafSet->Root() ||
+                pBestHeader->GetHash() != current_mmr_info->pruned) {
+            throw dbwrapper_error("Inconsistent compacted MWEB chainstate");
+        }
+    }
 
-    return std::shared_ptr<CoinsViewDB>(pView);
+    return pView;
 }
 
 mw::Coin::CPtr CoinsViewDB::GetCoin(const mw::Hash& output_id) const
@@ -375,6 +431,106 @@ void CoinsViewDB::Compact() const
     }
 }
 
+bool CoinsViewDB::NeedsCompaction(const int32_t height) const
+{
+    const auto info = MMRInfoDB(GetDatabase()).GetLatest();
+    return !info || !info->compacted || height > info->compacted->GetHeight() ||
+        (height == info->compacted->GetHeight() && info->cleanup_pending);
+}
+
+void CoinsViewDB::Compact(const mw::Header::CPtr& horizon, const BitSet& retained_leaves)
+{
+    const auto best = GetBestHeader();
+    auto info = MMRInfoDB(GetDatabase()).GetLatest();
+    if (!horizon || !best || !info || horizon->GetHeight() > best->GetHeight() ||
+            horizon->GetNumTXOs() != retained_leaves.size() ||
+            horizon->GetLeafsetRoot() != Hashed(retained_leaves.bytes()) ||
+            m_pOutputPMMR->GetNumLeaves() != best->GetNumTXOs() ||
+            m_pOutputPMMR->Root() != best->GetOutputRoot()) {
+        throw std::runtime_error("Invalid MWEB compaction horizon or unflushed chainstate");
+    }
+
+    if (info->compacted && (horizon->GetHeight() < info->compacted->GetHeight() ||
+            (horizon->GetHeight() == info->compacted->GetHeight() && horizon->GetHash() != info->compacted->GetHash()))) {
+        throw std::runtime_error("MWEB compaction horizon must advance on the same chain");
+    }
+
+    if (!NeedsCompaction(horizon->GetHeight())) {
+        return;
+    }
+
+    PMMRCache historical(m_pOutputPMMR);
+    historical.Rewind(horizon->GetNumTXOs());
+    if (historical.Root() != horizon->GetOutputRoot()) {
+        throw std::runtime_error("MWEB compaction horizon has a different output history");
+    }
+
+    for (uint64_t i = 0; i < retained_leaves.size(); ++i) {
+        if (!retained_leaves.test(i) && m_pLeafSet->Contains(mmr::LeafIndex::At(i))) {
+            throw std::runtime_error("MWEB compaction would remove an unspent output");
+        }
+    }
+
+    if (!info->compacted || horizon->GetHeight() > info->compacted->GetHeight()) {
+        MMRInfo next = GetNextMMRInfo(nullptr);
+        const auto compacted = MMRUtil::BuildCompactBitSet(retained_leaves.size(), retained_leaves);
+        auto mmr = m_pOutputPMMR->Compact(next.index, compacted, retained_leaves.size());
+        auto leafset = m_pLeafSet->Copy(next.index);
+        next.version = 2;
+        next.compact_index = next.index;
+        next.compacted = *horizon;
+        next.cleanup_pending = true;
+        CDBBatch batch(*GetDatabase());
+        SaveMMRInfo(&batch, next);
+        if (!GetDatabase()->WriteBatch(batch, true)) {
+            throw dbwrapper_error("Failed to publish MWEB compaction");
+        }
+
+        // Both new files and the prune list are durable. Publish using nonthrowing
+        // swaps so existing cache layers keep referring to the same base objects.
+        m_pOutputPMMR->Adopt(*mmr);
+        m_pLeafSet->Adopt(*leafset);
+        m_compactedHeight = next.compacted->GetHeight();
+        *info = std::move(next);
+        mmr.reset();
+        leafset.reset();
+    }
+    Compact();
+    CleanupPruneLists(m_datadir, info->compact_index);
+
+    // The durable horizon makes these rows unreachable. Delete in bounded
+    // batches; a crash leaves cleanup_pending set and replaying deletions is safe.
+    constexpr size_t DELETE_BATCH_SIZE{10000};
+    std::vector<mmr::LeafIndex> spent;
+    spent.reserve(DELETE_BATCH_SIZE);
+    const auto remove_spent = [&] {
+        CDBBatch batch(*GetDatabase());
+        LeafDB('O', GetDatabase(), &batch).Remove(spent);
+        if (!GetDatabase()->WriteBatch(batch, true)) {
+            throw dbwrapper_error("Failed to compact MWEB leaf records");
+        }
+        spent.clear();
+    };
+    for (uint64_t i = 0; i < retained_leaves.size(); ++i) {
+        if (!retained_leaves.test(i)) {
+            spent.push_back(mmr::LeafIndex::At(i));
+        }
+        if (spent.size() == DELETE_BATCH_SIZE) {
+            remove_spent();
+        }
+    }
+    if (!spent.empty()) {
+        remove_spent();
+    }
+
+    info->cleanup_pending = false;
+    CDBBatch batch(*GetDatabase());
+    SaveMMRInfo(&batch, *info);
+    if (!GetDatabase()->WriteBatch(batch, true)) {
+        throw dbwrapper_error("Failed to finalize MWEB compaction");
+    }
+}
+
 MMRInfo CoinsViewDB::GetNextMMRInfo(CDBBatch* pBatch) const
 {
     MMRInfo mmr_info;
@@ -383,7 +539,11 @@ MMRInfo CoinsViewDB::GetNextMMRInfo(CDBBatch* pBatch) const
         mmr_info = *current_mmr_info;
     }
 
+    if (mmr_info.index >= std::numeric_limits<uint32_t>::max() - 1) {
+        throw dbwrapper_error("MWEB file generation index exhausted");
+    }
     ++mmr_info.index;
+    mmr_info.pruned = GetBestHeader() ? GetBestHeader()->GetHash() : mw::Hash{};
     return mmr_info;
 }
 

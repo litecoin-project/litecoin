@@ -11,6 +11,23 @@ using namespace mmr;
 
 BOOST_FIXTURE_TEST_SUITE(TestMMRUtil, MWEBTestingSetup)
 
+// Empty MMRs need no compaction; fully spent trees retain their peaks and never compact a node beyond the horizon.
+BOOST_AUTO_TEST_CASE(Compaction_EmptyAndSpentTrees)
+{
+    BOOST_CHECK_EQUAL(MMRUtil::BuildCompactBitSet(0, BitSet{}).size(), 0U);
+    for (uint64_t n = 1; n <= 64; ++n) {
+        const auto mask = MMRUtil::BuildCompactBitSet(n, BitSet(n));
+        const auto nodes = LeafIndex::At(n).GetPosition();
+        const auto peaks = MMRUtil::CalcPeakIndices(nodes);
+        BOOST_CHECK_EQUAL(mask.count(), nodes - peaks.size());
+        for (const auto& peak : peaks) BOOST_CHECK(!mask.test(peak.GetPosition()));
+        for (uint64_t i = nodes; i < mask.size(); ++i) BOOST_CHECK(!mask.test(i));
+        BitSet unspent(n);
+        unspent.set(0, n, true);
+        BOOST_CHECK_EQUAL(MMRUtil::BuildCompactBitSet(n, unspent).count(), 0U);
+    }
+}
+
 #define REQUIRE_NEXT(iter, expected_pos) \
     BOOST_REQUIRE(iter.Next()); \
     BOOST_REQUIRE(iter.GetPosition() == expected_pos);

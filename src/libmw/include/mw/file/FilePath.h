@@ -49,6 +49,7 @@ public:
     //
     FilePath& operator=(const FilePath& other) = default;
     FilePath& operator=(FilePath&& other) noexcept = default;
+    void Swap(FilePath& other) noexcept { m_path.swap(other.m_path); }
     bool operator==(const FilePath& rhs) const noexcept { return m_path == rhs.m_path; }
 
     FilePath GetChild(const fs::path& filename) const { return FilePath(m_path / filename); }
@@ -67,6 +68,11 @@ public:
     bool Exists() const
     {
         return fs::exists(m_path);
+    }
+
+    bool IsFile() const
+    {
+        return fs::is_regular_file(m_path);
     }
 
     bool IsDirectory() const

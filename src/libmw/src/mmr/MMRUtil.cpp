@@ -70,8 +70,11 @@ std::optional<mw::Hash> MMRUtil::CalcBaggedPeak(const IMMR& mmr, const mmr::Inde
 
 BitSet MMRUtil::BuildCompactBitSet(const uint64_t num_leaves, const BitSet& unspent_leaf_indices)
 {
-    BitSet compactable_node_indices(num_leaves * 2);
+    if (num_leaves == 0) {
+        return BitSet(0);
+    }
 
+    BitSet compactable_node_indices(num_leaves * 2);
     boost::dynamic_bitset<> prunable_nodes(num_leaves * 2);
 
     LeafIndex leaf_idx = LeafIndex::At(0);

@@ -82,18 +82,14 @@ public:
     {
         assert(m_fileSize == m_bufferIndex);
 
-        if (nextPosition > (m_bufferIndex + m_buffer.size()))
-        {
+        if (nextPosition > (m_bufferIndex + m_buffer.size())) {
             ThrowFile_F("Tried to rewind past end of {}", m_file);
         }
 
-        if (nextPosition <= m_bufferIndex)
-        {
+        if (nextPosition <= m_bufferIndex) {
             m_buffer.clear();
             m_bufferIndex = nextPosition;
-        }
-        else
-        {
+        } else {
             m_buffer.erase(m_buffer.begin() + nextPosition - m_bufferIndex, m_buffer.end());
         }
     }
@@ -103,20 +99,21 @@ public:
         return m_bufferIndex + m_buffer.size();
     }
 
+    const FilePath& GetPath() const noexcept
+    {
+        return m_file.GetPath();
+    }
+
     std::vector<uint8_t> Read(const uint64_t position, const uint64_t numBytes) const
     {
-        if ((position + numBytes) > (m_bufferIndex + m_buffer.size()))
-        {
+        if ((position + numBytes) > (m_bufferIndex + m_buffer.size())) {
             ThrowFile_F("Tried to read past end of {}", m_file);
         }
 
-        if (position < m_bufferIndex)
-        {
+        if (position < m_bufferIndex) {
             // FUTURE: Read from mapped and then from buffer, if necessary
             return m_mmap.Read(position, numBytes);
-        }
-        else
-        {
+        } else {
             auto begin = m_buffer.cbegin() + position - m_bufferIndex;
             auto end = begin + numBytes;
             return std::vector<uint8_t>(begin, end);
