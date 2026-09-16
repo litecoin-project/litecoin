@@ -442,6 +442,34 @@ BOOST_AUTO_TEST_CASE(WalletCoinLegacySpendKeysAreDiscarded)
     }
 }
 
+// Scanning recovers either spend branch with the shared scan key, but ownership still requires address metadata.
+BOOST_AUTO_TEST_CASE(ScanOutputDoesNotImplyOwnership)
+{
+    TestWalletStorage storage;
+    TestScriptPubKeyMan spk_man(storage);
+    mw::Keychain keychain(&spk_man, ScanSecret(), SpendSecret());
+    mw::Keychain other_branch(nullptr, ScanSecret(), CustomSpendSecret());
+    BOOST_CHECK(keychain.GetScanKeyID() == other_branch.GetScanKeyID());
+
+    for (const auto& address : {keychain.DeriveAddress(TEST_ADDRESS_INDEX), other_branch.DeriveAddress(TEST_ADDRESS_INDEX)}) {
+        const auto output = CreateOutput(address, AMOUNT_LARGE);
+        const auto scanned = keychain.ScanOutput(output);
+        BOOST_REQUIRE(scanned);
+        BOOST_CHECK(!scanned->IsMine());
+        CheckRewoundCoin(*scanned, output, mw::UNKNOWN_INDEX, AMOUNT_LARGE, address);
+        const auto other_scanned = other_branch.ScanOutput(output);
+        BOOST_REQUIRE(other_scanned);
+        BOOST_CHECK(*other_scanned == *scanned);
+        CheckNotRewound(keychain, output);
+
+        spk_man.AddMetadata(address, TEST_ADDRESS_INDEX);
+        mw::WalletCoin owned;
+        BOOST_REQUIRE(keychain.RewindOutput(output, owned));
+        CheckRewoundCoin(owned, output, TEST_ADDRESS_INDEX, AMOUNT_LARGE, address);
+    }
+}
+
+// Both scanning and ownership rewind reject malformed or inconsistent output fields without modifying the caller's coin.
 BOOST_AUTO_TEST_CASE(RewindOutput_Rejections)
 {
     TestWalletStorage storage;
@@ -451,13 +479,17 @@ BOOST_AUTO_TEST_CASE(RewindOutput_Rejections)
     const StealthAddress address = keychain.DeriveAddress(TEST_ADDRESS_INDEX);
     spk_man.AddMetadata(address, TEST_ADDRESS_INDEX);
     const mw::Output output = CreateOutput(address, AMOUNT_LARGE);
+    const auto check_rejected = [](const mw::Keychain& keys, const mw::Output& candidate) {
+        BOOST_CHECK(!keys.ScanOutput(candidate));
+        CheckNotRewound(keys, candidate);
+    };
 
     mw::Keychain wrong_scan_keychain(&spk_man, SenderSecret(), SpendSecret());
-    CheckNotRewound(wrong_scan_keychain, output);
+    check_rejected(wrong_scan_keychain, output);
 
-    CheckNotRewound(keychain, WithoutStandardFields(output));
+    check_rejected(keychain, WithoutStandardFields(output));
 
-    CheckNotRewound(
+    check_rejected(
         keychain,
         WithStandardFields(
             output,
@@ -469,14 +501,14 @@ BOOST_AUTO_TEST_CASE(RewindOutput_Rejections)
         )
     );
 
-    CheckNotRewound(keychain, WithReceiverPublicKey(output, MalformedPublicKey(0x02, 0xff)));
+    check_rejected(keychain, WithReceiverPublicKey(output, MalformedPublicKey(0x02, 0xff)));
 
     TestWalletStorage unknown_storage;
     TestScriptPubKeyMan unknown_spk_man(unknown_storage);
     mw::Keychain unknown_keychain(&unknown_spk_man, ScanSecret(), SpendSecret());
     CheckNotRewound(unknown_keychain, output);
 
-    CheckNotRewound(
+    check_rejected(
         keychain,
         WithStandardFields(
             output,
@@ -484,7 +516,7 @@ BOOST_AUTO_TEST_CASE(RewindOutput_Rejections)
         )
     );
 
-    CheckNotRewound(
+    check_rejected(
         keychain,
         WithStandardFields(
             output,
@@ -494,7 +526,7 @@ BOOST_AUTO_TEST_CASE(RewindOutput_Rejections)
 
     BigInt<16> tampered_nonce = output.GetMaskedNonce();
     tampered_nonce[0] ^= 0x01;
-    CheckNotRewound(
+    check_rejected(
         keychain,
         WithStandardFields(
             output,

@@ -119,7 +119,7 @@ bool OutputIsChange(const CWallet& wallet, const CWalletTx& wtx, const AnyOutput
     if (output_id.IsMWEB()) {
         mw::WalletCoin coin;
         if (wallet.GetMWEBWalletCoin(output_id.ToMWEB(), coin)) {
-            return coin.IsChange();
+            return wallet.GetMWWallet()->IsChange(coin);
         }
 
         return false;

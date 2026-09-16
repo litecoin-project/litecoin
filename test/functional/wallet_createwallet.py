@@ -154,7 +154,7 @@ class CreateWalletTest(BitcoinTestFramework):
         external_keys = 5 if self.options.descriptors else 1
         assert_equal(walletinfo['keypoolsize'], external_keys)
         # There is no internal keypool for MWEB keys
-        internal_keys = 4 if self.options.descriptors else 1
+        internal_keys = 5 if self.options.descriptors else 1
         assert_equal(walletinfo['keypoolsize_hd_internal'], internal_keys)
         # Allow empty passphrase, but there should be a warning
         resp = self.nodes[0].createwallet(wallet_name='w7', disable_private_keys=False, blank=False, passphrase='')

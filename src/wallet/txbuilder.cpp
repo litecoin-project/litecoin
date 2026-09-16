@@ -265,7 +265,7 @@ util::Result<CreatedTransactionResult> TxBuilder::Build(const std::optional<int3
 
     // Before we return success, we assume any change key will be used to prevent
     // accidental re-use.
-    if (m_change.reserve_dest) {
+    if (m_change.reserve_dest && !m_change.change_position.IsNull()) {
         m_change.reserve_dest->KeepDestination();
     }
     
@@ -490,16 +490,24 @@ std::optional<util::Error> TxBuilder::AddChangeOutput(const SelectionResult& sel
         m_change.amount = change_amount;
         if (ChangeBuilder::ChangeBelongsOnMWEB(GetTxType(), m_coin_control.destChange)) {
             if (std::holds_alternative<CNoDestination>(m_coin_control.destChange)) {
-                // MW: TODO - Use a reserved MWEB change address once the wallet has a
-                // real MWEB internal/change keypool and can persist change
-                // metadata for non-CHANGE_INDEX outputs.
-                m_change.reserve_dest.reset();
-
-                StealthAddress change_address;
-                if (!m_wallet.GetMWWallet()->GetStealthAddress(mw::CHANGE_INDEX, change_address)) {
-                    return util::Error{_("Failed to retrieve change stealth address")};
+                if (m_wallet.IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS)) {
+                    if (!m_change.script_or_address.IsMWEB()) {
+                        m_change.reserve_dest.reset();
+                        m_change.reserve_dest = std::make_shared<ReserveDestination>(&m_wallet, OutputType::MWEB);
+                        auto destination = m_change.reserve_dest->GetReservedDestination(/*internal=*/true);
+                        if (!destination) {
+                            return util::Error{util::ErrorString(destination)};
+                        }
+                        m_change.script_or_address = GenericAddress(*destination);
+                    }
+                } else {
+                    m_change.reserve_dest.reset();
+                    StealthAddress change_address;
+                    if (!m_wallet.GetMWWallet()->GetStealthAddress(mw::CHANGE_INDEX, change_address)) {
+                        return util::Error{_("Failed to retrieve change stealth address")};
+                    }
+                    m_change.script_or_address = change_address;
                 }
-                m_change.script_or_address = change_address;
             }
 
             mw::MutableOutput mweb_output;

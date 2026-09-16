@@ -607,7 +607,11 @@ class RawTransactionsTest(BitcoinTestFramework):
         outputs = {self.nodes[0].getnewaddress():value}
         rawtx = self.nodes[1].createrawtransaction(inputs, outputs)
         # fund a transaction that does not require a new key for the change output
-        self.nodes[1].fundrawtransaction(rawtx)
+        funded = self.nodes[1].fundrawtransaction(rawtx)
+        assert_equal(funded['changepos'], -1)
+
+        # A failed change reservation must not return an address already issued from the exhausted keypool.
+        assert_raises_rpc_error(-12, "Keypool ran out", self.nodes[1].getrawchangeaddress)
 
         # fund a transaction that requires a new key for the change output
         # creating the key must be impossible because the wallet is locked

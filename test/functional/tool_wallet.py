@@ -71,7 +71,7 @@ class ToolWalletTest(BitcoinTestFramework):
     def get_expected_info_output(self, name="", transactions=0, keypool=2, address=0, imported_privs=0):
         wallet_name = self.default_wallet_name if name == "" else name
         if self.options.descriptors:
-            output_types = 4  # p2pkh, p2sh, segwit, bech32m
+            output_types = 5  # p2pkh, p2sh, segwit, bech32m, mweb
             return textwrap.dedent('''\
                 Wallet info
                 ===========
@@ -83,7 +83,7 @@ class ToolWalletTest(BitcoinTestFramework):
                 Keypool Size: %d
                 Transactions: %d
                 Address Book: %d
-            ''' % (wallet_name, keypool * output_types + (keypool / 2), transactions, imported_privs * 3 + address))
+            ''' % (wallet_name, keypool * output_types, transactions, imported_privs * 3 + address))
         else:
             output_types = 4  # p2pkh, p2sh, segwit, mweb. Legacy wallets do not support bech32m.
             return textwrap.dedent('''\
@@ -300,7 +300,7 @@ class ToolWalletTest(BitcoinTestFramework):
             assert_equal(True, 'hdseedid' in out)
         else:
             assert_equal(5000, out['keypoolsize'])
-            assert_equal(4000, out['keypoolsize_hd_internal'])
+            assert_equal(5000, out['keypoolsize_hd_internal'])
 
         self.log_wallet_timestamp_comparison(timestamp_before, timestamp_after)
         assert_equal(timestamp_before, timestamp_after)

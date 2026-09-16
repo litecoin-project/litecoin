@@ -90,9 +90,8 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
 
         ext_priv = part_priv[False]
         ext_pub  = part_pub[False]
-        # Internal may not exist yet; if not, re-use external for change in this test
-        int_priv = part_priv.get(True, ext_priv)
-        int_pub  = part_pub.get(True,  ext_pub)
+        int_priv = part_priv[True]
+        int_pub  = part_pub[True]
 
         # --- Watch-only ranged wallet (node2): import (scan xprv, spend xpub) and rescan ---
         self.log.info("Constructing watch-only ranged descriptors and importing into node2")
@@ -190,7 +189,7 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
 
         part_full = _partition_mweb(exp_full)
         ext_full_priv = part_full[False]
-        int_full_priv = part_full.get(True, ext_full_priv)
+        int_full_priv = part_full[True]
 
         ext_full = w4.getdescriptorinfo(ext_full_priv['desc'])['descriptor']
         int_full = w4.getdescriptorinfo(int_full_priv['desc'])['descriptor']
@@ -315,9 +314,7 @@ def _partition_mweb(items):
     for it in items:
         if _is_mweb_desc_item(it):
             out[it.get("internal", False)] = it
-    # Some wallets might not have an internal/change descriptor until first spend.
-    # For the purposes of this test, external is mandatory.
-    assert False in out, "Missing external MWEB descriptor in export"
+    assert_equal(set(out), {False, True})
     return out
 
 

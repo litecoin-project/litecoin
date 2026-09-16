@@ -112,6 +112,7 @@ BasicTestingSetup::BasicTestingSetup(const std::string& chainName, const std::ve
             "-debug",
             "-debugexclude=libevent",
             "-debugexclude=leveldb",
+            "-keypool=4", // Avoid generating unused wallet keys; tests can override this.
         },
         extra_args);
     if (G_TEST_COMMAND_LINE_ARGUMENTS) {

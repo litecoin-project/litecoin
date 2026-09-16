@@ -35,7 +35,8 @@ public:
     CWallet m_wallet;
 
     MWEBRewindTestingSetup()
-        : m_wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase())
+        : TestChain100Setup(CBaseChainParams::REGTEST, {"-keypool=13"}), // Sender rewind tests use indexes through 12.
+          m_wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase())
     {
         BOOST_REQUIRE(m_wallet.LoadWallet() == DBErrors::LOAD_OK);
         SetupFreshWallet(m_wallet);
@@ -320,7 +321,7 @@ BOOST_AUTO_TEST_CASE(StagedOutputMetadataFollowsCommitLifecycle)
     BOOST_CHECK(*owned_coin.shared_secret == mw::DeriveSharedSecret(owned.sender_key, owned_address, OWNED_AMOUNT));
 
     const mw::WalletCoin change_coin = GetCoin(m_wallet, change.output.GetOutputID());
-    BOOST_CHECK(change_coin.IsChange());
+    BOOST_CHECK(m_wallet.GetMWWallet()->IsChange(change_coin));
     BOOST_REQUIRE(change_coin.shared_secret);
     BOOST_CHECK(*change_coin.shared_secret == mw::DeriveSharedSecret(change.sender_key, change_address, CHANGE_AMOUNT));
 

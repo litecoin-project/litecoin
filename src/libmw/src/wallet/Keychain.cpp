@@ -1,4 +1,5 @@
 #include <mw/wallet/Keychain.h>
+#include <mw/crypto/Hasher.h>
 #include <mw/exceptions/CryptoException.h>
 #include <mw/models/tx/OutputMask.h>
 #include <wallet/scriptpubkeyman.h>
@@ -11,27 +12,39 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::WalletCoin& coin) cons
     if (!m_spk_man) {
         return false;
     }
-    if (!output.HasStandardFields()) {
+
+    auto scanned = ScanOutput(output);
+    if (!scanned) {
         return false;
     }
-    if (!output.Ko().IsValid() || !output.Ke().IsValid()) {
+    const auto address_index = LookupAddressIndex(*scanned->address);
+    if (!address_index) {
         return false;
+    }
+
+    scanned->address_index = *address_index;
+    coin = std::move(*scanned);
+    return true;
+}
+
+std::optional<mw::WalletCoin> Keychain::ScanOutput(const mw::Output& output) const
+{
+    if (!output.HasStandardFields()) {
+        return std::nullopt;
+    }
+    if (!output.Ko().IsValid() || !output.Ke().IsValid()) {
+        return std::nullopt;
     }
 
     try {
         assert(!GetScanSecret().IsNull());
-        if (RecoverViewTag(output.Ke(), GetScanSecret()) != output.GetViewTag()) {
-            return false;
+        const PublicKey shared_point = output.Ke().Mul(m_scanSecret);
+        if (Hashed(EHashTag::TAG, shared_point)[0] != output.GetViewTag()) {
+            return std::nullopt;
         }
 
-        SecretKey shared_secret = RecoverSharedSecret(output.Ke(), GetScanSecret());
-
-        // Check if B_i belongs to wallet
+        SecretKey shared_secret = SecretKey::FromHash(Hashed(EHashTag::DERIVE, shared_point));
         StealthAddress address = RecoverSubaddress(output.Ko(), shared_secret, m_scanSecret);
-        const std::optional<uint32_t> address_index = LookupAddressIndex(address);
-        if (!address_index) {
-            return false;
-        }
 
         // Calc blinding factor and unmask nonce and amount.
         OutputMask mask = OutputMask::FromShared(shared_secret);
@@ -39,28 +52,26 @@ bool Keychain::RewindOutput(const mw::Output& output, mw::WalletCoin& coin) cons
         BigInt<16> n = mask.MaskNonce(output.GetMaskedNonce());
 
         if (mask.SwitchCommit(value) != output.GetCommitment()) {
-            return false;
+            return std::nullopt;
         }
 
         // Calculate Carol's sending key 's' and check that s*B ?= Ke
         SecretKey s = DeriveOutputSendKey(address, value, n);
         if (output.Ke() != DeriveOutputKeyExchangePubKey(address, s)) {
-            return false;
+            return std::nullopt;
         }
 
         mw::WalletCoin rewound_coin;
-        rewound_coin.address_index = *address_index;
         rewound_coin.blind = std::make_optional(mask.GetRawBlind());
         rewound_coin.amount = value;
         rewound_coin.output_id = output.GetOutputID();
         rewound_coin.address = address;
         rewound_coin.shared_secret = std::make_optional(std::move(shared_secret));
-        rewound_coin.master_scan_key_id = PublicKey::From(m_scanSecret).GetID();
+        rewound_coin.master_scan_key_id = m_scanKeyID;
 
-        coin = std::move(rewound_coin);
-        return true;
+        return rewound_coin;
     } catch (const CryptoException&) {
-        return false;
+        return std::nullopt;
     }
 }
 
@@ -155,28 +166,6 @@ SecretKey Keychain::GetRewindKey() const
 SecretKey Keychain::GetSenderSigningKey(uint64_t index) const
 {
     return DeriveSenderSigningKey(m_scanSecret, index);
-}
-
-void Keychain::TopUpSenderPubKeys(uint64_t range_end)
-{
-    if (range_end <= m_sender_pubkey_range_end) {
-        return;
-    }
-
-    for (uint64_t index = m_sender_pubkey_range_end; index < range_end; ++index) {
-        m_sender_pubkey.emplace(PublicKey::From(GetSenderSigningKey(index)), index);
-    }
-    m_sender_pubkey_range_end = range_end;
-}
-
-std::optional<uint64_t> Keychain::LookupSenderPubKeyIndex(const PublicKey& sender_pubkey) const
-{
-    const auto iter = m_sender_pubkey.find(sender_pubkey);
-    if (iter == m_sender_pubkey.end()) {
-        return std::nullopt;
-    }
-
-    return iter->second;
 }
 
 END_NAMESPACE

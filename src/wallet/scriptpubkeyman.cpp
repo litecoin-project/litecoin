@@ -2477,7 +2477,9 @@ util::Result<CTxDestination> DescriptorScriptPubKeyMan::GetReservedDestination(c
 {
     LOCK(cs_desc_man);
     auto op_dest = GetNewDestination(type);
-    index = m_wallet_descriptor.next_index - 1;
+    if (op_dest) {
+        index = m_wallet_descriptor.next_index - 1;
+    }
     return op_dest;
 }
 
@@ -2675,7 +2677,6 @@ bool DescriptorScriptPubKeyMan::SetupDescriptorGeneration(const CExtKey& master_
         break;
     }
     case OutputType::MWEB: {
-        if (internal) return false;
         desc_prefix = "mweb(" + xpub + "/100'";
         desc_suffix = "/*')";
         break;
@@ -2699,9 +2700,9 @@ bool DescriptorScriptPubKeyMan::SetupDescriptorGeneration(const CExtKey& master_
     std::string desc_str = desc_prefix + "/0'" + internal_path + desc_suffix;
     if (addr_type == OutputType::MWEB) {
         std::string xprv = EncodeExtKey(master_key);
-        // MWEB addresses must follow the same paths as legacy wallets,
-        // to avoid the need to check outputs against multiple scan keys
-        desc_str = "mweb(" + xprv + "/0'/100'/0'," + xpub + "/0'/100'/1',*)";
+        // Receive and change share the legacy scan key, with distinct spend keys.
+        const std::string spend_path = internal ? "/0'/100'/2'" : "/0'/100'/1'";
+        desc_str = "mweb(" + xprv + "/0'/100'/0'," + xpub + spend_path + ",*)";
     }
 
 
@@ -2709,7 +2710,8 @@ bool DescriptorScriptPubKeyMan::SetupDescriptorGeneration(const CExtKey& master_
     FlatSigningProvider keys;
     std::string error;
     std::unique_ptr<Descriptor> desc = Parse(desc_str, keys, error, false);
-    WalletDescriptor w_desc(std::move(desc), creation_time, 0, 0, 0);
+    WalletDescriptor w_desc(std::move(desc), creation_time, 0, 0, addr_type == OutputType::MWEB ? 2 : 0);
+    w_desc.mweb_internal = addr_type == OutputType::MWEB && internal;
     m_wallet_descriptor = w_desc;
     uint256 id = GetID();
 
@@ -3162,6 +3164,12 @@ const WalletDescriptor DescriptorScriptPubKeyMan::GetWalletDescriptor() const
     return m_wallet_descriptor;
 }
 
+bool DescriptorScriptPubKeyMan::IsMWEBInternal() const
+{
+    LOCK(cs_desc_man);
+    return m_wallet_descriptor.mweb_internal;
+}
+
 const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> DescriptorScriptPubKeyMan::GetScriptPubKeys() const
 {
     LOCK(cs_desc_man);
@@ -3267,10 +3275,7 @@ void DescriptorScriptPubKeyMan::LoadMWEBKeychain()
         return;
     }
     
-    if (m_storage.IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET)) {
-        return;
-    }
-
+    // An explicitly imported descriptor supplies its own keys, even in a blank wallet.
     FlatSigningProvider provider;
     provider.keys = GetKeys();
     FlatSigningProvider out_keys_scan;

@@ -4138,16 +4138,17 @@ void CWallet::SetupDescriptorScriptPubKeyMans(const CExtKey& master_key, const s
 
     for (bool internal : {false, true}) {
         for (OutputType t : OUTPUT_TYPES) {
-            if (t == OutputType::MWEB && internal) {
-                continue;
-            }
-
             // MWEB: We don't want to have to create a new MWEB keychain when migrating,
             // since that would require extra work when identifying outputs belonging to the wallet.
             // So, if migration already built an MWEB descriptor (with the correct counter),
             // keep it and just activate it instead of creating a new one.
             if (t == OutputType::MWEB) {
-                std::optional<uint256> existing_mweb_id = active_mweb_spkm_id;
+                std::optional<uint256> existing_mweb_id = internal ? std::nullopt : active_mweb_spkm_id;
+                if (!existing_mweb_id) {
+                    if (const auto* active = GetScriptPubKeyMan(t, internal)) {
+                        existing_mweb_id = active->GetID();
+                    }
+                }
                 if (existing_mweb_id) {
                     auto it = m_spk_managers.find(*existing_mweb_id);
                     if (it == m_spk_managers.end()) {
@@ -4168,7 +4169,7 @@ void CWallet::SetupDescriptorScriptPubKeyMans(const CExtKey& master_key, const s
                         if (!desc_spk_man) continue;
                         LOCK(desc_spk_man->cs_desc_man);
                         const auto& desc_type = desc_spk_man->GetWalletDescriptor().descriptor->GetOutputType();
-                        if (desc_type && *desc_type == OutputType::MWEB) {
+                        if (desc_type && *desc_type == OutputType::MWEB && desc_spk_man->IsMWEBInternal() == internal) {
                             existing_mweb_id = id;
                             break;
                         }
@@ -4322,11 +4323,6 @@ std::optional<bool> CWallet::IsInternalScriptPubKeyMan(ScriptPubKeyMan* spk_man)
         return std::nullopt;
     }
 
-    // only active ScriptPubKeyMan can be internal
-    if (!GetActiveScriptPubKeyMans().count(spk_man)) {
-        return std::nullopt;
-    }
-
     const auto desc_spk_man = dynamic_cast<DescriptorScriptPubKeyMan*>(spk_man);
     if (!desc_spk_man) {
         throw std::runtime_error(std::string(__func__) + ": unexpected ScriptPubKeyMan type.");
@@ -4334,6 +4330,14 @@ std::optional<bool> CWallet::IsInternalScriptPubKeyMan(ScriptPubKeyMan* spk_man)
 
     LOCK(desc_spk_man->cs_desc_man);
     const auto& type = desc_spk_man->GetWalletDescriptor().descriptor->GetOutputType();
+    if (type == OutputType::MWEB) {
+        return desc_spk_man->IsMWEBInternal();
+    }
+
+    // Transparent descriptors only record the role of active managers.
+    if (!GetActiveScriptPubKeyMans().count(spk_man)) {
+        return std::nullopt;
+    }
     assert(type.has_value());
 
     return GetScriptPubKeyMan(*type, /* internal= */ true) == desc_spk_man;
@@ -4348,6 +4352,7 @@ ScriptPubKeyMan* CWallet::AddWalletDescriptor(WalletDescriptor& desc, const Flat
         return nullptr;
     }
 
+    desc.mweb_internal = desc.descriptor->GetOutputType() == OutputType::MWEB && internal;
     auto spk_man = GetDescriptorScriptPubKeyMan(desc);
     if (spk_man) {
         WalletLogPrintf("Update existing descriptor: %s\n", desc.descriptor->ToString());
@@ -4365,8 +4370,6 @@ ScriptPubKeyMan* CWallet::AddWalletDescriptor(WalletDescriptor& desc, const Flat
         const CKey& key = entry.second;
         spk_man->AddDescriptorKey(key, key.GetPubKey());
     }
-
-    spk_man->LoadMWEBKeychain();
 
     // Top up key pool, the manager will generate new scriptPubKeys internally
     if (!spk_man->TopUp()) {
@@ -4395,6 +4398,7 @@ ScriptPubKeyMan* CWallet::AddWalletDescriptor(WalletDescriptor& desc, const Flat
 
     // Save the descriptor to DB
     spk_man->WriteDescriptor();
+    spk_man->LoadMWEBKeychain();
 
     return spk_man;
 }

@@ -306,6 +306,7 @@ BASE_SCRIPTS = [
     'mweb_wallet_recipients.py --legacy-wallet',
     'mweb_wallet_recipients.py --descriptors',
     'mweb_wallet_descriptor.py',
+    'mweb_wallet_change.py',
     'mweb_wallet_sendall.py --legacy-wallet',
     'mweb_wallet_sendall.py --descriptors',
     'mweb_wallet_partial_upgrade.py --legacy-wallet',

@@ -103,9 +103,10 @@ class WalletMigrationTest(LitecoinTestFramework):
         # * BIP84 descriptors, P2WPKH, in the form of "84'/1'/0'/1/*" and "84'/1'/0'/1/*" (2 descriptors)
         # * BIP86 descriptors, P2TR, in the form of "86'/1'/0'/0/*" and "86'/1'/0'/1/*" (2 descriptors)
         # * A combo(PK) descriptor for the wallet master key.
-        # So, should have a total of 11 descriptors on it.
+        # * MWEB receive and change descriptors (2 descriptors).
+        # So, should have a total of 13 descriptors on it.
         descs = basic0.listdescriptors()["descriptors"]
-        assert_equal(len(basic0.listdescriptors()["descriptors"]), 12)
+        assert_equal(len(basic0.listdescriptors()["descriptors"]), 13)
 
         # Compare addresses info
         addr_info = basic0.getaddressinfo(addr)
@@ -406,6 +407,7 @@ class WalletMigrationTest(LitecoinTestFramework):
         assert_equal(bals, wallet.getbalances())
 
     def test_mweb(self):
+        """Migration preserves legacy MWEB change and starts a separate descriptor change branch."""
         node = self.nodes[0]
         default = node.get_wallet_rpc(self.default_wallet_name)
 
@@ -420,10 +422,19 @@ class WalletMigrationTest(LitecoinTestFramework):
         self.wait_until(lambda: self.wallet_has_tx(wallet, receive_txid), timeout=30)
         assert_equal(wallet.gettransaction(receive_txid)["amount"], Decimal("1.0"))
 
+        wallet.sendtoaddress(default.getnewaddress(address_type="bech32"), Decimal("0.1"))
+        self.generate(node, 1)
+        historical_change = next(coin['address'] for coin in wallet.listunspent() if 'mweb_out' in coin)
+        assert wallet.getaddressinfo(historical_change)['ischange']
+
         wallet.migratewallet()
         assert_equal(wallet.getwalletinfo()["descriptors"], True)
         self.assert_is_sqlite("mweb0")
         assert_equal(wallet.gettransaction(receive_txid)["amount"], Decimal("1.0"))
+        assert wallet.getaddressinfo(historical_change)['ischange']
+        fresh_change = wallet.getrawchangeaddress(address_type="mweb")
+        assert fresh_change != historical_change
+        assert wallet.getaddressinfo(fresh_change)['ischange']
 
         pegout_addr = default.getnewaddress(address_type="bech32")
         spend_txid = wallet.sendtoaddress(pegout_addr, Decimal("0.25"))

@@ -429,8 +429,10 @@ counter and keeps future MWEB addresses on the same active chain. If no active
 migrated MWEB descriptor exists, normal descriptor setup can create a new active
 MWEB descriptor.
 
-There is no active internal MWEB manager because MWEB does not use a separate
-internal/change chain in this wallet model.
+An internal MWEB descriptor is created for fresh change addresses. It uses the
+same scan-key derivation as the receive descriptor, with a separate master spend
+key at `m/0'/100'/2'`. Historical change at index 0 of migrated receive chains
+continues to be recognized as change.
 
 For wallets with private keys disabled, migration does not create new active
 private-key receive descriptors.

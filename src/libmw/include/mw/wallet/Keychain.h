@@ -4,7 +4,6 @@
 #include <mw/models/tx/Output.h>
 #include <mw/models/wallet/WalletCoin.h>
 #include <cstdint>
-#include <map>
 #include <memory>
 #include <optional>
 
@@ -37,6 +36,10 @@ public:
     // used to calculate the spend key at signing time after the wallet is unlocked.
     bool RewindOutput(const mw::Output& output, mw::WalletCoin& coin) const;
 
+    // Recovers and validates output metadata using only the scan secret.
+    // Ownership is not established until a keychain recognizes the recovered address.
+    std::optional<mw::WalletCoin> ScanOutput(const mw::Output& output) const;
+
     // Calculates the output secret key for the given coin.
     // If the address is known, it first attempts to lookup the subaddress spend key in the wallet DB.
     // Otherwise, if the address index is known, it calculates from the keychain's master spend key.
@@ -53,10 +56,9 @@ public:
     std::optional<uint32_t> LookupAddressIndex(const StealthAddress& address) const;
 
     const SecretKey& GetScanSecret() const noexcept { return m_scanSecret; }
+    const CKeyID& GetScanKeyID() const noexcept { return m_scanKeyID; }
     SecretKey GetRewindKey() const;
     SecretKey GetSenderSigningKey(uint64_t index) const;
-    void TopUpSenderPubKeys(uint64_t range_end);
-    std::optional<uint64_t> LookupSenderPubKeyIndex(const PublicKey& sender_pubkey) const;
 
     bool HasSpendPubKey() const noexcept { return m_spendPubkey.has_value(); }
     bool HasSpendSecret() const noexcept { return m_spendSecret.has_value(); }
@@ -74,10 +76,9 @@ public:
 private:
     const wallet::ScriptPubKeyMan* m_spk_man;
     SecretKey m_scanSecret;
+    CKeyID m_scanKeyID{PublicKey::From(m_scanSecret).GetID()};
     std::optional<PublicKey> m_spendPubkey;
     std::optional<SecretKey> m_spendSecret;
-    std::map<PublicKey, uint64_t> m_sender_pubkey;
-    uint64_t m_sender_pubkey_range_end{0};
 };
 
 END_NAMESPACE

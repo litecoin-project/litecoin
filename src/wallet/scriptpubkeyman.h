@@ -723,6 +723,7 @@ public:
     void SetWalletDescriptorNextIndex(int32_t next_index);
 
     const WalletDescriptor GetWalletDescriptor() const EXCLUSIVE_LOCKS_REQUIRED(cs_desc_man);
+    bool IsMWEBInternal() const;
     const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> GetScriptPubKeys() const override;
 
     bool GetDescriptorString(std::string& out, const bool priv) const;

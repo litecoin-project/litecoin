@@ -1045,6 +1045,7 @@ BOOST_FIXTURE_TEST_CASE(IsSpentPartialMWEB, TestChain100Setup)
     TestUnloadWallet(std::move(wallet));
 }
 
+// A partial MWEB receive identifies descriptor change through its stored coin and preserves its destination and value.
 BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Setup)
 {
     WalletContext context;
@@ -1067,9 +1068,16 @@ BOOST_FIXTURE_TEST_CASE(OutputIsChangeUsesPartialMWEBReceiveInfo, TestChain100Se
     mw::WalletCoin received_wallet_coin;
     received_wallet_coin.amount = 1'000'000;
     received_wallet_coin.output_id = mw::Hash::FromHex("418f6bb03b49b6a0485f20c5e41088d8d0e77ec580c45a216ca2e98c1c4475ee");
-    received_wallet_coin.address_index = mw::CHANGE_INDEX;
-    const StealthAddress received_address = StealthAddress::Random();
+    const auto destination = wallet->GetNewChangeDestination(OutputType::MWEB);
+    BOOST_REQUIRE(destination);
+    const StealthAddress received_address = std::get<StealthAddress>(*destination);
+    const auto keychain = wallet->GetScriptPubKeyMan(OutputType::MWEB, true)->GetMWEBKeychain();
+    BOOST_REQUIRE(keychain);
+    const auto index = keychain->LookupAddressIndex(received_address);
+    BOOST_REQUIRE(index);
+    received_wallet_coin.address_index = *index;
     received_wallet_coin.address = received_address;
+    received_wallet_coin.master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
 
     {
         LOCK(wallet->cs_wallet);

@@ -42,7 +42,7 @@ class WalletDescriptorTest(BitcoinTestFramework):
         wallet_info = self.nodes[0].getwalletinfo()
         assert_equal(wallet_info['format'], 'sqlite')
         assert_equal(wallet_info['keypoolsize'], 500)
-        assert_equal(wallet_info['keypoolsize_hd_internal'], 400) # No internal MWEB keypool, so only 100 address * 4 types = 400 keys for internal
+        assert_equal(wallet_info['keypoolsize_hd_internal'], 500) # 100 addresses for each of the five output types.
         assert 'keypoololdest' not in wallet_info
 
         # Check that getnewaddress works

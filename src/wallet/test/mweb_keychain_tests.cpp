@@ -11,6 +11,7 @@
 #include <test/util/setup_common.h>
 #include <tinyformat.h>
 #include <util/system.h>
+#include <wallet/reserve.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/test/psbt_test_utils.h>
 #include <wallet/wallet.h>
@@ -290,6 +291,126 @@ public:
 
 BOOST_FIXTURE_TEST_SUITE(mweb_keychain_tests, MWEBKeychainTestingSetup)
 
+// Receive and change reservations use distinct spend branches, and returned change addresses can be reserved again.
+BOOST_AUTO_TEST_CASE(DescriptorChangeReservationsUseSeparateBranch)
+{
+    KeypoolArgGuard keypool_size(2);
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    LOCK(wallet.cs_wallet);
+    wallet.LoadMinVersion(FEATURE_MWEB);
+    wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+    wallet.SetupDescriptorScriptPubKeyMans();
+
+    auto* internal = dynamic_cast<DescriptorScriptPubKeyMan*>(wallet.GetScriptPubKeyMan(OutputType::MWEB, true));
+    BOOST_REQUIRE(internal);
+    const auto receive_keys = Keychain(wallet);
+    const auto change_keys = internal->GetMWEBKeychain();
+    BOOST_REQUIRE(change_keys);
+    BOOST_CHECK(receive_keys->GetScanSecret() == change_keys->GetScanSecret());
+    const auto receive = wallet.GetNewDestination(OutputType::MWEB, "");
+    BOOST_REQUIRE(receive);
+    BOOST_CHECK(std::get<StealthAddress>(*receive) == receive_keys->DeriveAddress(2));
+
+    ReserveDestination reservation(&wallet, OutputType::MWEB);
+    auto change = reservation.GetReservedDestination(true);
+    BOOST_REQUIRE(change);
+    BOOST_CHECK(std::get<StealthAddress>(*change) == change_keys->DeriveAddress(2));
+    BOOST_CHECK(!(*change == *receive));
+    BOOST_CHECK(wallet.GetMWWallet()->IsChange(std::get<StealthAddress>(*change)));
+    BOOST_CHECK(!wallet.GetMWWallet()->IsChange(std::get<StealthAddress>(*receive)));
+    reservation.ReturnDestination();
+    auto returned = reservation.GetReservedDestination(true);
+    BOOST_REQUIRE(returned);
+    BOOST_CHECK(*returned == *change);
+    reservation.KeepDestination();
+    auto next = reservation.GetReservedDestination(true);
+    BOOST_REQUIRE(next);
+    BOOST_CHECK(std::get<StealthAddress>(*next) == change_keys->DeriveAddress(3));
+    reservation.KeepDestination();
+
+    wallet.DeactivateScriptPubKeyMan(internal->GetID(), OutputType::MWEB, true);
+    BOOST_CHECK(wallet.IsInternalScriptPubKeyMan(internal) == true);
+    BOOST_CHECK(wallet.GetMWWallet()->IsChange(std::get<StealthAddress>(*change)));
+    WalletDescriptor persisted;
+    BOOST_REQUIRE(wallet.GetDatabase().MakeBatch()->Read(std::make_pair(DBKeys::WALLETDESCRIPTOR, internal->GetID()), persisted));
+    BOOST_CHECK(persisted.mweb_internal);
+    BOOST_CHECK_EQUAL(persisted.next_index, 4);
+}
+
+// Staging and rewinding fresh descriptor change preserve its real index and allow both raw and PSBT signing.
+BOOST_AUTO_TEST_CASE(DescriptorChangePreservesIndexWhenStagedAndRewound)
+{
+    KeypoolArgGuard keypool_size(4);
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    LOCK(wallet.cs_wallet);
+    wallet.LoadMinVersion(FEATURE_MWEB);
+    wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+    wallet.SetupDescriptorScriptPubKeyMans();
+    ReserveDestination reservation(&wallet, OutputType::MWEB);
+    const auto destination = reservation.GetReservedDestination(true);
+    BOOST_REQUIRE(destination);
+    const auto address = std::get<StealthAddress>(*destination);
+    reservation.KeepDestination();
+
+    const auto sender = Keychain(wallet);
+    const auto sender_key = GenerateSenderKey(wallet);
+    BOOST_REQUIRE(sender_key);
+    mw::WalletCoin staged;
+    BlindingFactor blind;
+    const auto output = mw::Output::Create(&blind, *sender_key, sender->GetRewindKey(), address, 100'000, {});
+    staged.output_id = output.GetOutputID();
+    staged.amount = 100'000;
+    staged.blind = blind;
+    staged.sender_key = *sender_key;
+    wallet.GetMWWallet()->StageWalletCoins({{staged.output_id, staged}});
+    wallet.GetMWWallet()->StageOutputAddresses({{staged.output_id, address}});
+    BOOST_REQUIRE(wallet.GetMWWallet()->SaveStagedCoinsToWallet({staged.output_id}));
+    auto coin = GetCoin(wallet, staged.output_id);
+    BOOST_CHECK_EQUAL(coin.address_index, 2U);
+    BOOST_CHECK(wallet.GetMWWallet()->IsChange(coin));
+    CheckCoinSigning(wallet, output);
+
+    // Drop recipient metadata to force recovery from the shared scan key and the internal spend branch.
+    wallet.GetMWWallet()->LoadToWallet(staged);
+    BOOST_REQUIRE(Rewind(wallet, output));
+    BOOST_CHECK(GetCoin(wallet, staged.output_id) == coin);
+    BOOST_CHECK(ReadPersistedCoin(wallet, staged.output_id) == coin);
+    CheckCoinSigning(wallet, output);
+}
+
+// Importing internal subaddresses into a blank wallet enables scanning and preserves the index needed to spend change.
+BOOST_AUTO_TEST_CASE(ImportedInternalSubaddressesRemainSpendableChange)
+{
+    const auto keys = test::MWEBTestKeys::Create();
+    const auto address = keys.Address(7);
+    const auto direct = strprintf("mweb(%s,%s)", EncodeSecret(test::MWEBTestKeys::ToCKey(keys.scan_secret)),
+                                 EncodeSecret(test::MWEBTestKeys::ToCKey(keys.SubaddressSpendSecret(7))));
+    for (const auto& descriptor : {keys.Descriptor(7), direct}) {
+        CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+        BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+        LOCK(wallet.cs_wallet);
+        wallet.LoadMinVersion(FEATURE_MWEB);
+        wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS | WALLET_FLAG_BLANK_WALLET);
+        FlatSigningProvider provider;
+        std::string error;
+        auto parsed = Parse(descriptor, provider, error, false);
+        BOOST_REQUIRE_MESSAGE(parsed, error);
+        WalletDescriptor wallet_descriptor(std::move(parsed), 0, 0, 1, 0);
+        auto* manager = wallet.AddWalletDescriptor(wallet_descriptor, provider, "", true);
+        BOOST_REQUIRE(manager);
+        BOOST_CHECK(wallet.IsWalletFlagSet(WALLET_FLAG_BLANK_WALLET));
+        BOOST_CHECK(wallet.IsInternalScriptPubKeyMan(manager) == true);
+        const auto output = mw::Output::Create(nullptr, SecretKey::Random(), SecretKey::Random(), address, 100'000, {});
+        BOOST_REQUIRE(Rewind(wallet, output));
+        const auto coin = GetCoin(wallet, output.GetOutputID());
+        BOOST_CHECK_EQUAL(coin.address_index, descriptor == direct ? mw::CUSTOM_KEY : 7U);
+        BOOST_CHECK(wallet.GetMWWallet()->IsChange(coin));
+        CheckCoinSigning(wallet, output);
+    }
+}
+
 // A new legacy MWEB keychain caches its master material and reserves indices 0 and 1 before handing out receive addresses.
 BOOST_AUTO_TEST_CASE(LegacyKeychainReservesChangeAndPeginAddresses)
 {
@@ -542,6 +663,7 @@ BOOST_AUTO_TEST_CASE(InactiveDescriptorKeychainRemainsDiscoverable)
     static constexpr uint64_t SENDER_INDEX{4};
     static constexpr CAmount RECEIVED_AMOUNT{4'000'000};
     static constexpr CAmount SENT_AMOUNT{5'000'000};
+    const KeypoolArgGuard keypool_size{SENDER_INDEX + 1};
     CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
     BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
     {
@@ -628,6 +750,112 @@ BOOST_AUTO_TEST_CASE(SharedScanDescriptorsSignTheirOwnOutputs)
 
     CheckDescriptorSigning(wallet, first.Address(7));
     CheckDescriptorSigning(wallet, second.Address(7));
+}
+
+// Shared scanning finds receive, change, and inactive branches without claiming unknown addresses or hiding later imports.
+BOOST_AUTO_TEST_CASE(SharedScanRewindPreservesDescriptorOwnership)
+{
+    const KeypoolArgGuard keypool_size{3};
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    LOCK(wallet.cs_wallet);
+    wallet.LoadMinVersion(FEATURE_MWEB);
+    wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+    wallet.SetupDescriptorScriptPubKeyMans();
+
+    const auto receive = Keychain(wallet);
+    auto* internal = wallet.GetScriptPubKeyMan(OutputType::MWEB, true);
+    BOOST_REQUIRE(internal);
+    const auto change = internal->GetMWEBKeychain();
+    BOOST_REQUIRE(change);
+    const test::MWEBTestKeys inactive_keys{receive->GetScanSecret(), test::TestSecret('2')};
+    const auto inactive = ImportMWEBDescriptor(wallet, inactive_keys.Descriptor(7));
+    const auto separate_keys = test::MWEBTestKeys::Create('3', '4');
+    const auto separate = ImportMWEBDescriptor(wallet, separate_keys.Descriptor(7));
+    BOOST_CHECK(receive->GetScanKeyID() == change->GetScanKeyID());
+    BOOST_CHECK(receive->GetScanKeyID() == inactive->GetScanKeyID());
+    BOOST_CHECK(receive->GetScanKeyID() != separate->GetScanKeyID());
+
+    // Deactivated change must remain discoverable alongside the active receive branch.
+    wallet.DeactivateScriptPubKeyMan(internal->GetID(), OutputType::MWEB, true);
+    for (const auto& keychain : {receive, change, inactive, separate}) {
+        const uint32_t index = keychain == receive || keychain == change ? 2 : 7;
+        const auto address = keychain->DeriveAddress(index);
+        const auto output = mw::Output::Create(nullptr, SecretKey::Random(), SecretKey::Random(), address, 100'000, {});
+        BOOST_REQUIRE(Rewind(wallet, output));
+        const auto coin = GetCoin(wallet, output.GetOutputID());
+        BOOST_REQUIRE(coin.address);
+        BOOST_CHECK(*coin.address == address);
+        BOOST_CHECK_EQUAL(coin.address_index, index);
+        BOOST_CHECK(coin.master_scan_key_id == keychain->GetScanKeyID());
+        BOOST_CHECK_EQUAL(wallet.GetMWWallet()->IsChange(coin), keychain == change);
+        CheckCoinSigning(wallet, output);
+    }
+
+    const test::MWEBTestKeys unimported_keys{receive->GetScanSecret(), test::TestSecret('5')};
+    const auto unimported = mw::Output::Create(nullptr, SecretKey::Random(), SecretKey::Random(), unimported_keys.Address(7), 100'000, {});
+    const auto outside_range = mw::Output::Create(nullptr, SecretKey::Random(), SecretKey::Random(), inactive_keys.Address(8), 100'000, {});
+    for (const auto& output : {unimported, outside_range}) {
+        BOOST_REQUIRE(receive->ScanOutput(output));
+        BOOST_CHECK(!Rewind(wallet, output));
+        mw::WalletCoin coin;
+        BOOST_CHECK(!wallet.GetMWEBWalletCoin(output.GetOutputID(), coin));
+    }
+
+    ImportMWEBDescriptor(wallet, unimported_keys.Descriptor(7));
+    BOOST_REQUIRE(Rewind(wallet, unimported));
+    CheckCoinSigning(wallet, unimported);
+}
+
+// Shared sender discovery advances one counter and continues across keychain reloads and change-descriptor deactivation.
+BOOST_AUTO_TEST_CASE(SharedScanSenderLookaheadSurvivesKeychainReload)
+{
+    const KeypoolArgGuard keypool_size{3};
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateMockWalletDatabase());
+    BOOST_REQUIRE(wallet.LoadWallet() == DBErrors::LOAD_OK);
+    LOCK(wallet.cs_wallet);
+    wallet.LoadMinVersion(FEATURE_MWEB);
+    wallet.SetWalletFlag(WALLET_FLAG_DESCRIPTORS);
+    wallet.SetupDescriptorScriptPubKeyMans();
+
+    auto* external = wallet.GetScriptPubKeyMan(OutputType::MWEB, false);
+    auto* internal = wallet.GetScriptPubKeyMan(OutputType::MWEB, true);
+    BOOST_REQUIRE(external);
+    BOOST_REQUIRE(internal);
+    const auto receive = external->GetMWEBKeychain();
+    const auto change = internal->GetMWEBKeychain();
+    BOOST_REQUIRE(receive);
+    BOOST_REQUIRE(change);
+    const CKeyID scan_id = receive->GetScanKeyID();
+    BOOST_CHECK(scan_id == change->GetScanKeyID());
+    const auto boundary = SentOutput(receive, 2, 100'000);
+    const auto beyond = SentOutput(change, 3, 200'000);
+
+    BOOST_CHECK(!Rewind(wallet, beyond));
+    mw::WalletCoin unknown;
+    BOOST_CHECK(!wallet.GetMWEBWalletCoin(beyond.GetOutputID(), unknown));
+    BOOST_CHECK(!Rewind(wallet, boundary));
+    BOOST_CHECK_EQUAL(GetCoin(wallet, boundary.GetOutputID()).amount, 100'000);
+    BOOST_CHECK_EQUAL(ReadSenderIndex(wallet, scan_id), 3U);
+
+    external->LoadMWEBKeychain();
+    internal->LoadMWEBKeychain();
+    BOOST_CHECK(external->GetMWEBKeychain() != receive);
+    BOOST_CHECK(internal->GetMWEBKeychain() != change);
+    wallet.DeactivateScriptPubKeyMan(internal->GetID(), OutputType::MWEB, true);
+
+    BOOST_CHECK(!Rewind(wallet, beyond));
+    const auto coin = GetCoin(wallet, beyond.GetOutputID());
+    BOOST_CHECK_EQUAL(coin.amount, 200'000);
+    BOOST_CHECK(coin.sender_key == change->GetSenderSigningKey(3));
+    BOOST_CHECK(coin.master_scan_key_id == scan_id);
+    BOOST_CHECK_EQUAL(ReadSenderIndex(wallet, scan_id), 4U);
+    BOOST_CHECK(!Rewind(wallet, boundary));
+    BOOST_CHECK_EQUAL(ReadSenderIndex(wallet, scan_id), 4U);
+    const auto next = GenerateSenderKey(wallet);
+    BOOST_REQUIRE(next);
+    BOOST_CHECK(*next == change->GetSenderSigningKey(4));
+    BOOST_CHECK_EQUAL(ReadSenderIndex(wallet, scan_id), 5U);
 }
 
 // A watch-only manager must not mask a signing manager for the same address, including direct-subaddress imports without master spend keys.

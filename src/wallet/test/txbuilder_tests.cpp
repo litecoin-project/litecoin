@@ -135,7 +135,7 @@ public:
             coins_by_type.erase(
                 std::remove_if(
                     coins_by_type.begin(), coins_by_type.end(),
-                    [](const AnyWalletUTXO& coin) { return coin.GetMWEB().coin.IsChange(); }
+                    [this](const AnyWalletUTXO& coin) { return MWEBWallet().IsChange(coin.GetMWEB().coin); }
                 ),
                 coins_by_type.end()
             );
@@ -159,16 +159,6 @@ public:
     {
         auto dest = m_wallet.GetNewDestination(type, "");
         BOOST_REQUIRE(dest);
-        if (type == OutputType::MWEB) {
-            // Coin::IsChange still treats address_index 0 as change, so don't
-            // hand that descriptor address out as a test recipient.
-            const mw::Keychain::Ptr keychain = ActiveMWEBKeychain();
-            while (std::holds_alternative<StealthAddress>(*dest) &&
-                   keychain->LookupAddressIndex(std::get<StealthAddress>(*dest)) == mw::CHANGE_INDEX) {
-                dest = m_wallet.GetNewDestination(type, "");
-                BOOST_REQUIRE(dest);
-            }
-        }
         return *dest;
     }
 
@@ -291,7 +281,7 @@ BOOST_AUTO_TEST_CASE(SingleMWEBRecipientFromLTCBuildsPegin)
     BOOST_REQUIRE(tx.mweb_tx.outputs[1].amount.has_value());
     const auto change_output_id = tx.mweb_tx.outputs[1].CalcOutputID();
     BOOST_REQUIRE(change_output_id.has_value());
-    BOOST_CHECK(GetMWEBWalletCoin(*change_output_id).IsChange());
+    BOOST_CHECK(MWEBWallet().IsChange(GetMWEBWalletCoin(*change_output_id)));
     BOOST_REQUIRE(!tx.mweb_tx.kernels.empty());
     const CAmount mweb_fee = tx.mweb_tx.kernels.front().fee.value_or(0);
     BOOST_CHECK_EQUAL(
@@ -327,7 +317,7 @@ BOOST_AUTO_TEST_CASE(SingleMWEBRecipientFromMWEBBuildsMWEBTransaction)
     BOOST_REQUIRE(tx.mweb_tx.outputs[1].amount.has_value());
     const auto change_output_id = tx.mweb_tx.outputs[1].CalcOutputID();
     BOOST_REQUIRE(change_output_id.has_value());
-    BOOST_CHECK(GetMWEBWalletCoin(*change_output_id).IsChange());
+    BOOST_CHECK(MWEBWallet().IsChange(GetMWEBWalletCoin(*change_output_id)));
     BOOST_REQUIRE(!tx.mweb_tx.kernels.empty());
     const CAmount mweb_fee = tx.mweb_tx.kernels.front().fee.value_or(0);
     BOOST_CHECK_EQUAL(
@@ -361,7 +351,7 @@ BOOST_AUTO_TEST_CASE(SingleLTCRecipientFromMWEBBuildsPegout)
     BOOST_REQUIRE(tx.mweb_tx.outputs[0].amount.has_value());
     const auto change_output_id = tx.mweb_tx.outputs[0].CalcOutputID();
     BOOST_REQUIRE(change_output_id.has_value());
-    BOOST_CHECK(GetMWEBWalletCoin(*change_output_id).IsChange());
+    BOOST_CHECK(MWEBWallet().IsChange(GetMWEBWalletCoin(*change_output_id)));
 
     const auto pegouts = tx.mweb_tx.GetPegOutCoins();
     BOOST_REQUIRE_EQUAL(pegouts.size(), 1U);
@@ -408,7 +398,7 @@ BOOST_AUTO_TEST_CASE(SingleLTCRecipientFromLTCAndMWEBBuildsPeginPegout)
     BOOST_REQUIRE(tx.mweb_tx.outputs[0].amount.has_value());
     const auto change_output_id = tx.mweb_tx.outputs[0].CalcOutputID();
     BOOST_REQUIRE(change_output_id.has_value());
-    BOOST_CHECK(GetMWEBWalletCoin(*change_output_id).IsChange());
+    BOOST_CHECK(MWEBWallet().IsChange(GetMWEBWalletCoin(*change_output_id)));
     BOOST_REQUIRE(!tx.mweb_tx.kernels.empty());
     const CAmount mweb_fee = tx.mweb_tx.kernels.front().fee.value_or(0);
     BOOST_CHECK_EQUAL(
@@ -479,7 +469,7 @@ BOOST_AUTO_TEST_CASE(MultipleMWEBRecipientsFromLTCBuildPegin)
     BOOST_REQUIRE(tx.mweb_tx.outputs[2].amount.has_value());
     const auto change_output_id = tx.mweb_tx.outputs[2].CalcOutputID();
     BOOST_REQUIRE(change_output_id.has_value());
-    BOOST_CHECK(GetMWEBWalletCoin(*change_output_id).IsChange());
+    BOOST_CHECK(MWEBWallet().IsChange(GetMWEBWalletCoin(*change_output_id)));
     BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == recipient1);
     BOOST_CHECK_EQUAL(*tx.mweb_tx.outputs[0].amount, 2 * COIN);
     BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[1].address) == recipient2);
@@ -523,7 +513,7 @@ BOOST_AUTO_TEST_CASE(MultipleMWEBRecipientsFromMWEBBuildMWEBTransaction)
     BOOST_REQUIRE(tx.mweb_tx.outputs[2].amount.has_value());
     const auto change_output_id = tx.mweb_tx.outputs[2].CalcOutputID();
     BOOST_REQUIRE(change_output_id.has_value());
-    BOOST_CHECK(GetMWEBWalletCoin(*change_output_id).IsChange());
+    BOOST_CHECK(MWEBWallet().IsChange(GetMWEBWalletCoin(*change_output_id)));
     BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[0].address) == recipient1);
     BOOST_CHECK_EQUAL(*tx.mweb_tx.outputs[0].amount, 1 * COIN);
     BOOST_CHECK(GenericAddress(*tx.mweb_tx.outputs[1].address) == recipient2);
@@ -565,7 +555,7 @@ BOOST_AUTO_TEST_CASE(MultipleLTCRecipientsFromMWEBBuildPegout)
     BOOST_REQUIRE(tx.mweb_tx.outputs[0].amount.has_value());
     const auto change_output_id = tx.mweb_tx.outputs[0].CalcOutputID();
     BOOST_REQUIRE(change_output_id.has_value());
-    BOOST_CHECK(GetMWEBWalletCoin(*change_output_id).IsChange());
+    BOOST_CHECK(MWEBWallet().IsChange(GetMWEBWalletCoin(*change_output_id)));
 
     const auto pegouts = tx.mweb_tx.GetPegOutCoins();
     BOOST_REQUIRE_EQUAL(pegouts.size(), 2U);
@@ -620,7 +610,7 @@ BOOST_AUTO_TEST_CASE(MultipleLTCRecipientsFromLTCAndMWEBBuildPeginPegout)
     BOOST_REQUIRE(tx.mweb_tx.outputs[0].amount.has_value());
     const auto change_output_id = tx.mweb_tx.outputs[0].CalcOutputID();
     BOOST_REQUIRE(change_output_id.has_value());
-    BOOST_CHECK(GetMWEBWalletCoin(*change_output_id).IsChange());
+    BOOST_CHECK(MWEBWallet().IsChange(GetMWEBWalletCoin(*change_output_id)));
     BOOST_REQUIRE(!tx.mweb_tx.kernels.empty());
     const CAmount mweb_fee = tx.mweb_tx.kernels.front().fee.value_or(0);
     BOOST_CHECK_EQUAL(
@@ -1896,6 +1886,61 @@ BOOST_AUTO_TEST_CASE(PSBTPureMWEBSpendFillSignFinalize)
     BOOST_REQUIRE(final_tx);
     BOOST_CHECK(final_tx->mweb_tx.IsFinal());
     BOOST_CHECK(CTransaction(*final_tx).IsMWEBOnly());
+}
+
+// Failed builds and exact spends return reserved MWEB change addresses; successful change consumes one address.
+BOOST_AUTO_TEST_CASE(MWEBChangeReservationsFollowBuildOutcome)
+{
+    LOCK(m_wallet.cs_wallet);
+    auto* internal = dynamic_cast<DescriptorScriptPubKeyMan*>(m_wallet.GetScriptPubKeyMan(OutputType::MWEB, true));
+    BOOST_REQUIRE(internal);
+    ReserveDestination reservation(&m_wallet, OutputType::MWEB);
+    BOOST_REQUIRE(reservation.GetReservedDestination(true));
+    reservation.ReturnDestination();
+    const int32_t initial_index = WITH_LOCK(internal->cs_desc_man, return internal->GetWalletDescriptor().next_index);
+
+    const auto source = SmallestCoin(AvailableLTCCoins());
+    const auto recipient = StealthAddress::Random();
+    CCoinControl control;
+    control.Select(source.GetID());
+    control.m_allow_other_inputs = false;
+    control.m_change_type = OutputType::MWEB;
+    auto exact = TxBuilder::New(m_wallet, control, {{recipient, source.GetValue(), true}}, std::nullopt)->Build(std::nullopt, std::nullopt, false);
+    BOOST_REQUIRE(exact);
+    BOOST_CHECK(exact->change_pos.IsNull());
+    BOOST_CHECK_EQUAL(WITH_LOCK(internal->cs_desc_man, return internal->GetWalletDescriptor().next_index), initial_index);
+
+    const CAmount max_fee = m_wallet.m_default_max_tx_fee;
+    m_wallet.m_default_max_tx_fee = 0;
+    auto failed = TxBuilder::New(m_wallet, control, {{recipient, COIN, false}}, std::nullopt)->Build(std::nullopt, std::nullopt, false);
+    m_wallet.m_default_max_tx_fee = max_fee;
+    BOOST_CHECK(!failed);
+    BOOST_CHECK_EQUAL(WITH_LOCK(internal->cs_desc_man, return internal->GetWalletDescriptor().next_index), initial_index);
+
+    auto successful = TxBuilder::New(m_wallet, control, {{recipient, COIN, false}}, std::nullopt)->Build(std::nullopt, std::nullopt, false);
+    BOOST_REQUIRE(successful);
+    BOOST_CHECK(successful->change_pos.IsMWEB());
+    BOOST_CHECK_EQUAL(WITH_LOCK(internal->cs_desc_man, return internal->GetWalletDescriptor().next_index), initial_index + 1);
+}
+
+// A wallet without an internal MWEB descriptor can make exact spends or use explicit change, but cannot invent automatic change.
+BOOST_AUTO_TEST_CASE(MWEBChangeRequiresInternalDescriptorOnlyWhenNeeded)
+{
+    LOCK(m_wallet.cs_wallet);
+    const auto source = SmallestCoin(AvailableLTCCoins());
+    const auto recipient = StealthAddress::Random();
+    auto* internal = m_wallet.GetScriptPubKeyMan(OutputType::MWEB, true);
+    BOOST_REQUIRE(internal);
+    m_wallet.DeactivateScriptPubKeyMan(internal->GetID(), OutputType::MWEB, true);
+
+    auto exact = BuildTx({{recipient, source.GetValue(), true}}, {source}, std::nullopt, false);
+    BOOST_REQUIRE(exact);
+    BOOST_CHECK(exact->change_pos.IsNull());
+    auto automatic = BuildTx({{recipient, COIN, false}}, {source}, std::nullopt, false);
+    BOOST_CHECK(!automatic);
+    auto custom = BuildTx({{recipient, COIN, false}}, {source}, NewDestination(OutputType::MWEB), false);
+    BOOST_REQUIRE(custom);
+    BOOST_CHECK(custom->change_pos.IsMWEB());
 }
 
 BOOST_AUTO_TEST_SUITE_END()

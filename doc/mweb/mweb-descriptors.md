@@ -174,3 +174,26 @@ Type constraints:
 | `mweb(master_scan_sk,master_spend_pk,i)` | ❌ | ✅ | ❌ | Single view‑only |
 | `mweb(master_scan_sk,subaddr_spend_sk)` | ❌ | ✅ | ✅ | Single subaddress |
 | `mweb(master_scan_sk,subaddr_spend_pk)` | ❌ | ✅ | ❌ | Single view‑only |
+
+## 10. Wallet change management
+
+New descriptor wallets create separate active receive and change descriptors.
+Both use the scan key at `m/0'/100'/0'`. The receive master spend key remains at
+`m/0'/100'/1'`, and the change master spend key is at `m/0'/100'/2'`. Each descriptor
+has its own subaddress counter; indices 0 and 1 remain reserved.
+
+Output scanning is shared by descriptors with the same scan key, while ownership
+is checked against every descriptor, including inactive ones. Sender-key lookahead
+and counters are also shared by scan key, independently of the address counters.
+
+Automatic MWEB change uses a fresh address from the internal descriptor. Its
+actual subaddress index is retained for signing. The wallet stores the descriptor's
+`internal` role independently of whether it is active, so old change remains
+recognizable after replacement, reload, or rescan. `listdescriptors` includes
+`internal` for inactive MWEB descriptors too; preserve it when importing descriptors
+into another wallet. Both receive and change descriptors are needed for recovery.
+
+Legacy wallets continue using their fixed index-0 change address. Migrated
+descriptors also recognize historical change at that address. An explicit change
+destination bypasses automatic address reservation and retains its own address
+classification.

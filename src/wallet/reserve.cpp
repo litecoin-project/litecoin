@@ -6,9 +6,8 @@ using namespace wallet;
 
 util::Result<CTxDestination> ReserveDestination::GetReservedDestination(bool internal)
 {
-    // MWEB uses one address chain for both receive and change destinations.
-    // Descriptor wallets therefore have no separate internal MWEB manager.
-    const bool use_internal = internal && type != OutputType::MWEB;
+    // Legacy MWEB wallets share one keypool for receive and change addresses.
+    const bool use_internal = internal && (type != OutputType::MWEB || pwallet->IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS));
 
     m_spk_man = pwallet->GetScriptPubKeyMan(type, use_internal);
     if (!m_spk_man) {

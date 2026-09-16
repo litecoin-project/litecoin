@@ -28,7 +28,7 @@ void SetRecipientScanKeyId(mw::WalletCoin& coin, const std::vector<mw::Keychain:
             continue;
         }
 
-        coin.master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
+        coin.master_scan_key_id = keychain->GetScanKeyID();
         return;
     }
 }
@@ -127,7 +127,9 @@ bool Wallet::RewindOutput(const mw::Output& output)
         }
     }
 
-    ClassifyOutput(output, sent_by_me && needs_recipient_rewind, coin);
+    if (sent_by_me && needs_recipient_rewind && !coin.IsMine()) {
+        RecoverOwnedOutputFromSenderData(output, coin);
+    }
 
     if (!coin.IsMine() && !sent_by_me && !received_by_me) {
         return false;
@@ -162,15 +164,30 @@ bool Wallet::SaveCoin(const mw::WalletCoin& wallet_coin)
 
 bool Wallet::IsChange(const StealthAddress& address) const
 {
-    for (const auto& keychain : GetAllKeychains()) {
-        if (keychain && keychain->HasSpendPubKey()) {
-            StealthAddress change_addr = keychain->DeriveAddress(mw::CHANGE_INDEX);
-            if (change_addr == address) {
+    for (const auto* spk_man : m_pWallet->GetAllScriptPubKeyMans()) {
+        const auto* desc_spk_man = dynamic_cast<const wallet::DescriptorScriptPubKeyMan*>(spk_man);
+        if (desc_spk_man && desc_spk_man->IsMWEBInternal()) {
+            if (desc_spk_man->IsMine(GenericAddress{address})) {
+                return true;
+            }
+        } else {
+            // Legacy wallets and their migrated descriptors retain the fixed change address.
+            const auto& keychain = spk_man->GetMWEBKeychain();
+            if (keychain && keychain->HasSpendPubKey() && keychain->DeriveAddress(mw::CHANGE_INDEX) == address) {
                 return true;
             }
         }
     }
     return false;
+}
+
+bool Wallet::IsChange(const mw::WalletCoin& coin) const
+{
+    StealthAddress address;
+    if (GetStealthAddress(coin, address)) {
+        return IsChange(address);
+    }
+    return coin.address_index == mw::CHANGE_INDEX;
 }
 
 bool Wallet::GetStealthAddress(const mw::WalletCoin& coin, StealthAddress& address) const
@@ -232,7 +249,7 @@ bool Wallet::SetActiveMasterScanKeyId(mw::WalletCoin& coin) const
         return false;
     }
 
-    coin.master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
+    coin.master_scan_key_id = keychain->GetScanKeyID();
     return true;
 }
 
@@ -269,18 +286,12 @@ void Wallet::StageOutputAddresses(const std::map<mw::Hash, StealthAddress>& addr
         if (staged_coin != m_staged_coins.end()) {
             mw::WalletCoin& coin = staged_coin->second;
             coin.address = address;
-            if (IsChange(address)) {
-                coin.address_index = mw::CHANGE_INDEX;
-            } else if (coin.address_index == mw::UNKNOWN_INDEX && m_pWallet->IsMine(GenericAddress{address}) != wallet::ISMINE_NO) {
+            if (coin.address_index == mw::UNKNOWN_INDEX && m_pWallet->IsMine(GenericAddress{address}) != wallet::ISMINE_NO) {
                 for (const mw::Keychain::Ptr& keychain : GetAllKeychains()) {
-                    if (!keychain || !keychain->HasSpendPubKey()) {
-                        continue;
-                    }
-
                     std::optional<uint32_t> address_index = keychain->LookupAddressIndex(address);
                     if (address_index.has_value()) {
                         coin.address_index = *address_index;
-                        coin.master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
+                        coin.master_scan_key_id = keychain->GetScanKeyID();
                         break;
                     }
                 }
@@ -351,7 +362,7 @@ std::vector<mw::Keychain::Ptr> Wallet::GetKeychains(const CKeyID& master_scan_ke
 {
     std::vector<mw::Keychain::Ptr> keychains;
     for (const auto& keychain : GetAllKeychains()) {
-        if (PublicKey::From(keychain->GetScanSecret()).GetID() == master_scan_keyid) {
+        if (keychain->GetScanKeyID() == master_scan_keyid) {
             keychains.push_back(keychain);
         }
     }
@@ -377,7 +388,7 @@ util::Result<SecretKey> Wallet::GenerateSenderKey()
         return SecretKey::Random();
     }
 
-    const CKeyID master_scan_keyid = PublicKey::From(keychain->GetScanSecret()).GetID();
+    const CKeyID& master_scan_keyid = keychain->GetScanKeyID();
     uint64_t& next_index = m_next_sender_key_indices[master_scan_keyid];
     if (next_index == std::numeric_limits<uint64_t>::max()) {
         return util::Error{Untranslated("MWEB sender key index exhausted")};
@@ -408,21 +419,28 @@ std::optional<Wallet::SenderKeyMatch> Wallet::FindSenderKey(const PublicKey& sen
     const int64_t configured_keypool = gArgs.GetIntArg("-keypool", wallet::DEFAULT_KEYPOOL_SIZE);
     const uint64_t target_size = configured_keypool > 0 ? static_cast<uint64_t>(configured_keypool) : 1;
 
+    std::set<CKeyID> scanned;
     for (const mw::Keychain::Ptr& keychain : GetAllKeychains()) {
-        const CKeyID master_scan_keyid = PublicKey::From(keychain->GetScanSecret()).GetID();
+        const CKeyID& master_scan_keyid = keychain->GetScanKeyID();
+        if (!scanned.insert(master_scan_keyid).second) {
+            continue;
+        }
         const uint64_t next_index = m_next_sender_key_indices[master_scan_keyid];
         const uint64_t range_end = next_index > std::numeric_limits<uint64_t>::max() - target_size
             ? std::numeric_limits<uint64_t>::max()
             : next_index + target_size;
-        keychain->TopUpSenderPubKeys(range_end);
+        auto& cache = m_sender_key_caches[master_scan_keyid];
+        for (; cache.range_end < range_end; ++cache.range_end) {
+            cache.pubkeys.emplace(PublicKey::From(keychain->GetSenderSigningKey(cache.range_end)), cache.range_end);
+        }
 
-        const std::optional<uint64_t> index = keychain->LookupSenderPubKeyIndex(sender_pubkey);
-        if (index.has_value()) {
+        const auto sender = cache.pubkeys.find(sender_pubkey);
+        if (sender != cache.pubkeys.end()) {
             return SenderKeyMatch{
                 keychain,
                 master_scan_keyid,
-                *index,
-                keychain->GetSenderSigningKey(*index)
+                sender->second,
+                keychain->GetSenderSigningKey(sender->second)
             };
         }
     }
@@ -467,9 +485,21 @@ bool Wallet::NeedsRecipientRewind(const mw::WalletCoin& coin, bool sent_by_me) c
 
 bool Wallet::RewindOutputReceivedByMe(const mw::Output& output, mw::WalletCoin& coin) const
 {
+    std::map<CKeyID, std::optional<mw::WalletCoin>> scanned;
     for (const mw::Keychain::Ptr& keychain : GetAllKeychains()) {
-        coin.Reset();
-        if (keychain->RewindOutput(output, coin)) {
+        auto [it, inserted] = scanned.try_emplace(keychain->GetScanKeyID());
+        if (inserted) {
+            it->second = keychain->ScanOutput(output);
+        }
+        const auto& candidate = it->second;
+        if (!candidate) {
+            continue;
+        }
+
+        const auto address_index = keychain->LookupAddressIndex(*candidate->address);
+        if (address_index) {
+            coin = *candidate;
+            coin.address_index = *address_index;
             return true;
         }
     }
@@ -521,17 +551,6 @@ bool Wallet::RewindOutputSentByMe(const mw::Output& output, mw::WalletCoin& coin
     return true;
 }
 
-void Wallet::ClassifyOutput(const mw::Output& output, bool recover_from_sender_data, mw::WalletCoin& coin) const
-{
-    if (recover_from_sender_data && !coin.IsMine()) {
-        RecoverOwnedOutputFromSenderData(output, coin);
-    }
-
-    if (coin.HasAddress() && IsChange(*coin.address)) {
-        coin.address_index = mw::CHANGE_INDEX;
-    }
-}
-
 bool Wallet::RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::WalletCoin& coin) const
 {
     if (!coin.HasSharedSecret()) {
@@ -557,7 +576,7 @@ bool Wallet::RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::Wall
         coin.output_id = output.GetOutputID();
         coin.address = address;
         coin.address_index = *address_index;
-        coin.master_scan_key_id = PublicKey::From(keychain->GetScanSecret()).GetID();
+        coin.master_scan_key_id = keychain->GetScanKeyID();
         return true;
     }
 

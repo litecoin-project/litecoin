@@ -13,7 +13,7 @@
 MW_NAMESPACE
 
 /// <summary>
-/// Change outputs will use the stealth address generated using index 0
+/// Legacy change outputs use the stealth address generated using index 0.
 /// </summary>
 static constexpr uint32_t CHANGE_INDEX{0};
 
@@ -75,7 +75,6 @@ struct WalletCoin : public Traits::ISerializable {
             std::tie(rhs.address_index, rhs.blind, rhs.amount, rhs.output_id, rhs.sender_key, rhs.address, rhs.shared_secret, rhs.master_scan_key_id);
     }
 
-    bool IsChange() const noexcept { return address_index == CHANGE_INDEX; }
     bool IsPegIn() const noexcept { return address_index == PEGIN_INDEX; }
     // A known address index means this is a wallet-owned output. Spend keys
     // are derived only while signing and are never retained by WalletCoin.

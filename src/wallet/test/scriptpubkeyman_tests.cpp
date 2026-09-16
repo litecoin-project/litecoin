@@ -3,12 +3,16 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <key.h>
+#include <key_io.h>
+#include <script/descriptor.h>
 #include <script/standard.h>
 #include <test/util/setup_common.h>
 #include <wallet/scriptpubkeyman.h>
 #include <wallet/wallet.h>
 
 #include <boost/test/unit_test.hpp>
+
+#include <array>
 
 namespace wallet {
 BOOST_FIXTURE_TEST_SUITE(scriptpubkeyman_tests, BasicTestingSetup)
@@ -37,6 +41,31 @@ BOOST_AUTO_TEST_CASE(CanProvide)
     BOOST_CHECK(!keyman.CanProvide(p2sh_script, data));
     keyman.AddCScript(multisig_script);
     BOOST_CHECK(keyman.CanProvide(p2sh_script, data));
+}
+
+// An exhausted descriptor must leave failed reservations unassigned so cleanup cannot return an already-issued address.
+BOOST_AUTO_TEST_CASE(FailedDescriptorReservationDoesNotReturnUsedAddress)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateDummyWalletDatabase());
+    CExtKey master;
+    master.SetSeed(std::array<std::byte, 32>{});
+    FlatSigningProvider provider;
+    std::string error;
+    auto descriptor = Parse("wpkh(" + EncodeExtPubKey(master.Neuter()) + "/*')", provider, error, false);
+    BOOST_REQUIRE_MESSAGE(descriptor, error);
+    WalletDescriptor wallet_descriptor(std::move(descriptor), 0, 0, 1, 1);
+    DescriptorScriptPubKeyMan keyman(wallet, wallet_descriptor);
+
+    int64_t index{-1};
+    CKeyPool keypool;
+    BOOST_CHECK(!keyman.GetReservedDestination(OutputType::BECH32, true, index, keypool));
+    BOOST_CHECK_EQUAL(index, -1);
+
+    // Apply the same cleanup as ReserveDestination's destructor.
+    if (index != -1) {
+        keyman.ReturnDestination(index, KeyPurpose::INTERNAL, CNoDestination{});
+    }
+    BOOST_CHECK_EQUAL(keyman.GetWalletDescriptor().next_index, 1);
 }
 
 BOOST_AUTO_TEST_SUITE_END()

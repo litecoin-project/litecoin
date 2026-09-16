@@ -30,6 +30,12 @@ class Wallet
         SecretKey sender_key;
     };
 
+    struct SenderKeyCache
+    {
+        std::map<PublicKey, uint64_t> pubkeys;
+        uint64_t range_end{0};
+    };
+
     wallet::CWallet* m_pWallet;
 
     // All state below is guarded by m_pWallet->cs_wallet, enforced by the
@@ -37,6 +43,8 @@ class Wallet
     std::map<mw::Hash, mw::WalletCoin> m_coins;
     std::map<mw::Hash, mw::WalletCoin> m_staged_coins;
     std::map<CKeyID, uint64_t> m_next_sender_key_indices;
+    // Descriptors sharing a scan key use the same sender keys and lookahead.
+    std::map<CKeyID, SenderKeyCache> m_sender_key_caches;
 
 public:
     Wallet(wallet::CWallet* pWallet)
@@ -44,6 +52,7 @@ public:
     ~Wallet();
 
     bool IsChange(const StealthAddress& address) const;
+    bool IsChange(const mw::WalletCoin& coin) const;
     bool GetWalletCoin(const mw::Hash& output_id, mw::WalletCoin& coin) const EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
 
     // Rewinds wallet transactions after MWEB keychains are loaded or refreshed.
@@ -90,8 +99,6 @@ private:
     bool NeedsRecipientRewind(const mw::WalletCoin& coin, bool sent_by_me) const EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
     bool RewindOutputReceivedByMe(const mw::Output& output, mw::WalletCoin& coin) const EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
     bool RewindOutputSentByMe(const mw::Output& output, mw::WalletCoin& coin) EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
-    void ClassifyOutput(const mw::Output& output, bool recover_from_sender_data, mw::WalletCoin& coin) const
-        EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
     bool RecoverOwnedOutputFromSenderData(const mw::Output& output, mw::WalletCoin& coin) const EXCLUSIVE_LOCKS_REQUIRED(m_pWallet->cs_wallet);
 };
 
