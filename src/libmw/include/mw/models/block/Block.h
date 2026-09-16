@@ -74,6 +74,7 @@ public:
     // Context-free validation of the block.
     // Returns std::nullopt when valid, or the specific consensus error.
     //
+    bool HasValidKernelMMR() const;
     [[nodiscard]] std::optional<EConsensusError> Validate() const noexcept;
 
 private:

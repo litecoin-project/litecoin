@@ -1744,7 +1744,10 @@ bool PeerManagerImpl::MaybePunishNodeForBlock(NodeId nodeid, const BlockValidati
     case BlockValidationResult::BLOCK_MUTATED:
         // Compact-block relays may not have checked the full body, but MWEB
         // data is not committed by the header and can otherwise be replayed.
-        if (!via_compact_block || state.GetRejectReason() == "bad-blk-mweb") {
+        if (!via_compact_block ||
+            state.GetRejectReason() == "bad-blk-mweb" ||
+            state.GetRejectReason() == "bad-mweb-empty-pegout" ||
+            state.GetRejectReason() == "bad-mweb-empty-extradata") {
             if (peer) Misbehaving(*peer, 100, message);
             return true;
         }

@@ -7,9 +7,11 @@
 #include <consensus/validation.h>
 #include <dbwrapper.h>
 #include <mweb/mweb_node.h>
+#include <mw/crypto/Blinds.h>
 #include <mw/crypto/KeyDerivation.h>
 #include <mw/crypto/PublicKeys.h>
 #include <mw/crypto/SecretKeys.h>
+#include <mw/mmr/MMR.h>
 #include <mw/models/block/Block.h>
 #include <mw/models/block/Header.h>
 #include <mw/models/tx/MutableTx.h>
@@ -481,32 +483,92 @@ BOOST_AUTO_TEST_CASE(WrongExtensionBlockHeightIsConsensusInvalid)
     ExpectContextualReject(block, BlockValidationResult::BLOCK_CONSENSUS, "mweb-height-mismatch");
 }
 
-// With the pegout feature rule active, signaling pegouts without supplying any causes a consensus rejection.
-BOOST_AUTO_TEST_CASE(EmptyPegoutFeatureIsConsensusInvalid)
+// Empty pegout features are mutated data, whether or not their kernel root matches the header.
+BOOST_AUTO_TEST_CASE(EmptyPegoutFeatureIsMutated)
 {
-    const test::Tx transaction = test::Tx::CreatePegIn(PEGIN_AMOUNT);
-    CBlock block = BuildBlock({transaction});
+    CBlock valid = BuildBlock({test::Tx::CreatePegIn(PEGIN_AMOUNT)});
+    valid.hashMerkleRoot = BlockMerkleRoot(valid);
+    CBlock block = valid;
     const mw::Kernel kernel = AddEmptyFeature(
-        block.mweb_block.m_block->GetKernels().front(),
-        mw::Kernel::PEGOUT_FEATURE_BIT);
-    block.mweb_block = MWEB::Block{
-        mw::MutBlock{block.mweb_block.m_block}.SetKernels({kernel}).Build()};
+        block.mweb_block.m_block->GetKernels().front(), mw::Kernel::PEGOUT_FEATURE_BIT);
+    block.mweb_block = MWEB::Block{mw::MutBlock{block.mweb_block.m_block}.SetKernels({kernel}).Build()};
+    BOOST_REQUIRE(block.GetHash() == valid.GetHash());
+    ExpectContextualReject(block, BlockValidationResult::BLOCK_MUTATED, "bad-blk-mweb");
 
-    ExpectContextualReject(block, BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-pegout");
+    MemMMR kernel_mmr;
+    kernel_mmr.Add(kernel);
+    block.mweb_block = MWEB::Block{std::make_shared<mw::Block>(
+        mw::MutHeader{block.mweb_block.GetMWEBHeader()}.SetKernelRoot(kernel_mmr.Root()).Build(),
+        block.mweb_block.m_block->GetTxBody())};
+    CMutableTransaction hogex{*block.vtx.back()};
+    hogex.vout.front().scriptPubKey = CScript() << OP_8 << block.mweb_block.GetHash().vec();
+    ReplaceTransaction(block, block.vtx.size() - 1, std::move(hogex));
+    block.hashMerkleRoot = BlockMerkleRoot(block);
+    ExpectContextualReject(block, BlockValidationResult::BLOCK_MUTATED, "bad-mweb-empty-pegout");
+    ExpectContextualBlock(valid);
 }
 
-// With the extra data feature rule active, signaling extra data with an empty payload causes a consensus rejection.
-BOOST_AUTO_TEST_CASE(EmptyExtraDataFeatureIsConsensusInvalid)
+// Empty extradata features are mutated data, whether or not their kernel root matches the header.
+BOOST_AUTO_TEST_CASE(EmptyExtraDataFeatureIsMutated)
 {
-    const test::Tx transaction = test::Tx::CreatePegIn(PEGIN_AMOUNT);
-    CBlock block = BuildBlock({transaction});
+    CBlock valid = BuildBlock({test::Tx::CreatePegIn(PEGIN_AMOUNT)});
+    valid.hashMerkleRoot = BlockMerkleRoot(valid);
+    CBlock block = valid;
     const mw::Kernel kernel = AddEmptyFeature(
-        block.mweb_block.m_block->GetKernels().front(),
-        mw::Kernel::EXTRA_DATA_FEATURE_BIT);
-    block.mweb_block = MWEB::Block{
-        mw::MutBlock{block.mweb_block.m_block}.SetKernels({kernel}).Build()};
+        block.mweb_block.m_block->GetKernels().front(), mw::Kernel::EXTRA_DATA_FEATURE_BIT);
+    block.mweb_block = MWEB::Block{mw::MutBlock{block.mweb_block.m_block}.SetKernels({kernel}).Build()};
+    BOOST_REQUIRE(block.GetHash() == valid.GetHash());
+    ExpectContextualReject(block, BlockValidationResult::BLOCK_MUTATED, "bad-blk-mweb");
 
-    ExpectContextualReject(block, BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-extradata");
+    MemMMR kernel_mmr;
+    kernel_mmr.Add(kernel);
+    block.mweb_block = MWEB::Block{std::make_shared<mw::Block>(
+        mw::MutHeader{block.mweb_block.GetMWEBHeader()}.SetKernelRoot(kernel_mmr.Root()).Build(),
+        block.mweb_block.m_block->GetTxBody())};
+    CMutableTransaction hogex{*block.vtx.back()};
+    hogex.vout.front().scriptPubKey = CScript() << OP_8 << block.mweb_block.GetHash().vec();
+    ReplaceTransaction(block, block.vtx.size() - 1, std::move(hogex));
+    block.hashMerkleRoot = BlockMerkleRoot(block);
+    ExpectContextualReject(block, BlockValidationResult::BLOCK_MUTATED, "bad-mweb-empty-extradata");
+    ExpectContextualBlock(valid);
+}
+
+// Alternate wire encodings with the same kernel ID must not permanently invalidate an honest same-hash body.
+BOOST_AUTO_TEST_CASE(KernelSerializationCollisionIsMutated)
+{
+    const BlindingFactor excess = BlindingFactor::Random();
+    const mw::Kernel kernel = mw::Kernel::Create(excess, std::nullopt, std::nullopt,
+        CAmount{6}, {PegOutCoin{5, CScript() << OP_TRUE}}, int32_t{0}, {0x42});
+    const SecretKey sender = SecretKey::Random();
+    const auto output = test::TxOutput::Create(sender, StealthAddress::Random(), 1);
+    const auto tx = mw::Transaction::Create(Blinds(output.GetBlind()).Sub(excess).Total(),
+        sender, {}, {output.GetOutput()}, {kernel});
+    BOOST_REQUIRE(!tx->Validate());
+    CBlock valid = BuildBlock({test::Tx{tx, {output}}});
+    valid.hashMerkleRoot = BlockMerkleRoot(valid);
+    ExpectContextualBlock(valid);
+
+    auto bytes = kernel.Serialized();
+    BOOST_REQUIRE_EQUAL(bytes[1], 6);
+    bytes.insert(bytes.begin() + 2, 0x00);
+    const auto collision = mw::Kernel::Deserialize(bytes);
+    BOOST_REQUIRE(collision.GetPegOuts().empty());
+    BOOST_REQUIRE_EQUAL(collision.GetLockHeight(), 1);
+    BOOST_REQUIRE(collision.GetExtraData() == std::vector<uint8_t>({0x01, 0x51, 0x00, 0x01, 0x42}));
+    BOOST_REQUIRE(collision.Serialized() == kernel.Serialized());
+    BOOST_REQUIRE(collision.GetKernelID() == kernel.GetKernelID());
+
+    CBlock mutated = valid;
+    mutated.mweb_block = MWEB::Block{mw::MutBlock{valid.mweb_block.m_block}.SetKernels({collision}).Build()};
+    BOOST_REQUIRE(mutated.GetHash() == valid.GetHash());
+    BOOST_REQUIRE(mutated.mweb_block.m_block->HasValidKernelMMR());
+    ExpectContextualReject(mutated, BlockValidationResult::BLOCK_MUTATED, "bad-mweb-empty-pegout");
+    ExpectConnectReject(mutated, BlockValidationResult::BLOCK_MUTATED, "bad-mweb-empty-pegout");
+    ExpectContextualBlock(valid);
+    CBlockUndo undo;
+    BlockValidationState state;
+    BOOST_CHECK(MWEB::Node::ConnectBlock(valid, ConsensusParams(), *m_node.chainman,
+        &m_previous, undo, *m_view, state));
 }
 
 // Removing the HogEx input that spends a canonical pegin output causes a consensus rejection.

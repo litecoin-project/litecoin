@@ -129,7 +129,7 @@ class MWEBMiningTest(LitecoinTestFramework):
             'data': block.serialize().hex(),
             'mode': 'proposal',
             'rules': ['mweb', 'segwit'],
-        }), 'bad-mweb-empty-pegout')
+        }), 'bad-blk-mweb')
 
         kernel.features &= ~4
         kernel.pegouts = None
@@ -142,7 +142,7 @@ class MWEBMiningTest(LitecoinTestFramework):
             'data': block.serialize().hex(),
             'mode': 'proposal',
             'rules': ['mweb', 'segwit'],
-        }), 'bad-mweb-empty-extradata')
+        }), 'bad-blk-mweb')
 
         node.generate(1, invalid_call=False)
 

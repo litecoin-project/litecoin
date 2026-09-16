@@ -102,11 +102,20 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
         return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "mweb-height-mismatch", "Invalid MWEB block height");
     }
 
+    // Authenticate kernel data against the HogEx-committed header before
+    // using body fields to decide the validity of the canonical block hash.
+    if (!block.mweb_block.m_block->HasValidKernelMMR()) {
+        return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-blk-mweb", "MWEB kernel root doesn't match body");
+    }
+
     // Verify that pegout features are canonical once the pegout rule is active.
     if (pindexPrev->nHeight + 1 >= consensus_params.mweb_pegout_feature_activation_height) {
         for (const mw::Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
             if (!kernel.HasCanonicalPegOutFeature()) {
-                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-pegout", "Pegout feature set without pegouts");
+                // Empty feature fields can have alternate wire encodings that
+                // reserialize to the same kernel MMR leaf. Do not permanently
+                // invalidate the canonical block hash based on those fields.
+                return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-mweb-empty-pegout", "Pegout feature set without pegouts");
             }
         }
     }
@@ -115,7 +124,8 @@ bool Node::ContextualCheckBlock(const CBlock& block, const Consensus::Params& co
     if (pindexPrev->nHeight + 1 >= consensus_params.mweb_extradata_feature_activation_height) {
         for (const mw::Kernel& kernel : block.mweb_block.m_block->GetKernels()) {
             if (!kernel.HasCanonicalExtraDataFeature()) {
-                return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-mweb-empty-extradata", "Extra data feature set without extra data");
+                // As above, reject this body without poisoning a valid same-hash body.
+                return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "bad-mweb-empty-extradata", "Extra data feature set without extra data");
             }
         }
     }

@@ -3958,6 +3958,12 @@ static bool ContextualCheckBlock(const CBlock& block, BlockValidationState& stat
 
     // Check that all transactions are finalized
     for (const auto& tx : block.vtx) {
+        // Transaction attachments are not committed by txid or wtxid. Reject
+        // them before IsFinalTx can use their kernel lock heights to turn a
+        // same-hash mutation into a permanent consensus failure.
+        if (tx->HasMWEBTx()) {
+            return state.Invalid(BlockValidationResult::BLOCK_MUTATED, "unexpected-mweb-data", "Block contains transactions with MWEB data attached");
+        }
         if (!IsFinalTx(*tx, nHeight, nLockTimeCutoff)) {
             return state.Invalid(BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-nonfinal", "non-final transaction");
         }

@@ -4,6 +4,20 @@
 #include <mw/consensus/StealthSumValidator.h>
 #include <mw/mmr/MMR.h>
 
+bool mw::Block::HasValidKernelMMR() const
+{
+    if (m_pHeader->GetNumKernels() != m_body.GetKernels().size()) {
+        return false;
+    }
+
+    MemMMR kernel_mmr;
+    std::for_each(
+        GetKernels().cbegin(), GetKernels().cend(),
+        [&kernel_mmr](const mw::Kernel& kernel) { kernel_mmr.Add(kernel); }
+    );
+    return m_pHeader->GetKernelRoot() == kernel_mmr.Root();
+}
+
 std::optional<EConsensusError> mw::Block::Validate() const noexcept
 try {
     if (m_pHeader->GetNumKernels() != m_body.GetKernels().size()) {
@@ -22,12 +36,7 @@ try {
         return stealth_error;
     }
 
-    MemMMR kernel_mmr;
-    std::for_each(
-        GetKernels().cbegin(), GetKernels().cend(),
-        [&kernel_mmr](const mw::Kernel& kernel) { kernel_mmr.Add(kernel); }
-    );
-    if (m_pHeader->GetKernelRoot() != kernel_mmr.Root()) {
+    if (!HasValidKernelMMR()) {
         return EConsensusError::MMR_MISMATCH;
     }
 
