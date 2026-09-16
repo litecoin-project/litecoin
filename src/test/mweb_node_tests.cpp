@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <chain.h>
+#include <consensus/merkle.h>
 #include <consensus/validation.h>
 #include <dbwrapper.h>
 #include <mweb/mweb_node.h>
@@ -65,6 +66,7 @@ CBlock BuildCanonicalBlock(
     const std::vector<PegInCoin> pegins = mined_block.GetBlock()->GetPegIns();
     if (!pegins.empty()) {
         CMutableTransaction pegin_transaction;
+        pegin_transaction.vin.emplace_back(uint256{2}, 0);
         for (const PegInCoin& pegin : pegins) {
             pegin_transaction.vout.emplace_back(
                 pegin.GetAmount(),
@@ -601,6 +603,71 @@ BOOST_AUTO_TEST_CASE(ValidPeginUpdatesMWEBViewAndCreatesUndo)
     BOOST_CHECK(m_view->HasCoin(transaction.GetOutputs().front().GetOutputID()));
 }
 
+// Disk reloads must revalidate signatures, kernel roots and pegins before changing the view; a valid body still connects.
+BOOST_AUTO_TEST_CASE(RevalidateDiskBodyBeforeConnecting)
+{
+    CBlock valid = BuildBlock({BuildPeginWithFee()});
+    valid.hashMerkleRoot = BlockMerkleRoot(valid);
+    ExpectContextualBlock(valid);
+    const auto output_id = valid.mweb_block.m_block->GetOutputs().front().GetOutputID();
+    const auto prior_header = m_view->GetBestHeader();
+    const auto check_connection = [&](const CBlock& block, const bool expected_valid) {
+        CDataStream disk{SER_DISK, PROTOCOL_VERSION};
+        disk << block;
+        CBlock reloaded;
+        disk >> reloaded;
+        BOOST_REQUIRE(disk.empty());
+
+        mw::CoinsViewCache view{m_view};
+        CBlockUndo undo;
+        BlockValidationState state;
+        BOOST_CHECK_EQUAL(MWEB::Node::ConnectBlock(reloaded, ConsensusParams(),
+            *m_node.chainman, &m_previous, undo, view, state), expected_valid);
+        if (expected_valid) {
+            BOOST_CHECK(view.HasCoin(output_id));
+            BOOST_CHECK(view.GetBestHeader()->GetHash() == valid.mweb_block.GetHash());
+            BOOST_CHECK(undo.mwundo != nullptr);
+        } else {
+            BOOST_CHECK(state.GetResult() == BlockValidationResult::BLOCK_MUTATED);
+            BOOST_CHECK_EQUAL(state.GetRejectReason(), "bad-blk-mweb");
+            BOOST_CHECK(!view.HasCoin(output_id));
+            BOOST_CHECK(view.GetBestHeader() == prior_header);
+            BOOST_CHECK(undo.mwundo == nullptr);
+        }
+    };
+
+    auto kernels = valid.mweb_block.m_block->GetKernels();
+    mw::MutableKernel kernel;
+    kernel.Update(kernels.front());
+    kernel.signature = Signature{};
+    kernels.front() = *kernel.Finalized();
+    CBlock bad_signature = valid;
+    bad_signature.mweb_block = MWEB::Block{mw::MutBlock{valid.mweb_block.m_block}.SetKernels(kernels).Build()};
+    BOOST_REQUIRE(bad_signature.GetHash() == valid.GetHash());
+    check_connection(bad_signature, false);
+
+    CBlock bad_root = valid;
+    bad_root.mweb_block = MWEB::Block{std::make_shared<mw::Block>(
+        mw::MutHeader{valid.mweb_block.GetMWEBHeader()}.SetKernelRoot(mw::Hash{}).Build(),
+        valid.mweb_block.m_block->GetTxBody())};
+    CMutableTransaction hogex{*bad_root.vtx.back()};
+    hogex.vout.front().scriptPubKey = CScript() << OP_8 << bad_root.mweb_block.GetHash().vec();
+    ReplaceTransaction(bad_root, bad_root.vtx.size() - 1, std::move(hogex));
+    bad_root.hashMerkleRoot = BlockMerkleRoot(bad_root);
+    check_connection(bad_root, false);
+
+    CBlock bad_pegin = valid;
+    CMutableTransaction pegin{*bad_pegin.vtx[1]};
+    pegin.vout.front().scriptPubKey = GetScriptForPegin(mw::Hash{});
+    ReplaceTransaction(bad_pegin, 1, std::move(pegin));
+    hogex = CMutableTransaction{*bad_pegin.vtx.back()};
+    hogex.vin.back().prevout.hash = bad_pegin.vtx[1]->GetHash();
+    ReplaceTransaction(bad_pegin, bad_pegin.vtx.size() - 1, std::move(hogex));
+    bad_pegin.hashMerkleRoot = BlockMerkleRoot(bad_pegin);
+    check_connection(bad_pegin, false);
+    check_connection(valid, true);
+}
+
 // Connecting fails when the first HogEx input points to a transaction other than the previous HogEx.
 BOOST_AUTO_TEST_CASE(HogExMustSpendPreviousHogAddr)
 {
@@ -624,7 +691,7 @@ BOOST_AUTO_TEST_CASE(HogExFeeMustMatchExtensionBlockFee)
     ExpectConnectReject(block, BlockValidationResult::BLOCK_CONSENSUS, "bad-txns-mweb-fee-mismatch");
 }
 
-// Move one satoshi from a pegout to the HogAddr while preserving the total fee; the wrong MWEB balance is rejected.
+// Moving a satoshi from a pegout to the HogAddr is rejected by contextual revalidation before applying state.
 BOOST_AUTO_TEST_CASE(HogAddrAmountMustMatchSupplyChange)
 {
     const test::Tx transaction = BuildPeginAndPegout();
@@ -638,11 +705,11 @@ BOOST_AUTO_TEST_CASE(HogAddrAmountMustMatchSupplyChange)
     hogex.vout[1].nValue -= 1;
     ReplaceTransaction(block, block.vtx.size() - 1, std::move(hogex));
 
-    ExpectConnectReject(block, BlockValidationResult::BLOCK_CONSENSUS, "mweb-amount-mismatch");
+    ExpectConnectReject(block, BlockValidationResult::BLOCK_MUTATED, "bad-blk-mweb");
 }
 
-// Pegins totaling MAX_MONEY plus one satoshi are rejected during connection's amount accounting.
-BOOST_AUTO_TEST_CASE(AccumulatedPeginsMustStayInMoneyRange)
+// Unmatched canonical pegins are rejected during connection before amount accounting or state changes.
+BOOST_AUTO_TEST_CASE(UnmatchedPeginsRejectedBeforeApplyingState)
 {
     CBlock block = BuildBlock();
     CMutableTransaction pegin_transaction;
@@ -650,7 +717,7 @@ BOOST_AUTO_TEST_CASE(AccumulatedPeginsMustStayInMoneyRange)
     pegin_transaction.vout.emplace_back(1, GetScriptForPegin(mw::Hash::ValueOf(2)));
     block.vtx.insert(block.vtx.end() - 1, MakeTransactionRef(std::move(pegin_transaction)));
 
-    ExpectConnectReject(block, BlockValidationResult::BLOCK_CONSENSUS, "accumulated-pegin-outofrange");
+    ExpectConnectReject(block, BlockValidationResult::BLOCK_CONSENSUS, "pegins-missing");
 }
 
 BOOST_AUTO_TEST_SUITE_END()
@@ -670,8 +737,8 @@ BOOST_AUTO_TEST_CASE(MissingMWEBInputIsReportedAsMutatedBlock)
         "mweb-connect-failed-utxo-missing");
 }
 
-// Change the input's output public key so it no longer matches the stored coin; connection reports a UTXO mismatch.
-BOOST_AUTO_TEST_CASE(MismatchedMWEBInputMetadataIsReportedAsMutatedBlock)
+// Changing the input's public key invalidates its signature and is rejected before accessing the stored coin.
+BOOST_AUTO_TEST_CASE(InvalidInputSignatureIsRejectedBeforeApplyingState)
 {
     const test::Tx transaction = BuildSpendOfPreviousOutput();
     CBlock block = BuildBlock({transaction});
@@ -688,7 +755,7 @@ BOOST_AUTO_TEST_CASE(MismatchedMWEBInputMetadataIsReportedAsMutatedBlock)
     ExpectConnectReject(
         block,
         BlockValidationResult::BLOCK_MUTATED,
-        "mweb-connect-failed-utxo-mismatch");
+        "bad-blk-mweb");
 }
 
 // Put the funding output on the frozen list; spending it causes a consensus rejection during connection.
