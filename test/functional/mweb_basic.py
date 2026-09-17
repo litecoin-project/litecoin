@@ -39,6 +39,31 @@ class MWEBBasicTest(BitcoinTestFramework):
         self.nodes[0].generate(10)
         self.sync_all()
 
+        self.log.info("getblock verbosity 3: fee omitted for peg-in and HogEx, prevout still present")
+        pegin_blockhash = self.nodes[0].gettransaction(pegin2_txid)['blockhash']
+        vblock = self.nodes[0].getblock(pegin_blockhash, 3)
+        assert 'mweb' in vblock  # this is an MWEB block
+
+        def canonical_out_types(tx):
+            return {o['scriptPubKey']['type'] for o in tx['vout'] if 'scriptPubKey' in o}
+
+        # The peg-in transaction sends value into the MWEB via a canonical
+        # WITNESS_MWEB_PEGIN output, so its fee is not derivable on-chain and
+        # must be omitted, but its canonical inputs still expose prevout.
+        pegin_tx = [t for t in vblock['tx'] if t['txid'] == pegin2_txid][0]
+        assert 'witness_mweb_pegin' in canonical_out_types(pegin_tx)
+        assert 'fee' not in pegin_tx
+        assert 'prevout' in pegin_tx['vin'][0]
+
+        # The HogEx integration tx moves the aggregate peg balance; no fee.
+        hogex = [t for t in vblock['tx'] if 'witness_mweb_hogaddr' in canonical_out_types(t)]
+        assert_equal(len(hogex), 1)
+        assert 'fee' not in hogex[0]
+
+        # Coinbase never carries fee or prevout.
+        assert 'fee' not in vblock['tx'][0]
+        assert 'prevout' not in vblock['tx'][0]['vin'][0]
+
         self.log.info("Check for MWEB UTXOs")
         utxos = [x for x in self.nodes[0].listunspent() if x['address'].startswith('tmweb')]
         assert_equal(len(utxos), 2)
