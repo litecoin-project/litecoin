@@ -2100,6 +2100,24 @@ bool PeerManagerImpl::AlreadyHaveTx(const GenTxid& gtxid)
     return m_recent_rejects.contains(hash) || m_mempool.exists(gtxid);
 }
 
+/**
+ * Return true when a transaction's txid/wtxid can identify a different MWEB
+ * relay payload. MWEB data and the HogEx marker are excluded from both hashes.
+ * Pure MWEB transaction identifiers commit to their full MWEB payload, so
+ * they remain safe to cache. A pegin with its required MWEB body stripped
+ * must still be classified here even though HasMWEBTx() is false.
+ */
+static bool HasUncommittedMWEBPayload(const CTransaction& tx)
+{
+    if ((tx.HasMWEBTx() && !tx.IsMWEBOnly()) || tx.IsHogEx()) return true;
+
+    for (const CTxOut& txout : tx.vout) {
+        if (txout.scriptPubKey.IsMWEBPegin()) return true;
+    }
+
+    return false;
+}
+
 bool PeerManagerImpl::AlreadyHaveBlock(const uint256& block_hash)
 {
     return m_chainman.m_blockman.LookupBlockIndex(block_hash) != nullptr;
@@ -3294,7 +3312,9 @@ void PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
                 // See also comments in https://github.com/bitcoin/bitcoin/pull/18044#discussion_r443419034
                 // for concerns around weakening security of unupgraded nodes
                 // if we start doing this too early.
-                m_recent_rejects.insert(porphanTx->GetWitnessHash());
+                if (!HasUncommittedMWEBPayload(*porphanTx)) {
+                    m_recent_rejects.insert(porphanTx->GetWitnessHash());
+                }
                 // If the transaction failed for TX_INPUTS_NOT_STANDARD,
                 // then we know that the witness was irrelevant to the policy
                 // failure, since this check depends only on the txid
@@ -3303,7 +3323,9 @@ void PeerManagerImpl::ProcessOrphanTx(std::set<uint256>& orphan_work_set)
                 // processing of this transaction in the event that child
                 // transactions are later received (resulting in
                 // parent-fetching by txid via the orphan-handling logic).
-                if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && porphanTx->GetWitnessHash() != porphanTx->GetHash()) {
+                if (!HasUncommittedMWEBPayload(*porphanTx) &&
+                    state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD &&
+                    porphanTx->GetWitnessHash() != porphanTx->GetHash()) {
                     // We only add the txid if it differs from the wtxid, to
                     // avoid wasting entries in the rolling bloom filter.
                     m_recent_rejects.insert(porphanTx->GetHash());
@@ -4418,8 +4440,13 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 // See also comments in https://github.com/bitcoin/bitcoin/pull/18044#discussion_r443419034
                 // for concerns around weakening security of unupgraded nodes
                 // if we start doing this too early.
-                m_recent_rejects.insert(tx.GetWitnessHash());
-                m_txrequest.ForgetTxHash(tx.GetWitnessHash());
+                // MWEB transaction identifiers do not commit to every MWEB
+                // relay payload. Caching a rejection would allow an invalid
+                // variant to suppress a valid transaction with the same IDs.
+                if (!HasUncommittedMWEBPayload(tx)) {
+                    m_recent_rejects.insert(tx.GetWitnessHash());
+                    m_txrequest.ForgetTxHash(tx.GetWitnessHash());
+                }
                 // If the transaction failed for TX_INPUTS_NOT_STANDARD,
                 // then we know that the witness was irrelevant to the policy
                 // failure, since this check depends only on the txid
@@ -4428,7 +4455,9 @@ void PeerManagerImpl::ProcessMessage(CNode& pfrom, const std::string& msg_type, 
                 // processing of this transaction in the event that child
                 // transactions are later received (resulting in
                 // parent-fetching by txid via the orphan-handling logic).
-                if (state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD && tx.GetWitnessHash() != tx.GetHash()) {
+                if (!HasUncommittedMWEBPayload(tx) &&
+                    state.GetResult() == TxValidationResult::TX_INPUTS_NOT_STANDARD &&
+                    tx.GetWitnessHash() != tx.GetHash()) {
                     m_recent_rejects.insert(tx.GetHash());
                     m_txrequest.ForgetTxHash(tx.GetHash());
                 }

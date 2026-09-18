@@ -291,6 +291,7 @@ BASE_SCRIPTS = [
     'mweb_spent_history.py',
     'mweb_duplicate_pegin.py',
     'mweb_p2p.py',
+    'mweb_wtxid_recentrejects.py',
     'mweb_attached_tx.py',
     'mweb_p2p_mutated_block_submitblock.py',
     'mweb_p2p_mutated_compactblock.py',
