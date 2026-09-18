@@ -147,9 +147,11 @@ struct CreatedTransactionResult
     CAmount fee;
     FeeCalculation fee_calc;
     ChangePosition change_pos;
+    //! Final payment amounts, excluding change, in the original recipient order.
+    std::vector<CAmount> recipient_amounts;
 
-    CreatedTransactionResult(CMutableTransaction _tx, CAmount _fee, ChangePosition _change_pos, const FeeCalculation& _fee_calc)
-        : tx(std::move(_tx)), fee(_fee), fee_calc(_fee_calc), change_pos(std::move(_change_pos)) {}
+    CreatedTransactionResult(CMutableTransaction _tx, CAmount _fee, ChangePosition _change_pos, const FeeCalculation& _fee_calc, std::vector<CAmount> _recipient_amounts)
+        : tx(std::move(_tx)), fee(_fee), fee_calc(_fee_calc), change_pos(std::move(_change_pos)), recipient_amounts(std::move(_recipient_amounts)) {}
 };
 
 /**

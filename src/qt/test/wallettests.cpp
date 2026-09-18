@@ -8,6 +8,7 @@
 #include <interfaces/chain.h>
 #include <interfaces/node.h>
 #include <key_io.h>
+#include <mweb/mweb_wallet.h>
 #include <qt/bitcoinamountfield.h>
 #include <qt/bitcoinunits.h>
 #include <qt/clientmodel.h>
@@ -23,10 +24,13 @@
 #include <qt/transactiontablemodel.h>
 #include <qt/transactionview.h>
 #include <qt/walletmodel.h>
+#include <qt/walletmodeltransaction.h>
 #include <test/util/setup_common.h>
 #include <validation.h>
+#include <wallet/coincontrol.h>
 #include <wallet/wallet.h>
 
+#include <algorithm>
 #include <chrono>
 #include <memory>
 
@@ -138,6 +142,84 @@ void CompareBalance(WalletModel& walletModel, CAmount expected_balance, QLabel* 
     QCOMPARE(balance_label_to_check->text().trimmed(), balanceComparison);
 }
 
+// Fee subtraction must preserve each GUI recipient's amount across output layers, sorting and change.
+void TestSendCoinsRecipientAmounts(WalletModel& wallet_model, CWallet& wallet)
+{
+    const auto make_recipient = [](const CTxDestination& destination, CAmount amount) {
+        SendCoinsRecipient recipient;
+        recipient.address = QString::fromStdString(EncodeDestination(destination));
+        recipient.amount = amount;
+        recipient.type = SendCoinsRecipient::REGULAR;
+        return recipient;
+    };
+    CKey key1, key2, change_key;
+    key1.MakeNewKey(true);
+    key2.MakeNewKey(true);
+    change_key.MakeNewKey(true);
+    const auto mweb1 = make_recipient(StealthAddress::Random(), COIN);
+    const auto mweb2 = make_recipient(StealthAddress::Random(), 2 * COIN);
+    const auto ltc1 = make_recipient(PKHash(key1.GetPubKey()), 3 * COIN);
+    const auto ltc2 = make_recipient(PKHash(key2.GetPubKey()), 4 * COIN);
+
+    for (const QList<SendCoinsRecipient>& original : {
+             QList<SendCoinsRecipient>{mweb1, ltc1, mweb2, ltc2},
+             QList<SendCoinsRecipient>{ltc2, mweb2, ltc1, mweb1},
+             QList<SendCoinsRecipient>{mweb1, mweb2},
+             QList<SendCoinsRecipient>{ltc1, ltc2}}) {
+        const bool has_mweb_recipient = std::any_of(original.begin(), original.end(), [](const SendCoinsRecipient& recipient) {
+            return std::holds_alternative<StealthAddress>(DecodeDestination(recipient.address.toStdString()));
+        });
+        for (bool custom_change : {false, true}) {
+            wallet::CCoinControl coin_control;
+            coin_control.m_feerate = CFeeRate{10000};
+            if (custom_change) {
+                // Force peg-outs, including a change peg-out when MWEB recipients are present.
+                coin_control.destChange = has_mweb_recipient
+                    ? CTxDestination{PKHash(change_key.GetPubKey())}
+                    : CTxDestination{StealthAddress::Random()};
+            }
+            for (int subtract_count : {0, 1, original.size()}) {
+                QList<SendCoinsRecipient> recipients = original;
+                for (int i = 0; i < subtract_count; ++i) recipients[i].fSubtractFeeFromAmount = true;
+                WalletModelTransaction transaction(recipients);
+                QCOMPARE(wallet_model.prepareTransaction(transaction, coin_control).status, WalletModel::OK);
+                QVERIFY(transaction.getWtx());
+                const CTransaction& tx = *transaction.getWtx();
+                const auto displayed = transaction.getRecipients();
+                QCOMPARE(displayed.size(), recipients.size());
+                // Read signed-output metadata after preparation, as commit would persist it.
+                // Confirmation must already be correct before these coins enter the wallet.
+                QVERIFY(WITH_LOCK(wallet.cs_wallet, return wallet.GetMWWallet()->SaveStagedCoinsToWallet(tx.mweb_tx.GetOutputIDs())));
+
+                CAmount original_total{0};
+                for (int i = 0; i < recipients.size(); ++i) {
+                    const GenericAddress destination{DecodeDestination(recipients[i].address.toStdString())};
+                    std::optional<CAmount> actual_amount;
+                    for (const AnyOutput& output : tx.GetOutputs()) {
+                        if (output.IsMWEB()) {
+                            mw::WalletCoin coin;
+                            QVERIFY(WITH_LOCK(wallet.cs_wallet, return wallet.GetMWEBWalletCoin(output.ToMWEBOutputID(), coin)));
+                            if (coin.address && GenericAddress{*coin.address} == destination) actual_amount = coin.amount;
+                        } else if (GenericAddress{output.GetScriptPubKey()} == destination) {
+                            actual_amount = output.GetTxOut().nValue;
+                        }
+                    }
+                    for (const PegOutCoin& pegout : tx.mweb_tx.GetPegOuts()) {
+                        if (GenericAddress{pegout.GetScriptPubKey()} == destination) actual_amount = pegout.GetAmount();
+                    }
+                    QVERIFY(actual_amount.has_value());
+                    QCOMPARE(displayed[i].address, recipients[i].address);
+                    QCOMPARE(displayed[i].amount, *actual_amount);
+                    if (!recipients[i].fSubtractFeeFromAmount) QCOMPARE(displayed[i].amount, recipients[i].amount);
+                    original_total += recipients[i].amount;
+                }
+                QCOMPARE(transaction.getTotalTransactionAmount(),
+                    original_total - (subtract_count ? transaction.getTransactionFee() : 0));
+            }
+        }
+    }
+}
+
 //! Simple qt wallet tests.
 //
 // Test widgets can be debugged interactively calling show() on them and
@@ -208,6 +290,8 @@ void TestGUI(interfaces::Node& node)
     walletModel.pollBalanceChanged();
     // Check balance in send dialog
     CompareBalance(walletModel, walletModel.wallet().getBalance(), sendCoinsDialog.findChild<QLabel*>("labelBalance"));
+
+    TestSendCoinsRecipientAmounts(walletModel, *wallet);
 
     // Send two transactions, and verify they are added to transaction list.
     TransactionTableModel* transactionTableModel = walletModel.getTransactionTableModel();

@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <boost/test/unit_test.hpp>
+#include <numeric>
 #include <set>
 
 namespace wallet {
@@ -230,6 +231,34 @@ public:
 };
 
 BOOST_FIXTURE_TEST_SUITE(txbuilder_tests, TxBuilderTestingSetup)
+
+// Final amounts retain recipient order, even with duplicate destinations and change to the same address.
+BOOST_AUTO_TEST_CASE(RecipientAmountsExcludeChangeAndPreserveOrder)
+{
+    const CTxDestination mweb_address = NewDestination(OutputType::MWEB);
+    const CTxDestination ltc_address = NewDestination(OutputType::BECH32);
+    const std::vector<CRecipient> recipients{
+        {mweb_address, COIN, true},
+        {ltc_address, 3 * COIN, false},
+        {mweb_address, 2 * COIN, false},
+        {ltc_address, 4 * COIN, true},
+    };
+    for (bool sign : {false, true}) {
+        for (const CTxDestination& change_address : {mweb_address, ltc_address}) {
+            auto result = BuildTx(recipients, change_address, sign);
+            BOOST_REQUIRE(result);
+            BOOST_REQUIRE_EQUAL(result->recipient_amounts.size(), recipients.size());
+            BOOST_CHECK_GE(result->recipient_amounts[0], COIN - result->fee / 2 - result->fee % 2);
+            BOOST_CHECK_LE(result->recipient_amounts[0], COIN - result->fee / 2);
+            BOOST_CHECK_EQUAL(result->recipient_amounts[1], 3 * COIN);
+            BOOST_CHECK_EQUAL(result->recipient_amounts[2], 2 * COIN);
+            BOOST_CHECK_GE(result->recipient_amounts[3], 4 * COIN - result->fee / 2 - result->fee % 2);
+            BOOST_CHECK_LE(result->recipient_amounts[3], 4 * COIN - result->fee / 2);
+            BOOST_CHECK_EQUAL(std::accumulate(result->recipient_amounts.begin(), result->recipient_amounts.end(), CAmount{0}),
+                10 * COIN - result->fee);
+        }
+    }
+}
 
 // LTC funds one LTC recipient; automatic LTC change; the sender pays the fee.
 BOOST_AUTO_TEST_CASE(SingleLTCRecipientFromLTCBuildsLTCTransaction)

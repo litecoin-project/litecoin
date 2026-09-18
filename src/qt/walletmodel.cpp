@@ -237,13 +237,14 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
     {
         CAmount nFeeRequired = 0;
         ChangePosition change_pos;
+        std::vector<CAmount> recipient_amounts;
 
         auto& newTx = transaction.getWtx();
-        const auto& res = m_wallet->createTransaction(vecSend, coin_control_copy, !wallet().privateKeysDisabled() /* sign */, change_pos, nFeeRequired);
+        const auto& res = m_wallet->createTransaction(vecSend, coin_control_copy, !wallet().privateKeysDisabled() /* sign */, change_pos, nFeeRequired, recipient_amounts);
         newTx = res ? *res : nullptr;
         transaction.setTransactionFee(nFeeRequired);
         if (fSubtractFeeFromAmount && newTx)
-            transaction.reassignAmounts(*m_wallet, change_pos);
+            transaction.reassignAmounts(recipient_amounts);
 
         if(!newTx)
         {

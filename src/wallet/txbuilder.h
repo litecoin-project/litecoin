@@ -54,6 +54,7 @@ private:
     std::optional<util::Error> UpdatePeginOutput() EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
     void GrowChangeBy(const CAmount growth_amount);
     std::optional<util::Error> SubtractFeeFromOutputs(const CAmount fee_to_distribute);
+    std::vector<CAmount> GetRecipientAmounts() const;
     std::optional<util::Error> SignMWEBTx() EXCLUSIVE_LOCKS_REQUIRED(m_wallet.cs_wallet);
 
     TxType GetTxType() const noexcept { return m_selection_params.m_tx_type; }

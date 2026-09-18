@@ -320,7 +320,8 @@ public:
         const CCoinControl& coin_control,
         bool sign,
         ChangePosition& change_pos,
-        CAmount& fee) override
+        CAmount& fee,
+        std::vector<CAmount>& recipient_amounts) override
     {
         LOCK(m_wallet->cs_wallet);
         const bool use_requested_ltc_change_pos =
@@ -331,6 +332,7 @@ public:
         const auto& txr = *res;
         fee = txr.fee;
         change_pos = txr.change_pos;
+        recipient_amounts = txr.recipient_amounts;
 
         return MakeTransactionRef(txr.tx);
     }

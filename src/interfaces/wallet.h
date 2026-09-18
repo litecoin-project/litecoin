@@ -148,12 +148,13 @@ public:
     //! List locked coins.
     virtual void listLockedCoins(std::vector<AnyOutputID>& outputs) = 0;
 
-    //! Create transaction.
+    //! Create transaction and return final amounts in the original recipient order.
     virtual util::Result<CTransactionRef> createTransaction(const std::vector<wallet::CRecipient>& recipients,
         const wallet::CCoinControl& coin_control,
         bool sign,
         wallet::ChangePosition& change_pos,
-        CAmount& fee) = 0;
+        CAmount& fee,
+        std::vector<CAmount>& recipient_amounts) = 0;
 
     //! Commit transaction.
     virtual void commitTransaction(CTransactionRef tx,

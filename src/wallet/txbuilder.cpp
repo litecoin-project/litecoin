@@ -208,6 +208,9 @@ util::Result<CreatedTransactionResult> TxBuilder::Build(const std::optional<int3
         return add_outputs_error.value();
     }
 
+    // Preserve the recipient mapping before signing and canonical output sorting.
+    std::vector<CAmount> recipient_amounts = GetRecipientAmounts();
+
     // Update MWEB fee
     if (GetTxType() != TxType::LTC_TO_LTC) {
         m_tx.mweb_tx.SetFee(CalcMWEBFee());
@@ -277,7 +280,29 @@ util::Result<CreatedTransactionResult> TxBuilder::Build(const std::optional<int3
               feeCalc.est.fail.start, feeCalc.est.fail.end,
               (feeCalc.est.fail.totalConfirmed + feeCalc.est.fail.inMempool + feeCalc.est.fail.leftMempool) > 0.0 ? 100 * feeCalc.est.fail.withinTarget / (feeCalc.est.fail.totalConfirmed + feeCalc.est.fail.inMempool + feeCalc.est.fail.leftMempool) : 0.0,
               feeCalc.est.fail.withinTarget, feeCalc.est.fail.totalConfirmed, feeCalc.est.fail.inMempool, feeCalc.est.fail.leftMempool);
-    return CreatedTransactionResult(m_tx, fee_paid, m_change.GetPosition(), feeCalc);
+    return CreatedTransactionResult(m_tx, fee_paid, m_change.GetPosition(), feeCalc, std::move(recipient_amounts));
+}
+
+std::vector<CAmount> TxBuilder::GetRecipientAmounts() const
+{
+    const auto pegouts = m_tx.mweb_tx.GetPegouts();
+    std::vector<CAmount> amounts;
+    amounts.reserve(m_recipients.size());
+    size_t ltc_index{0};
+    size_t mweb_index{0};
+    // AddOutputs preserves recipient order within each layer. MWEB and peg-out
+    // change are appended; ordinary LTC change can be inserted anywhere.
+    for (const CRecipient& recipient : m_recipients.All()) {
+        if (recipient.IsMWEB()) {
+            amounts.push_back(m_tx.mweb_tx.outputs.at(mweb_index++).amount.value());
+        } else if (!pegouts.empty()) {
+            amounts.push_back(pegouts.at(ltc_index++).nAmount);
+        } else {
+            if (m_change.GetPosition() == ltc_index) ++ltc_index;
+            amounts.push_back(m_tx.vout.at(ltc_index++).nValue);
+        }
+    }
+    return amounts;
 }
 
 util::Result<SelectionResult> TxBuilder::SelectInputCoins(const CoinsResult& available_coins)
