@@ -13,6 +13,15 @@
 class KernelSumValidator
 {
 public:
+    struct SumState
+    {
+        Commitment utxo_sum;
+        Commitment kernel_sum;
+        BlindingFactor kernel_offset;
+        CAmount positive_supply{0};
+        CAmount negative_supply{0};
+    };
+
     // Makes sure the sums of all coin commitments minus the total supply
     // equals the sum of all kernel excesses and the total offset.
     // This is to be used only when validating the entire state.
@@ -101,6 +110,46 @@ public:
         );
     }
 
+    // Extend an already-valid aggregate using only the candidate transaction.
+    // Failed candidates leave the previous sums unchanged.
+    [[nodiscard]] static std::optional<EConsensusError> ValidateAndAdd(
+        const mw::Transaction& tx, SumState& sums) noexcept
+    try {
+        SumState next = sums;
+        auto outputs = tx.GetOutputCommits();
+        if (!sums.utxo_sum.IsZero()) outputs.push_back(sums.utxo_sum);
+        next.utxo_sum = Pedersen::AddCommitments(outputs, tx.GetInputCommits());
+
+        auto kernels = tx.GetKernelCommits();
+        if (!sums.kernel_sum.IsZero()) kernels.push_back(sums.kernel_sum);
+        next.kernel_sum = Pedersen::AddCommitments(kernels);
+        next.kernel_offset = Pedersen::AddBlindingFactors({sums.kernel_offset, tx.GetKernelOffset()});
+
+        // KernelSort puts positive supply changes before negative ones. Keep
+        // both monotonic portions to enforce the sorted aggregate's bounds.
+        for (const mw::Kernel& kernel : tx.GetKernels()) {
+            const auto change = kernel.GetSupplyChange();
+            if (!change) return EConsensusError::AMOUNT_OUT_OF_RANGE;
+            CAmount& total = *change > 0 ? next.positive_supply : next.negative_supply;
+            const auto added = AmountUtil::TrySafeAdd(total, *change);
+            if (!added) return EConsensusError::AMOUNT_OUT_OF_RANGE;
+            total = *added;
+        }
+        const auto total_supply = AmountUtil::TrySafeAdd(next.positive_supply, next.negative_supply);
+        if (!AmountUtil::IsValidAmountRange(next.positive_supply) || !total_supply
+            || !AmountUtil::IsValidAmountRange(*total_supply)) {
+            return EConsensusError::AMOUNT_OUT_OF_RANGE;
+        }
+        if (const auto error = ValidateCommitmentSums(next.utxo_sum, next.kernel_sum,
+                next.kernel_offset, *total_supply, false)) {
+            return error;
+        }
+        sums = std::move(next);
+        return std::nullopt;
+    } catch (const std::exception&) {
+        return EConsensusError::BLOCK_SUMS;
+    }
+
 private:
     static Commitment AddCommitments(
         const std::vector<Commitment>& positive,
@@ -131,9 +180,25 @@ private:
         if (!AmountUtil::IsValidAmountRange(coins_added)) {
             return EConsensusError::AMOUNT_OUT_OF_RANGE;
         }
+        return ValidateCommitmentSums(
+            AddCommitments(output_commits, input_commits, allow_infinity),
+            AddCommitments(kernel_commits, {}, allow_infinity),
+            offset, coins_added, allow_infinity);
+    } catch (const std::exception&) {
+        return EConsensusError::BLOCK_SUMS;
+    }
 
-        // Calculate coin commitment sum.
-        Commitment sum_coin_commitment = AddCommitments(output_commits, input_commits, allow_infinity);
+    [[nodiscard]] static std::optional<EConsensusError> ValidateCommitmentSums(
+        Commitment sum_coin_commitment,
+        Commitment sum_excess_commitment,
+        const BlindingFactor& offset,
+        const int64_t coins_added,
+        const bool allow_infinity) noexcept
+    try {
+        if (!AmountUtil::IsValidAmountRange(coins_added)) {
+            return EConsensusError::AMOUNT_OUT_OF_RANGE;
+        }
+
         if (coins_added > 0) {
             sum_coin_commitment = AddCommitments(
                 { sum_coin_commitment }, { Commitment::Transparent(coins_added) }, allow_infinity
@@ -145,7 +210,6 @@ private:
         }
 
         // Calculate total kernel excess
-        Commitment sum_excess_commitment = AddCommitments(kernel_commits, {}, allow_infinity);
         if (!offset.IsNull()) {
             sum_excess_commitment = AddCommitments(
                 { sum_excess_commitment, Commitment::Blinded(offset, 0) }, {}, allow_infinity

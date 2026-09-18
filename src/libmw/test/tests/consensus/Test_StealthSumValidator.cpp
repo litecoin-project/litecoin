@@ -15,8 +15,14 @@ BOOST_FIXTURE_TEST_SUITE(TestStealthSumValidator, MWEBTestingSetup)
 //
 // This tests the StealthSumValidator with and without an offset.
 //
+// Empty aggregates have no keys; populated bodies must balance their stealth excesses.
 BOOST_AUTO_TEST_CASE(ValidateStealthSum)
 {
+    StealthSumValidator::SumState empty;
+    BOOST_REQUIRE(!StealthSumValidator::ValidateAndAdd(BlindingFactor{}, mw::TxBody{}, empty));
+    BOOST_CHECK(!empty.lhs);
+    BOOST_CHECK(!empty.rhs);
+
     ////////////////////////////////////////
     // Build inputs
     ////////////////////////////////////////

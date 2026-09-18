@@ -1,6 +1,8 @@
 #pragma once
 
 #include <mw/common/Macros.h>
+#include <mw/consensus/KernelSumValidator.h>
+#include <mw/consensus/StealthSumValidator.h>
 #include <mw/models/tx/Transaction.h>
 #include <mw/models/tx/PegInCoin.h>
 #include <mw/node/CoinsView.h>
@@ -37,6 +39,9 @@ private:
     std::vector<Transaction::CPtr> m_stagedTxs;
     std::set<Hash> m_stagedInputs;
     std::set<Hash> m_stagedOutputs;
+    std::set<Hash> m_stagedKernels;
+    KernelSumValidator::SumState m_kernelSums;
+    StealthSumValidator::SumState m_stealthSums;
 };
 
 END_NAMESPACE // mw

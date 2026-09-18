@@ -10,6 +10,12 @@
 class StealthSumValidator
 {
 public:
+    struct SumState
+    {
+        std::optional<PublicKey> lhs;
+        std::optional<PublicKey> rhs;
+    };
+
     //
     // Verifies that stealth excesses balance:
     //
@@ -17,8 +23,17 @@ public:
     //
     // Returns std::nullopt when the sums balance, or the consensus error otherwise.
     [[nodiscard]] static std::optional<EConsensusError> Validate(const BlindingFactor& stealth_offset, const mw::TxBody& body) noexcept
+    {
+        SumState sums;
+        return ValidateAndAdd(stealth_offset, body, sums);
+    }
+
+    // Extend an already-valid aggregate, preserving its sums on failure.
+    [[nodiscard]] static std::optional<EConsensusError> ValidateAndAdd(
+        const BlindingFactor& stealth_offset, const mw::TxBody& body, SumState& sums) noexcept
     try {
         std::vector<PublicKey> lhs_keys;
+        if (sums.lhs) lhs_keys.push_back(*sums.lhs);
 
         //
         // sum(K_s) + sum(K_i)
@@ -34,7 +49,7 @@ public:
             }
         }
 
-        PublicKey lhs_total;
+        std::optional<PublicKey> lhs_total;
         if (!lhs_keys.empty()) {
             lhs_total = PublicKeys::Add(lhs_keys);
         }
@@ -43,6 +58,7 @@ public:
         // sum(E') + x'*G + sum(K_o)
         //
         std::vector<PublicKey> rhs_keys = body.GetStealthExcesses();
+        if (sums.rhs) rhs_keys.push_back(*sums.rhs);
 
         std::transform(
             body.GetInputs().cbegin(), body.GetInputs().cend(), std::back_inserter(rhs_keys),
@@ -54,7 +70,7 @@ public:
             rhs_keys.push_back(PublicKey::From(stealth_offset));
         }
 
-        PublicKey rhs_total;
+        std::optional<PublicKey> rhs_total;
         if (!rhs_keys.empty()) {
             rhs_total = PublicKeys::Add(rhs_keys);
         }
@@ -64,6 +80,7 @@ public:
             return EConsensusError::STEALTH_SUMS;
         }
 
+        sums = SumState{std::move(lhs_total), std::move(rhs_total)};
         return std::nullopt;
     } catch (const std::exception&) {
         // Public keys that cannot be deserialized or summed are invalid data.

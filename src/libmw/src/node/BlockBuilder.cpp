@@ -71,19 +71,25 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
         return false;
     }
     
-    try {
-        std::vector<Commitment> input_commits = pTransaction->GetInputCommits();
-        std::vector<Commitment> output_commits = pTransaction->GetOutputCommits();
-        for (const auto& tx : m_stagedTxs) {
-            std::vector<Commitment> staged_tx_input_commits = tx->GetInputCommits();
-            input_commits.insert(input_commits.end(), staged_tx_input_commits.begin(), staged_tx_input_commits.end());
-            std::vector<Commitment> staged_tx_output_commits = tx->GetOutputCommits();
-            output_commits.insert(output_commits.end(), staged_tx_output_commits.begin(), staged_tx_output_commits.end());
+    // Kernel IDs must remain unique in the aggregate block body.
+    for (const mw::Kernel& kernel : pTransaction->GetKernels()) {
+        if (m_stagedKernels.count(kernel.GetKernelID()) != 0) {
+            LogPrintf("Kernel %s already staged\n", kernel.GetKernelID().Format());
+            return false;
         }
-        Commitment commit = Pedersen::AddCommitments(input_commits, output_commits);
-        assert(!commit.IsZero());
-    } catch (std::exception& e) {
-        LogPrintf("Staged inputs and outputs would sum to zero. Error: %s\n", e.what());
+    }
+
+    // Individually valid transactions can form unrepresentable group identities
+    // when aggregated. Incremental checks keep template construction linear.
+    auto kernel_sums = m_kernelSums;
+    auto stealth_sums = m_stealthSums;
+    if (const auto error = KernelSumValidator::ValidateAndAdd(*pTransaction, kernel_sums)) {
+        LogPrintf("Transaction is incompatible with staged MWEB kernel sums: %s\n", ConsensusErrorString(*error));
+        return false;
+    }
+    if (const auto error = StealthSumValidator::ValidateAndAdd(
+            pTransaction->GetStealthOffset(), pTransaction->GetBody(), stealth_sums)) {
+        LogPrintf("Transaction is incompatible with staged MWEB stealth sums: %s\n", ConsensusErrorString(*error));
         return false;
     }
 
@@ -126,6 +132,13 @@ bool BlockBuilder::AddTransaction(const Transaction::CPtr& pTransaction, const s
         auto inserted = m_stagedOutputs.insert(output.GetOutputID());
         assert(inserted.second);
     }
+
+    for (const mw::Kernel& kernel : pTransaction->GetKernels()) {
+        const auto inserted = m_stagedKernels.insert(kernel.GetKernelID());
+        assert(inserted.second);
+    }
+    m_kernelSums = std::move(kernel_sums);
+    m_stealthSums = std::move(stealth_sums);
 
     return true;
 }

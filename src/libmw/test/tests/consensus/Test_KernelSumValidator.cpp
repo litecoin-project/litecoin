@@ -3,6 +3,7 @@
 // file COPYING or http://www.opensource.org/licenses/mit-license.php.
 
 #include <mw/consensus/KernelSumValidator.h>
+#include <mw/consensus/StealthSumValidator.h>
 #include <mw/consensus/Aggregation.h>
 #include <mw/crypto/Pedersen.h>
 #include <mw/exceptions/CryptoException.h>
@@ -70,6 +71,7 @@ BOOST_AUTO_TEST_CASE(ValidateState)
     BOOST_REQUIRE(KernelSumValidator::ValidateState(utxo_commitments, kernels, total_offset) == EConsensusError::BLOCK_SUMS);
 }
 
+// Mixed transaction types balance against the previous block offset and reject reordered negative supply.
 BOOST_AUTO_TEST_CASE(ValidateForBlock)
 {
     // Standard transaction - 2 inputs, 2 outputs, 1 kernel
@@ -96,7 +98,24 @@ BOOST_AUTO_TEST_CASE(ValidateForBlock)
 
     BlindingFactor prev_total_offset = BlindingFactor::Random();
     mw::Transaction::CPtr pAggregated = Aggregation::Aggregate({ tx1, tx2, tx3 });
-    BOOST_REQUIRE(!KernelSumValidator::ValidateForTx(*pAggregated)); // Sanity check
+    BOOST_REQUIRE(!KernelSumValidator::ValidateForTx(*pAggregated));
+
+    KernelSumValidator::SumState incremental, aggregate;
+    StealthSumValidator::SumState stealth_incremental, stealth_aggregate;
+    for (const auto& tx : {tx1, tx2, tx3}) {
+        BOOST_REQUIRE(!KernelSumValidator::ValidateAndAdd(*tx, incremental));
+        BOOST_REQUIRE(!StealthSumValidator::ValidateAndAdd(tx->GetStealthOffset(), tx->GetBody(), stealth_incremental));
+    }
+    BOOST_REQUIRE(!KernelSumValidator::ValidateAndAdd(*pAggregated, aggregate));
+    BOOST_REQUIRE(!StealthSumValidator::ValidateAndAdd(pAggregated->GetStealthOffset(), pAggregated->GetBody(), stealth_aggregate));
+    BOOST_CHECK(incremental.utxo_sum == aggregate.utxo_sum);
+    BOOST_CHECK(incremental.kernel_sum == aggregate.kernel_sum);
+    BOOST_CHECK(incremental.kernel_offset == aggregate.kernel_offset);
+    BOOST_CHECK_EQUAL(incremental.positive_supply, aggregate.positive_supply);
+    BOOST_CHECK_EQUAL(incremental.negative_supply, aggregate.negative_supply);
+    BOOST_CHECK(stealth_incremental.lhs == stealth_aggregate.lhs);
+    BOOST_CHECK(stealth_incremental.rhs == stealth_aggregate.rhs);
+ // Sanity check
 
     BlindingFactor total_offset = Pedersen::AddBlindingFactors({ prev_total_offset, pAggregated->GetKernelOffset() });
 
@@ -173,6 +192,7 @@ BOOST_AUTO_TEST_CASE(ValidateForBlockWithoutBuilder)
     BOOST_REQUIRE(!KernelSumValidator::ValidateForBlock(pTransaction->GetBody(), total_offset, prev_total_offset));
 }
 
+// Mixed transfers, pegins and pegouts have identical incremental and whole-aggregate sums.
 BOOST_AUTO_TEST_CASE(ValidateForTx)
 {
     // Standard transaction - 2 inputs, 2 outputs, 1 kernel
@@ -235,6 +255,25 @@ BOOST_AUTO_TEST_CASE(ValidateForTx_AllowsPointAtInfinity)
         KernelSumValidator::ValidateForBlock(tx->GetBody(), BlindingFactor{}, BlindingFactor{})
         == EConsensusError::BLOCK_SUMS
     );
+}
+
+// The positive prefix of the sorted aggregate must stay in range even when later withdrawals cancel it.
+BOOST_AUTO_TEST_CASE(IncrementalSupplyRangePreservesState)
+{
+    const auto pegin = test::Tx::CreatePegIn(MAX_MONEY).GetTransaction();
+    const auto pegout = test::TxBuilder().AddInput(MAX_MONEY).AddPegoutKernel(MAX_MONEY, 0).Build().GetTransaction();
+    const auto extra = test::Tx::CreatePegIn(1).GetTransaction();
+    KernelSumValidator::SumState sums;
+    BOOST_REQUIRE(!KernelSumValidator::ValidateAndAdd(*pegin, sums));
+    BOOST_REQUIRE(!KernelSumValidator::ValidateAndAdd(*pegout, sums));
+    BOOST_CHECK_EQUAL(sums.positive_supply + sums.negative_supply, 0);
+    const auto before = sums;
+    BOOST_CHECK(KernelSumValidator::ValidateAndAdd(*extra, sums) == EConsensusError::AMOUNT_OUT_OF_RANGE);
+    BOOST_CHECK(sums.utxo_sum == before.utxo_sum);
+    BOOST_CHECK(sums.kernel_sum == before.kernel_sum);
+    BOOST_CHECK(sums.kernel_offset == before.kernel_offset);
+    BOOST_CHECK_EQUAL(sums.positive_supply, before.positive_supply);
+    BOOST_CHECK_EQUAL(sums.negative_supply, before.negative_supply);
 }
 
 BOOST_AUTO_TEST_SUITE_END()
