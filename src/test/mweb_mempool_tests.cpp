@@ -770,6 +770,79 @@ BOOST_AUTO_TEST_CASE(mined_conflict_removes_mweb_descendants)
     for (const auto& id : loser->mweb_tx.GetKernelIDs()) BOOST_CHECK(!m_pool.recentTxsByKernel.Cached(id));
 }
 
+// A partially mined aggregate is a conflict; keep children of its surviving output and remove the absent branch.
+BOOST_AUTO_TEST_CASE(partial_kernel_overlap_preserves_only_surviving_branch)
+{
+    const auto first_funding = FundMWEB();
+    const auto second_funding = FundMWEB();
+    const auto shared = Spend(first_funding.GetOutputs().front());
+    const auto loser = Spend(second_funding.GetOutputs().front());
+    const test::Tx combined{
+        Aggregation::Aggregate({shared.GetTransaction(), loser.GetTransaction()}), {}};
+    const auto aggregate = MakeTransactionRef(WithMWEB(combined));
+    const auto shared_child = MakeTransactionRef(WithMWEB(Spend(shared.GetOutputs().front())));
+    const auto loser_child = MakeTransactionRef(WithMWEB(Spend(loser.GetOutputs().front())));
+    const auto winner = Spend(second_funding.GetOutputs().front(), 2 * MWEB_FEE);
+
+    Accept(aggregate, 2 * MWEB_FEE);
+    Accept(shared_child);
+    Accept(loser_child);
+
+    const test::Tx block_body{
+        Aggregation::Aggregate({shared.GetTransaction(), winner.GetTransaction()}), {}};
+    Confirm({MakeTransactionRef(WithMWEB(block_body))});
+
+    CheckPool({shared_child});
+    CheckGraph(shared_child, {shared_child}, {shared_child});
+    BOOST_CHECK(m_view->HasCoin(shared.GetOutputs().front().GetOutputID()));
+    BOOST_CHECK(!m_view->HasCoin(loser.GetOutputs().front().GetOutputID()));
+
+    LOCK(m_pool.cs);
+    for (const auto& id : aggregate->mweb_tx.GetKernelIDs()) {
+        BOOST_CHECK(!m_pool.recentTxsByKernel.Cached(id));
+    }
+    for (const auto& id : loser_child->mweb_tx.GetKernelIDs()) {
+        BOOST_CHECK(!m_pool.recentTxsByKernel.Cached(id));
+    }
+}
+
+// Matching kernels with different outputs mine the parent identity but evict children of the absent output.
+BOOST_AUTO_TEST_CASE(same_kernel_alternative_removes_absent_output_child)
+{
+    const auto funding = FundMWEB();
+    const auto parent_mweb = Spend(funding.GetOutputs().front());
+    const auto parent = MakeTransactionRef(WithMWEB(parent_mweb));
+    const auto child = MakeTransactionRef(WithMWEB(Spend(parent_mweb.GetOutputs().front())));
+    Accept(parent);
+    Accept(child);
+
+    const auto& original = parent_mweb.GetTransaction();
+    const auto& old_output = parent_mweb.GetOutputs().front();
+    const auto replacement = test::TxOutput::Create(
+        m_sender_key, StealthAddress::Random(), old_output.GetAmount());
+    const auto variant = mw::Transaction::Create(
+        Blinds(original->GetKernelOffset())
+            .Add(replacement.GetBlind())
+            .Sub(old_output.GetBlind())
+            .Total(),
+        original->GetStealthOffset(),
+        original->GetInputs(),
+        {replacement.GetOutput()},
+        original->GetKernels());
+    BOOST_REQUIRE(!variant->Validate());
+
+    Confirm({MakeTransactionRef(WithMWEB(test::Tx{variant, {replacement}}))});
+
+    CheckPool({});
+    CheckCached(parent);
+    BOOST_CHECK(!m_view->HasCoin(old_output.GetOutputID()));
+    BOOST_CHECK(m_view->HasCoin(replacement.GetOutputID()));
+    LOCK(m_pool.cs);
+    for (const auto& id : child->mweb_tx.GetKernelIDs()) {
+        BOOST_CHECK(!m_pool.recentTxsByKernel.Cached(id));
+    }
+}
+
 // Removing a parent no longer in the pool still finds and recursively removes its MWEB children.
 BOOST_AUTO_TEST_CASE(remove_absent_parent_finds_mweb_descendants)
 {
