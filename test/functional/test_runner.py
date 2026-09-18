@@ -295,6 +295,7 @@ BASE_SCRIPTS = [
     'mweb_attached_tx.py',
     'mweb_p2p_mutated_block_submitblock.py',
     'mweb_p2p_mutated_compactblock.py',
+    'mweb_newpowvalidblock.py',
     'mweb_pre_activation_hogex_marker.py',
     'mweb_pegout_all.py',
     'mweb_node_compatibility.py',
