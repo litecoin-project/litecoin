@@ -106,6 +106,10 @@ class TestP2PConn(P2PInterface):
             self.last_message.pop("headers", None)
             self.last_message.pop("cmpctblock", None)
 
+    def clear_getblocktxn(self):
+        with p2p_lock:
+            self.last_message.pop("getblocktxn", None)
+
     def get_headers(self, locator, hashstop):
         msg = msg_getheaders()
         msg.locator.vHave = locator
@@ -756,7 +760,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         peer.get_headers(locator=[int(tip, 16)], hashstop=0)
         peer.send_and_ping(msg_sendcmpct(announce=True, version=3))
 
-    def test_compactblock_reconstruction_multiple_peers(self, stalling_peer, delivery_peer):
+    # An alternate peer may reconstruct a stalled compact block locally, while invalid alternate data must not cancel the original request.
+    def test_compactblock_reconstruction_stalling_peer(self, stalling_peer, delivery_peer):
         node = self.nodes[0]
         assert len(self.utxos)
 
@@ -806,6 +811,71 @@ class CompactBlocksTest(BitcoinTestFramework):
         stalling_peer.send_and_ping(msg)
         assert_equal(int(node.getbestblockhash(), 16), block.sha256)
 
+    # Parallel reconstruction must use two inbound slots, reserve the third for outbound, and accept the first valid completion.
+    def test_compactblock_reconstruction_parallel(self, stalling_peer, delivery_peer, inbound_peer, outbound_peer):
+        node = self.nodes[0]
+        assert len(self.utxos)
+
+        def announce_cmpct_block(peer, txn_count):
+            utxo = self.utxos.pop(0)
+            block = self.build_block_with_transactions(node, utxo, txn_count)
+
+            cmpct_block = HeaderAndShortIDs()
+            cmpct_block.initialize_from_block(block, version=3)
+            peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
+            with p2p_lock:
+                assert "getblocktxn" in peer.last_message
+            return block, cmpct_block
+
+        # Select three high-bandwidth peers. The remaining peer is the initial
+        # low-bandwidth request and simulates a peer that withholds BLOCKTXN.
+        for name, peer in [("delivery", delivery_peer), ("inbound", inbound_peer), ("outbound", outbound_peer)]:
+            self.log.info(f"Setting {name} as high-bandwidth peer")
+            block, _ = announce_cmpct_block(peer, 1)
+            msg = msg_blocktxn()
+            msg.block_transactions.blockhash = block.sha256
+            msg.block_transactions.transactions = block.vtx[1:]
+            peer.send_and_ping(msg)
+            assert_equal(int(node.getbestblockhash(), 16), block.sha256)
+            peer.clear_getblocktxn()
+
+        for num_missing in [1, 5, 20]:
+            assert_equal([peer['bip152_hb_to'] for peer in node.getpeerinfo()], [False, True, True, True])
+
+            block, cmpct_block = announce_cmpct_block(stalling_peer, num_missing)
+
+            delivery_peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
+            with p2p_lock:
+                assert "getblocktxn" in delivery_peer.last_message
+            assert int(node.getbestblockhash(), 16) != block.sha256
+
+            inbound_peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
+            with p2p_lock:
+                assert "getblocktxn" not in inbound_peer.last_message
+            assert int(node.getbestblockhash(), 16) != block.sha256
+
+            outbound_peer.send_and_ping(msg_cmpctblock(cmpct_block.to_p2p()))
+            with p2p_lock:
+                assert "getblocktxn" in outbound_peer.last_message
+            assert int(node.getbestblockhash(), 16) != block.sha256
+
+            # The second request completes first and must clear all losing requests.
+            msg = msg_blocktxn()
+            msg.block_transactions.blockhash = block.sha256
+            msg.block_transactions.transactions = block.vtx[1:]
+            delivery_peer.send_and_ping(msg)
+            assert_equal(int(node.getbestblockhash(), 16), block.sha256)
+            assert_equal([peer["inflight"] for peer in node.getpeerinfo()], [[], [], [], []])
+
+            # A late response from the original stalling peer is ignored safely.
+            stalling_peer.send_and_ping(msg)
+            self.utxos.append([block.vtx[-1].sha256, 0, block.vtx[-1].vout[0].nValue])
+
+            stalling_peer.clear_getblocktxn()
+            delivery_peer.clear_getblocktxn()
+            inbound_peer.clear_getblocktxn()
+            outbound_peer.clear_getblocktxn()
+
     def test_highbandwidth_mode_states_via_getpeerinfo(self):
         # create new p2p connection for a fresh state w/o any prior sendcmpct messages sent
         hb_test_node = self.nodes[0].add_p2p_connection(TestP2PConn())
@@ -840,6 +910,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         # Setup the p2p connections
         self.segwit_node = self.nodes[0].add_p2p_connection(TestP2PConn())
         self.additional_segwit_node = self.nodes[0].add_p2p_connection(TestP2PConn())
+        self.onemore_inbound_node = self.nodes[0].add_p2p_connection(TestP2PConn())
+        self.outbound_node = self.nodes[0].add_outbound_p2p_connection(TestP2PConn(), p2p_idx=3, connection_type="outbound-full-relay")
 
         # We will need UTXOs to construct transactions in later tests.
         self.make_utxos()
@@ -849,6 +921,8 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing SENDCMPCT p2p message... ")
         self.test_sendcmpct(self.segwit_node)
         self.test_sendcmpct(self.additional_segwit_node)
+        self.test_sendcmpct(self.onemore_inbound_node)
+        self.test_sendcmpct(self.outbound_node)
 
         self.log.info("Testing compactblock construction...")
         self.test_compactblock_construction(self.segwit_node)
@@ -871,8 +945,16 @@ class CompactBlocksTest(BitcoinTestFramework):
         self.log.info("Testing handling of incorrect blocktxn responses...")
         self.test_incorrect_blocktxn_response(self.segwit_node)
 
-        self.log.info("Testing reconstructing compact blocks from all peers...")
-        self.test_compactblock_reconstruction_multiple_peers(self.segwit_node, self.additional_segwit_node)
+        self.log.info("Testing reconstructing compact blocks with a stalling peer...")
+        self.test_compactblock_reconstruction_stalling_peer(self.segwit_node, self.additional_segwit_node)
+
+        self.log.info("Testing parallel compact-block reconstruction...")
+        self.test_compactblock_reconstruction_parallel(
+            stalling_peer=self.segwit_node,
+            delivery_peer=self.additional_segwit_node,
+            inbound_peer=self.onemore_inbound_node,
+            outbound_peer=self.outbound_node,
+        )
 
         # Test that if we submitblock to node1, we'll get a compact block
         # announcement to all peers.
