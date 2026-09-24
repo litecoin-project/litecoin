@@ -292,15 +292,17 @@ public:
         LOCK(m_wallet->cs_wallet);
         return m_wallet->GetCoin(output_id, coin);
     }
-    void lockCoin(const OutputIndex& output) override
+    bool lockCoin(const OutputIndex& output, bool write_to_db) override
     {
         LOCK(m_wallet->cs_wallet);
-        return m_wallet->LockCoin(output);
+        std::unique_ptr<WalletBatch> batch = write_to_db ? std::make_unique<WalletBatch>(m_wallet->GetDatabase()) : nullptr;
+        return m_wallet->LockCoin(output, batch.get());
     }
-    void unlockCoin(const OutputIndex& output) override
+    bool unlockCoin(const OutputIndex& output) override
     {
         LOCK(m_wallet->cs_wallet);
-        return m_wallet->UnlockCoin(output);
+        auto batch = std::make_unique<WalletBatch>(m_wallet->GetDatabase());
+        return m_wallet->UnlockCoin(output, batch.get());
     }
     bool isLockedCoin(const OutputIndex& output) override
     {

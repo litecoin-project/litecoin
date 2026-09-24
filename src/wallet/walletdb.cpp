@@ -38,6 +38,8 @@ const std::string FLAGS{"flags"};
 const std::string HDCHAIN{"hdchain"};
 const std::string KEYMETA{"keymeta"};
 const std::string KEY{"key"};
+const std::string LOCKED_UTXO{"lockedutxo"};
+const std::string LOCKED_MWEB{"lockedmweb"};
 const std::string MASTER_KEY{"mkey"};
 const std::string MINVERSION{"minversion"};
 const std::string NAME{"name"};
@@ -256,6 +258,24 @@ bool WalletBatch::WriteDescriptorParentCache(const CExtPubKey& xpub, const uint2
     std::vector<unsigned char> ser_xpub(BIP32_EXTKEY_SIZE);
     xpub.Encode(ser_xpub.data());
     return WriteIC(std::make_pair(std::make_pair(DBKeys::WALLETDESCRIPTORCACHE, desc_id), key_exp_index), ser_xpub);
+}
+
+bool WalletBatch::WriteLockedOutput(const OutputIndex& output)
+{
+    if (output.type() == typeid(COutPoint)) {
+        const COutPoint& outpoint = boost::get<COutPoint>(output);
+        return WriteIC(std::make_pair(DBKeys::LOCKED_UTXO, std::make_pair(outpoint.hash, outpoint.n)), uint8_t{'1'});
+    }
+    return WriteIC(std::make_pair(DBKeys::LOCKED_MWEB, boost::get<mw::Hash>(output)), uint8_t{'1'});
+}
+
+bool WalletBatch::EraseLockedOutput(const OutputIndex& output)
+{
+    if (output.type() == typeid(COutPoint)) {
+        const COutPoint& outpoint = boost::get<COutPoint>(output);
+        return EraseIC(std::make_pair(DBKeys::LOCKED_UTXO, std::make_pair(outpoint.hash, outpoint.n)));
+    }
+    return EraseIC(std::make_pair(DBKeys::LOCKED_MWEB, boost::get<mw::Hash>(output)));
 }
 
 class CWalletScanState {
@@ -689,6 +709,16 @@ ReadKeyValue(CWallet* pwallet, CDataStream& ssKey, CDataStream& ssValue,
 
             wss.m_descriptor_crypt_keys.insert(std::make_pair(std::make_pair(desc_id, pubkey.GetID()), std::make_pair(pubkey, privkey)));
             wss.fIsEncrypted = true;
+        } else if (strType == DBKeys::LOCKED_UTXO) {
+            uint256 hash;
+            uint32_t n;
+            ssKey >> hash;
+            ssKey >> n;
+            pwallet->LockCoin(COutPoint(hash, n));
+        } else if (strType == DBKeys::LOCKED_MWEB) {
+            mw::Hash output_id;
+            ssKey >> output_id;
+            pwallet->LockCoin(output_id);
         } else if (strType != DBKeys::BESTBLOCK && strType != DBKeys::BESTBLOCK_NOMERKLE &&
                    strType != DBKeys::MINVERSION && strType != DBKeys::ACENTRY &&
                    strType != DBKeys::VERSION && strType != DBKeys::SETTINGS) {
