@@ -129,6 +129,7 @@ static const CRPCConvertParam vRPCConvertParams[] =
     { "gettxoutproof", 0, "txids" },
     { "lockunspent", 0, "unlock" },
     { "lockunspent", 1, "transactions" },
+    { "lockunspent", 2, "persistent" },
     { "send", 0, "outputs" },
     { "send", 1, "conf_target" },
     { "send", 3, "fee_rate"},

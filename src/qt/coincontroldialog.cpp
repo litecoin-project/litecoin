@@ -275,7 +275,7 @@ void CoinControlDialog::lockCoin()
     if (contextMenuItem->checkState(COLUMN_CHECKBOX) == Qt::Checked)
         contextMenuItem->setCheckState(COLUMN_CHECKBOX, Qt::Unchecked);
 
-    model->wallet().lockCoin(BuildOutputIndex(contextMenuItem));
+    model->wallet().lockCoin(BuildOutputIndex(contextMenuItem), /* write_to_db = */ true);
     contextMenuItem->setDisabled(true);
     contextMenuItem->setIcon(COLUMN_CHECKBOX, platformStyle->SingleColorIcon(":/icons/lock_closed"));
     updateLabelLocked();

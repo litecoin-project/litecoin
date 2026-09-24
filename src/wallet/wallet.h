@@ -795,8 +795,8 @@ private:
      */
     typedef std::multimap<OutputIndex, uint256> TxSpends;
     TxSpends mapTxSpends GUARDED_BY(cs_wallet);
-    void AddToSpends(const OutputIndex& idx, const uint256& wtxid) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
-    void AddToSpends(const uint256& wtxid) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    void AddToSpends(const OutputIndex& idx, const uint256& wtxid, WalletBatch* batch = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    void AddToSpends(const uint256& wtxid, WalletBatch* batch = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /**
      * Used to keep track of which CWalletTx an MWEB output came from.
@@ -992,9 +992,9 @@ public:
     std::vector<OutputGroup> GroupOutputs(const std::vector<COutputCoin>& outputs, bool single_coin, const size_t max_ancestors) const;
 
     bool IsLockedCoin(const OutputIndex& output) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
-    void LockCoin(const OutputIndex& output) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
-    void UnlockCoin(const OutputIndex& output) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
-    void UnlockAllCoins() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool LockCoin(const OutputIndex& output, WalletBatch* batch = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool UnlockCoin(const OutputIndex& output, WalletBatch* batch = nullptr) EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
+    bool UnlockAllCoins() EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
     void ListLockedCoins(std::vector<OutputIndex>& vOutpts) const EXCLUSIVE_LOCKS_REQUIRED(cs_wallet);
 
     /*

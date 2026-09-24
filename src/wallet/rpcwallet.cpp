@@ -2310,8 +2310,9 @@ static RPCHelpMan lockunspent()
                 "If no transaction outputs are specified when unlocking then all current locked transaction outputs are unlocked.\n"
                 "A locked transaction output will not be chosen by automatic coin selection, when spending litecoins.\n"
                 "Manually selected coins are automatically unlocked.\n"
-                "Locks are stored in memory only. Nodes start with zero locked outputs, and the locked output list\n"
-                "is always cleared (by virtue of process exit) when a node stops or fails.\n"
+                "Locks are stored in memory only, unless persistent=true, in which case they will be written to the\n"
+                "wallet database and loaded on node start. Unwritten (persistent=false) locks are always cleared\n"
+                "(by virtue of process exit) when a node stops or fails. Unlocking will clear both persistent and not.\n"
                 "Also see the listunspent call\n",
                 {
                     {"unlock", RPCArg::Type::BOOL, RPCArg::Optional::NO, "Whether to unlock (true) or lock (false) the specified transactions"},
@@ -2325,6 +2326,7 @@ static RPCHelpMan lockunspent()
                             },
                         },
                     },
+		    {"persistent", RPCArg::Type::BOOL, /* default */ "false", "Whether to write/erase this lock in the wallet database, or keep the change in memory only. Ignored for unlocking."},
                 },
                 RPCResult{
                     RPCResult::Type::BOOL, "", "Whether the command was successful or not"
@@ -2356,10 +2358,11 @@ static RPCHelpMan lockunspent()
     RPCTypeCheckArgument(request.params[0], UniValue::VBOOL);
 
     bool fUnlock = request.params[0].get_bool();
+    const bool persistent{request.params[2].isNull() ? false : request.params[2].get_bool()};
 
     if (request.params[1].isNull()) {
-        if (fUnlock)
-            pwallet->UnlockAllCoins();
+        if (fUnlock && !pwallet->UnlockAllCoins())
+            throw JSONRPCError(RPC_WALLET_ERROR, "Unlocking coins failed");
         return true;
     }
 
@@ -2411,17 +2414,24 @@ static RPCHelpMan lockunspent()
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, expected locked output");
         }
 
-        if (!fUnlock && is_locked) {
+        if (!fUnlock && is_locked && !persistent) {
             throw JSONRPCError(RPC_INVALID_PARAMETER, "Invalid parameter, output already locked");
         }
 
         outputs.push_back(outpt);
     }
 
+    std::unique_ptr<WalletBatch> batch = nullptr;
+    // Unlock is always persistent.
+    if (fUnlock || persistent) batch = std::make_unique<WalletBatch>(pwallet->GetDatabase());
+
     // Atomically set (un)locked status for the outputs.
     for (const COutPoint& outpt : outputs) {
-        if (fUnlock) pwallet->UnlockCoin(outpt);
-        else pwallet->LockCoin(outpt);
+        if (fUnlock) {
+            if (!pwallet->UnlockCoin(outpt, batch.get())) throw JSONRPCError(RPC_WALLET_ERROR, "Unlocking coin failed");
+        } else {
+            if (!pwallet->LockCoin(outpt, batch.get())) throw JSONRPCError(RPC_WALLET_ERROR, "Locking coin failed");
+        }
     }
 
     return true;
@@ -4786,7 +4796,7 @@ static const CRPCCommand commands[] =
     { "wallet",             "listwalletdir",                    &listwalletdir,                 {} },
     { "wallet",             "listwallets",                      &listwallets,                   {} },
     { "wallet",             "loadwallet",                       &loadwallet,                    {"filename", "load_on_startup"} },
-    { "wallet",             "lockunspent",                      &lockunspent,                   {"unlock","transactions"} },
+    { "wallet",             "lockunspent",                      &lockunspent,                   {"unlock","transactions","persistent"} },
     { "wallet",             "removeprunedfunds",                &removeprunedfunds,             {"txid"} },
     { "wallet",             "rescanblockchain",                 &rescanblockchain,              {"start_height", "stop_height"} },
     { "wallet",             "send",                             &send,                          {"outputs","conf_target","estimate_mode","fee_rate","options"} },

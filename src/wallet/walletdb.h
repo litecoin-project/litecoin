@@ -68,6 +68,8 @@ extern const std::string FLAGS;
 extern const std::string HDCHAIN;
 extern const std::string KEY;
 extern const std::string KEYMETA;
+extern const std::string LOCKED_UTXO;
+extern const std::string LOCKED_MWEB;
 extern const std::string MASTER_KEY;
 extern const std::string MINVERSION;
 extern const std::string NAME;
@@ -271,6 +273,9 @@ public:
     bool WriteDescriptor(const uint256& desc_id, const WalletDescriptor& descriptor);
     bool WriteDescriptorDerivedCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index, uint32_t der_index);
     bool WriteDescriptorParentCache(const CExtPubKey& xpub, const uint256& desc_id, uint32_t key_exp_index);
+
+    bool WriteLockedOutput(const OutputIndex& output);
+    bool EraseLockedOutput(const OutputIndex& output);
 
     /// Write destination data key,value tuple to database
     bool WriteDestData(const std::string &address, const std::string &key, const std::string &value);
