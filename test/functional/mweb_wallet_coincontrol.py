@@ -35,6 +35,9 @@ class MWEBWalletCoinControlTest(LitecoinTestFramework):
             [Decimal('1'), Decimal('2'), Decimal('3'), Decimal('4'), Decimal('5')],
         )
 
+        if not self.options.descriptors:
+            self.test_seed_replacement_rejected(funding_node, wallet_node)
+
         self.test_listunspent(wallet_node, coins)
         self.test_locking(funding_node, wallet_node, coins)
         self.test_explicit_inputs(funding_node, wallet_node, coins)
@@ -42,6 +45,35 @@ class MWEBWalletCoinControlTest(LitecoinTestFramework):
         self.test_mixed_inputs(funding_node, wallet_node, coins)
         self.test_createpsbt(funding_node, wallet_node, coins[:3])
         self.test_spent_input(funding_node, wallet_node, coins[-1])
+
+    # Reject both forms of legacy seed rotation, preserve wallet state across restart,
+    # and verify that an existing MWEB output still signs and confirms a spend.
+    def test_seed_replacement_rejected(self, funding_node, wallet_node):
+        coin = self.create_mweb_coins(funding_node, wallet_node, [Decimal('1')])[0]
+        seed = funding_node.dumpprivkey(funding_node.getnewaddress())
+        original_info = wallet_node.getwalletinfo()
+        original_coins = {coin['mweb_out']: coin for coin in wallet_node.listunspent()}
+        for params in ((), (False,), (True, seed), (False, seed)):
+            assert_raises_rpc_error(
+                -4, "Cannot replace the HD seed of an MWEB-enabled wallet",
+                wallet_node.sethdseed, *params,
+            )
+            assert_equal(wallet_node.getwalletinfo(), original_info)
+            assert_equal({coin['mweb_out']: coin for coin in wallet_node.listunspent()}, original_coins)
+
+        self.restart_node(1)
+        self.connect_nodes(0, 1)
+        assert_equal(wallet_node.getwalletinfo()['hdseedid'], original_info['hdseedid'])
+        assert_equal({coin['mweb_out']: coin for coin in wallet_node.listunspent()}, original_coins)
+
+        result = wallet_node.sendall(
+            recipients=[funding_node.getnewaddress()],
+            options={'inputs': [coin['input']], 'add_inputs': False, 'fee_rate': 10},
+        )
+        assert result['complete']
+        self.sync_mempools()
+        self.generate(funding_node, 1, sync_fun=self.sync_all)
+        assert_equal(wallet_node.gettransaction(result['txid'])['confirmations'], 1)
 
     def create_mweb_coins(self, funding_node, wallet_node, amounts):
         payments = []

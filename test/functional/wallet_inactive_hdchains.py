@@ -36,11 +36,13 @@ class InactiveHDChainsTest(BitcoinTestFramework):
         self.start_nodes()
         self.init_wallet(node=0)
 
+    # Rotate the test wallet's seed on a pre-MWEB release, then load it on the
+    # current node to exercise support for historical inactive HD chains.
     def prepare_wallets(self, wallet_basename, encrypt=False):
         self.nodes[0].createwallet(wallet_name=f"{wallet_basename}_base", descriptors=False, blank=True)
-        self.nodes[0].createwallet(wallet_name=f"{wallet_basename}_test", descriptors=False, blank=True)
+        self.nodes[1].createwallet_passthrough(wallet_name=f"{wallet_basename}_test")
         base_wallet = self.nodes[0].get_wallet_rpc(f"{wallet_basename}_base")
-        test_wallet = self.nodes[0].get_wallet_rpc(f"{wallet_basename}_test")
+        test_wallet = self.nodes[1].get_wallet_rpc(f"{wallet_basename}_test")
 
         # Setup both wallets with the same HD seed
         seed = get_generate_key()
@@ -53,6 +55,19 @@ class InactiveHDChainsTest(BitcoinTestFramework):
         else:
             # Generate a new HD seed on the test wallet
             test_wallet.sethdseed()
+
+        if encrypt:
+            self.nodes[1].wait_until_stopped()
+        else:
+            self.stop_node(1)
+        wallet_path = f"regtest/wallets/{wallet_basename}_test"
+        shutil.copytree(
+            os.path.join(self.nodes[1].datadir, wallet_path),
+            os.path.join(self.nodes[0].datadir, wallet_path),
+        )
+        self.start_node(1)
+        self.nodes[0].loadwallet(f"{wallet_basename}_test")
+        test_wallet = self.nodes[0].get_wallet_rpc(f"{wallet_basename}_test")
 
         return base_wallet, test_wallet
 

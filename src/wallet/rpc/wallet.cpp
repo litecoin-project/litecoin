@@ -460,6 +460,7 @@ static RPCHelpMan sethdseed()
     return RPCHelpMan{"sethdseed",
                 "\nSet or generate a new HD wallet seed. Non-HD wallets will not be upgraded to being a HD wallet. Wallets that are already\n"
                 "HD will have a new HD seed set so that new keys added to the keypool will be derived from this new seed.\n"
+                "Replacing an existing HD seed is not supported for MWEB-enabled wallets. Setting an initial seed is allowed.\n"
                 "\nNote that you will need to MAKE A NEW BACKUP of your wallet after setting the HD wallet seed." +
         HELP_REQUIRING_PASSPHRASE,
                 {
@@ -496,6 +497,11 @@ static RPCHelpMan sethdseed()
     }
 
     EnsureWalletIsUnlocked(*pwallet);
+
+    // Legacy MWEB key management cannot retain access to inactive keychains after seed replacement.
+    if (spk_man.IsHDEnabled() && pwallet->CanSupportFeature(FEATURE_MWEB)) {
+        throw JSONRPCError(RPC_WALLET_ERROR, "Cannot replace the HD seed of an MWEB-enabled wallet");
+    }
 
     bool flush_key_pool = true;
     if (!request.params[0].isNull()) {
