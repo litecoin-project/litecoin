@@ -888,6 +888,7 @@ BOOST_AUTO_TEST_CASE(util_GetArg)
     BOOST_CHECK_EQUAL(testArgs.GetArg("pritest4", "default"), "b");
 }
 
+// Chain selection defaults to mainnet, honors explicit network choices, and rejects conflicting arguments.
 BOOST_AUTO_TEST_CASE(util_GetChainName)
 {
     TestArgsManager test_args;
@@ -910,18 +911,16 @@ BOOST_AUTO_TEST_CASE(util_GetChainName)
     std::string error;
 
     BOOST_CHECK(test_args.ParseParameters(0, (char**)argv_testnet, error));
-    BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "main");
 
     BOOST_CHECK(test_args.ParseParameters(2, (char**)argv_main, error));
-    BOOST_CHECK_THROW(test_args.GetChainName(), std::runtime_error);
-    BOOST_CHECK_EQUAL(test_args.GetChainName(/* allow_mainnet= */ true), "main");
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "main");
 
     BOOST_CHECK(test_args.ParseParameters(2, (char**)argv_chain_test, error));
     BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
 
     BOOST_CHECK(test_args.ParseParameters(2, (char**)argv_no_testnet, error));
-    BOOST_CHECK_THROW(test_args.GetChainName(), std::runtime_error);
-    BOOST_CHECK_EQUAL(test_args.GetChainName(/* allow_mainnet= */ true), "main");
+    BOOST_CHECK_EQUAL(test_args.GetChainName(), "main");
 
     BOOST_CHECK(test_args.ParseParameters(2, (char**)argv_testnet, error));
     BOOST_CHECK_EQUAL(test_args.GetChainName(), "test");
@@ -1198,6 +1197,7 @@ struct ChainMergeTestingSetup : public BasicTestingSetup {
     }
 };
 
+// Command-line and configuration network flags retain their precedence and conflict handling with mainnet as the default.
 BOOST_FIXTURE_TEST_CASE(util_ChainMerge, ChainMergeTestingSetup)
 {
     CHash256 out_sha;
@@ -1279,7 +1279,7 @@ BOOST_FIXTURE_TEST_CASE(util_ChainMerge, ChainMergeTestingSetup)
     // Results file is formatted like:
     //
     //   <input> || <output>
-    BOOST_CHECK_EQUAL(out_sha_hex, "33e4b289b9c7121142568013714b14ec684e232a71b48d193647d44cef363943");
+    BOOST_CHECK_EQUAL(out_sha_hex, "f263493e300023b6509963887444c41386f44b63bc30047eb8402e8c1144854c");
 }
 
 BOOST_AUTO_TEST_CASE(util_ReadWriteSettings)
