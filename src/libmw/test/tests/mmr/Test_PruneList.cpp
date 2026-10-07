@@ -27,6 +27,31 @@ BOOST_AUTO_TEST_CASE(PruneList_LargeRanks)
     BOOST_CHECK_THROW(PruneList::Open(m_path_root, 3), FileException);
 }
 
+// Retrying an unpublished generation replaces its mask, including shorter and empty replacements.
+BOOST_AUTO_TEST_CASE(PruneList_ReplacesOrphan)
+{
+    auto list = PruneList::Create(m_path_root);
+    BitSet original(1027);
+    original.set(1026);
+    list->Commit(1, original);
+
+    BitSet replacement(16);
+    replacement.set(3);
+    replacement.set(9);
+    for (int retry = 0; retry < 2; ++retry) {
+        list->Commit(1, replacement);
+        BOOST_CHECK(File(PruneList::GetPath(m_path_root, 1)).ReadBytes() == replacement.bytes());
+        const auto reopened = PruneList::Open(m_path_root, 1);
+        BOOST_CHECK_EQUAL(reopened->GetTotalShift(), 2U);
+        BOOST_CHECK_EQUAL(reopened->GetShift(mmr::Index::At(16)), 2U);
+    }
+
+    list->Commit(1, BitSet{});
+    BOOST_CHECK_EQUAL(File(PruneList::GetPath(m_path_root, 1)).GetSize(), 0U);
+    BOOST_CHECK_EQUAL(PruneList::Open(m_path_root, 1)->GetTotalShift(), 0U);
+}
+
+// Reopened masks translate logical positions by the number of preceding compacted hashes.
 BOOST_AUTO_TEST_CASE(PruneListTest)
 {
     // Bitset: 00100000 01000000 00000000 00110011 11111111 100000000

@@ -90,7 +90,7 @@ BOOST_AUTO_TEST_CASE(PMMR_CompactionStreaming)
     }
 }
 
-// A failed hash-file write leaves the active generation readable and permits retrying the orphaned generation.
+// A failed hash-file write preserves the active generation; retrying its orphaned replacement survives a fresh reopen.
 BOOST_AUTO_TEST_CASE(PMMR_CompactionWriteFailure)
 {
     const FilePath dir(m_path_root / "mmr");
@@ -106,7 +106,55 @@ BOOST_AUTO_TEST_CASE(PMMR_CompactionWriteFailure)
     BOOST_CHECK(disk->Root() == root);
     BOOST_CHECK(PMMR::Open('O', dir, 1, GetDB(), nullptr)->Root() == root);
     target.Remove();
-    BOOST_CHECK(disk->Compact(2, mask, 8)->Root() == root);
+    auto compact = disk->Compact(2, mask, 8);
+    BOOST_CHECK(compact->Root() == root);
+    compact.reset();
+    const auto reopened = PMMR::Open('O', dir, 2, GetDB(), PruneList::Open(dir, 2), 8);
+    BOOST_CHECK_EQUAL(reopened->GetNumLeaves(), 8U);
+    BOOST_CHECK(reopened->Root() == root);
+}
+
+// Retrying compaction overwrites larger orphan masks and hash files, and later appends survive a fresh reopen.
+BOOST_AUTO_TEST_CASE(PMMR_CompactionReplacesOrphans)
+{
+    const FilePath dir(m_path_root / "mmr");
+    auto disk = PMMR::Open('O', dir, 0, GetDB(), nullptr);
+    PMMRCache cache(disk);
+    for (uint8_t i = 0; i < 24; ++i) cache.Add(std::vector<uint8_t>(32, i));
+    cache.Flush(1, nullptr);
+    const auto root = disk->Root();
+
+    File(PruneList::GetPath(dir, 2)).Write(std::vector<uint8_t>(128, 0xff));
+    File(PMMR::GetPath(dir, 'O', 2)).Write(std::vector<uint8_t>(4096, 0xff));
+    BitSet retained(16);
+    retained.set(2);
+    const auto mask = MMRUtil::BuildCompactBitSet(16, retained);
+    auto compact = disk->Compact(2, mask, 16);
+    BOOST_CHECK(compact->Root() == root);
+    compact.reset();
+    auto reopened = PMMR::Open('O', dir, 2, GetDB(), PruneList::Open(dir, 2), 16);
+    BOOST_CHECK_EQUAL(reopened->GetNumLeaves(), 24U);
+    BOOST_CHECK(reopened->Root() == root);
+    BOOST_CHECK_EQUAL(File(PMMR::GetPath(dir, 'O', 2)).GetSize(),
+        (disk->GetNumNodes() - mask.count()) * mw::Hash::size());
+    reopened.reset();
+
+    // Reusing the unpublished generation with more spent leaves must also
+    // remove the tail left by the earlier, larger hash file.
+    const auto smaller_mask = MMRUtil::BuildCompactBitSet(16, BitSet(16));
+    compact = disk->Compact(2, smaller_mask, 16);
+    compact.reset();
+    reopened = PMMR::Open('O', dir, 2, GetDB(), PruneList::Open(dir, 2), 16);
+    BOOST_CHECK_EQUAL(reopened->GetNumLeaves(), 24U);
+    BOOST_CHECK(reopened->Root() == root);
+
+    PMMRCache extended(reopened);
+    extended.Add(std::vector<uint8_t>(32, 24));
+    const auto extended_root = extended.Root();
+    extended.Flush(3, nullptr);
+    const auto final = PMMR::Open('O', dir, 3, GetDB(), PruneList::Open(dir, 2), 16);
+    BOOST_CHECK_EQUAL(final->GetNumLeaves(), 25U);
+    BOOST_CHECK(final->Root() == extended_root);
 }
 
 // Rewinds release removed leaf payloads and hash bytes but retain vector capacity; flushing releases that capacity and preserves the MMR.

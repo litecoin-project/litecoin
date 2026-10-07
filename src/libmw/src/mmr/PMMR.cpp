@@ -143,7 +143,7 @@ PMMR::Ptr PMMR::Compact(const uint32_t file_index, const BitSet& compacted, cons
     prune->Commit(file_index, compacted);
 
     File output(GetPath(m_dir, m_dbPrefix, file_index));
-    output.Write({}); // Truncate any orphan from an interrupted attempt.
+    output.Write(0, {}, true); // Truncate any orphan from an interrupted attempt.
     constexpr size_t CHUNK_SIZE{1024 * 1024};
     std::vector<uint8_t> retained;
     retained.reserve(CHUNK_SIZE);

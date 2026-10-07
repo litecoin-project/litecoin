@@ -430,10 +430,11 @@ BOOST_AUTO_TEST_CASE(spent_history_compaction_lifecycle)
     CheckCoin(*m_cache, history.recent.GetOutputs().front(), 102);
 }
 
-// Failure before metadata publication leaves old files and leaf rows intact; restarting ignores and safely replaces orphan files.
+// Failure before publication preserves the old generation; retrying replaces orphan files and survives another restart.
 BOOST_AUTO_TEST_CASE(spent_history_compaction_unpublished_generation)
 {
     const auto history = PopulateSpentHistory();
+    const auto proofs = Segments(*m_cache->GetMWEBView());
     const auto before = MMRInfoDB(m_db->GetDB()).GetLatest();
     const auto target = LeafSet::GetPath(m_path_root / "mweb", before->index + 1);
     target.CreateDir();
@@ -448,6 +449,9 @@ BOOST_AUTO_TEST_CASE(spent_history_compaction_unpublished_generation)
     m_cache->GetMWEBView()->Compact(history.horizon.block->GetHeader(), history.retained);
     BOOST_CHECK(!LeafDB('O', m_db->GetDB()).Get(mmr::LeafIndex::At(0)));
     CheckRoots(*m_cache, history.tip.block->GetHeader());
+    Reopen(history.tip.block->GetHeader());
+    CheckRoots(*m_cache, history.tip.block->GetHeader());
+    CheckSegments(proofs, *m_cache->GetMWEBView());
 }
 
 // A crash after publishing the new generation but during leaf deletion resumes cleanup without recompacting the files.
