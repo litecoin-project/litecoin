@@ -523,16 +523,12 @@ bool BerkeleyDatabase::Rewrite(const char* pszSkip)
                     }
                 }
                 if (fSuccess) {
-                    DbTxn* txn = env->TxnBegin();
-                    if (!txn) {
+                    Db dbA(env->dbenv.get(), 0);
+                    if (dbA.remove(strFile.c_str(), nullptr, 0))
                         fSuccess = false;
-                    } else if (env->dbenv->dbremove(txn, strFile.c_str(), nullptr, 0) != 0 ||
-                               env->dbenv->dbrename(txn, strFileRes.c_str(), nullptr, strFile.c_str(), 0) != 0) {
-                        txn->abort();
+                    Db dbB(env->dbenv.get(), 0);
+                    if (dbB.rename(strFileRes.c_str(), nullptr, strFile.c_str(), 0))
                         fSuccess = false;
-                    } else if (txn->commit(0) != 0) {
-                        fSuccess = false;
-                    }
                 }
                 if (!fSuccess)
                     LogPrintf("BerkeleyBatch::Rewrite: Failed to rewrite database file %s\n", strFileRes);

@@ -39,8 +39,8 @@ class WalletMigrationTest(LitecoinTestFramework):
             assert_equal(file_magic, b'SQLite format 3\x00')
         assert_equal(self.nodes[0].get_wallet_rpc(wallet_name).getwalletinfo()["format"], "sqlite")
 
-    def create_legacy_wallet(self, wallet_name):
-        self.nodes[0].createwallet(wallet_name=wallet_name)
+    def create_legacy_wallet(self, wallet_name, blank=False):
+        self.nodes[0].createwallet(wallet_name=wallet_name, blank=blank)
         wallet = self.nodes[0].get_wallet_rpc(wallet_name)
         assert_equal(wallet.getwalletinfo()["descriptors"], False)
         assert_equal(wallet.getwalletinfo()["format"], "bdb")
@@ -73,6 +73,8 @@ class WalletMigrationTest(LitecoinTestFramework):
                 return False
             raise
 
+    # Descriptor migration preserves legacy keys, balances and transaction history,
+    # including payments received directly on a seed initialized in a blank wallet.
     def test_basic(self):
         default = self.nodes[0].get_wallet_rpc(self.default_wallet_name)
 
@@ -149,7 +151,7 @@ class WalletMigrationTest(LitecoinTestFramework):
         self.assert_list_txs_equal(basic1.listtransactions(), txs)
 
         self.log.info("Test migration of a wallet with balance received on the seed")
-        basic2 = self.create_legacy_wallet("basic2")
+        basic2 = self.create_legacy_wallet("basic2", blank=True)
         basic2_seed = get_generate_key()
         basic2.sethdseed(True, basic2_seed.privkey)
         assert_equal(basic2.getbalance(), 0)

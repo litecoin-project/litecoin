@@ -79,7 +79,8 @@ BOOST_AUTO_TEST_CASE(getwalletenv_g_dbenvs_free_instance)
     BOOST_CHECK(env_2_a == env_2_b);
 }
 
-BOOST_AUTO_TEST_CASE(rewrite_replaces_database_atomically)
+// Retrying a rewrite discards stale replacement records, skips the requested prefix, and preserves retained records after reopening.
+BOOST_AUTO_TEST_CASE(rewrite_retry_discards_stale_records)
 {
     const fs::path wallet_path = m_args.GetDataDirNet() / "rewrite_wallet";
     DatabaseOptions options;
