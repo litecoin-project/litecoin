@@ -190,7 +190,7 @@ std::vector<MWEBKeyPrefix> MWEBKeyPrefixes()
     return prefixes;
 }
 
-void MigrateMWEBDBValueFormat(CDBWrapper* pDBWrapper)
+void MigrateMWEBDBValueFormat(CDBWrapper* pDBWrapper, const std::function<bool()>& confirm_upgrade)
 {
     if (pDBWrapper == nullptr) {
         return;
@@ -207,6 +207,8 @@ void MigrateMWEBDBValueFormat(CDBWrapper* pDBWrapper)
 
     std::string progress_key;
     bool has_progress = pDBWrapper->Read(MWEB_DB_MIGRATION_PROGRESS_KEY, progress_key);
+    // A committed migration batch has already crossed the upgrade boundary.
+    bool upgrade_confirmed = has_progress || !confirm_upgrade;
     std::vector<uint8_t> progress_raw_key = has_progress ? SerializedStringKey(progress_key) : std::vector<uint8_t>{};
 
     const std::vector<MWEBKeyPrefix> prefixes = MWEBKeyPrefixes();
@@ -255,6 +257,13 @@ void MigrateMWEBDBValueFormat(CDBWrapper* pDBWrapper)
                     throw dbwrapper_error("Failed to migrate legacy MWEB DB row with key " + logical_key.key);
                 }
 
+                if (!upgrade_confirmed) {
+                    if (!confirm_upgrade()) {
+                        throw dbwrapper_error("Node database upgrade cancelled");
+                    }
+                    upgrade_confirmed = true;
+                }
+
                 batch.Write(logical_key.key, RawDBValue(legacy_value.value));
                 last_migrated_key = logical_key.key;
                 ++migrated_count;
@@ -299,9 +308,10 @@ void MigrateMWEBDBValueFormat(CDBWrapper* pDBWrapper)
 CoinsViewDB::Ptr CoinsViewDB::Open(
     const FilePath& datadir,
     const mw::Header::CPtr& pBestHeader,
-    CDBWrapper* pDBWrapper)
+    CDBWrapper* pDBWrapper,
+    const std::function<bool()>& confirm_upgrade)
 {
-    MigrateMWEBDBValueFormat(pDBWrapper);
+    MigrateMWEBDBValueFormat(pDBWrapper, confirm_upgrade);
 
     auto current_mmr_info = MMRInfoDB(pDBWrapper, nullptr).GetLatest();
     if (pBestHeader && !current_mmr_info) {

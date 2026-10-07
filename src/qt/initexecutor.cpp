@@ -5,8 +5,10 @@
 #include <qt/initexecutor.h>
 
 #include <interfaces/node.h>
+#include <node/interface_ui.h>
 #include <util/system.h>
 #include <util/threadnames.h>
+#include <util/translation.h>
 
 #include <exception>
 
@@ -44,7 +46,20 @@ void InitExecutor::initialize()
             util::ThreadRename("qt-init");
             qDebug() << "Running initialization in thread";
             interfaces::BlockAndHeaderTipInfo tip_info;
-            bool rv = m_node.appInitMain(&tip_info);
+            const auto confirm_db_upgrade = [this] {
+                const bilingual_str warning = _(
+                    "This version of Litecoin Core needs to upgrade your node database.\n\n"
+                    "This upgrade is one-way. Older versions of Litecoin Core will not be able to use this database.\n\n"
+                    "To go back, you will need to restore a backup made before this upgrade or download the blockchain again.\n\n"
+                    "Do you want to upgrade now?");
+                const bool accepted = uiInterface.ThreadSafeQuestion(
+                    warning, warning.original, _("Database upgrade").translated,
+                    CClientUIInterface::ICON_WARNING | CClientUIInterface::MODAL |
+                        CClientUIInterface::BTN_OK | CClientUIInterface::BTN_CANCEL);
+                if (!accepted) m_node.startShutdown();
+                return accepted;
+            };
+            bool rv = m_node.appInitMain(&tip_info, confirm_db_upgrade);
             Q_EMIT initializeResult(rv, tip_info);
         } catch (const std::exception& e) {
             handleRunawayException(&e);

@@ -105,7 +105,9 @@ ChainstateLoadResult LoadChainstate(ChainstateManager& chainman, const CacheSize
         chainstate->InitCoinsDB(
             /*cache_size_bytes=*/cache_sizes.coins_db,
             /*in_memory=*/options.coins_db_in_memory,
-            /*should_wipe=*/options.reindex || options.reindex_chainstate);
+            /*should_wipe=*/options.reindex || options.reindex_chainstate,
+            /*leveldb_name=*/"chainstate",
+            options.confirm_db_upgrade);
 
         if (options.coins_error_cb) {
             chainstate->CoinsErrorCatcher().AddReadErrCallback(options.coins_error_cb);

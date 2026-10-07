@@ -7,6 +7,7 @@
 #define BITCOIN_INIT_H
 
 #include <any>
+#include <functional>
 #include <memory>
 #include <string>
 
@@ -66,7 +67,8 @@ bool AppInitInterfaces(node::NodeContext& node);
  * @note This should only be done after daemonization. Call Shutdown() if this function fails.
  * @pre Parameters should be parsed and config file should be read, AppInitLockDataDirectory should have been called.
  */
-bool AppInitMain(node::NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info = nullptr);
+bool AppInitMain(node::NodeContext& node, interfaces::BlockAndHeaderTipInfo* tip_info = nullptr,
+                 const std::function<bool()>& confirm_db_upgrade = {});
 
 /**
  * Register all arguments with the ArgsManager

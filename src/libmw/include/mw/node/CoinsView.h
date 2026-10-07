@@ -9,6 +9,7 @@
 #include <mw/mmr/MMR.h>
 #include <mw/mmr/MMRInfo.h>
 #include <mw/mmr/LeafSet.h>
+#include <functional>
 #include <memory>
 
 // Forward Declarations
@@ -180,7 +181,8 @@ public:
     static CoinsViewDB::Ptr Open(
         const FilePath& datadir,
         const mw::Header::CPtr& pBestHeader,
-        CDBWrapper* pDBWrapper
+        CDBWrapper* pDBWrapper,
+        const std::function<bool()>& confirm_upgrade = {}
     );
 
     bool IsCache() const noexcept final { return false; }

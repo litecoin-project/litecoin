@@ -1677,7 +1677,8 @@ void Chainstate::InitCoinsDB(
     size_t cache_size_bytes,
     bool in_memory,
     bool should_wipe,
-    fs::path leveldb_name)
+    fs::path leveldb_name,
+    const std::function<bool()>& confirm_upgrade)
 {
     if (m_from_snapshot_blockhash) {
         leveldb_name += "_" + m_from_snapshot_blockhash->ToString();
@@ -1700,7 +1701,8 @@ void Chainstate::InitCoinsDB(
     mw::CoinsViewDB::Ptr mweb_dbview = mw::CoinsViewDB::Open(
         FilePath{gArgs.GetDataDirNet()},
         pindex == nullptr ? nullptr : pindex->mweb_header,
-        CoinsDB().GetDB()
+        CoinsDB().GetDB(),
+        confirm_upgrade
     );
     CoinsDB().SetMWEBView(mweb_dbview);
 }

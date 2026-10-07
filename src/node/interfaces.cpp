@@ -100,9 +100,10 @@ public:
 
         return true;
     }
-    bool appInitMain(interfaces::BlockAndHeaderTipInfo* tip_info) override
+    bool appInitMain(interfaces::BlockAndHeaderTipInfo* tip_info,
+                     const std::function<bool()>& confirm_db_upgrade) override
     {
-        return AppInitMain(*m_context, tip_info);
+        return AppInitMain(*m_context, tip_info, confirm_db_upgrade);
     }
     void appShutdown() override
     {

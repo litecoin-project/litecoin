@@ -502,13 +502,15 @@ public:
      * Initialize the CoinsViews UTXO set database management data structures. The in-memory
      * cache is initialized separately.
      *
-     * All parameters forwarded to CoinsViews.
+     * Database parameters are forwarded to CoinsViews. The optional confirmation
+     * runs before converting legacy MWEB records.
      */
     void InitCoinsDB(
         size_t cache_size_bytes,
         bool in_memory,
         bool should_wipe,
-        fs::path leveldb_name = "chainstate");
+        fs::path leveldb_name = "chainstate",
+        const std::function<bool()>& confirm_upgrade = {});
 
     //! Initialize the in-memory coins cache (to be done after the health of the on-disk database
     //! is verified).

@@ -59,6 +59,7 @@ void WriteLegacyMWEBValue(CDBWrapper* pDatabase, const std::string& key, const s
 
 BOOST_FIXTURE_TEST_SUITE(TestCoinDB, MWEBTestingSetup)
 
+// A confirmed upgrade converts legacy MWEB rows once, preserves other records, and does not prompt when reopened.
 BOOST_AUTO_TEST_CASE(MWEBDBValueFormatMigration)
 {
     CDBWrapper* pDatabase = GetDB();
@@ -102,8 +103,19 @@ BOOST_AUTO_TEST_CASE(MWEBDBValueFormatMigration)
         BOOST_REQUIRE(ReadUnformattedValue(pDatabase, invalid_mweb_key, invalid_mweb_raw_before.back()));
     }
 
-    auto pView = mw::CoinsViewDB::Open(m_path_root, nullptr, pDatabase);
+    unsigned int confirmations{0};
+    const auto confirm_upgrade = [&] {
+        ++confirmations;
+        BOOST_CHECK(!pDatabase->Exists(std::string{"mweb/db_format"}));
+        BOOST_CHECK(!pDatabase->Exists(std::string{"mweb/db_migration_progress"}));
+        std::vector<uint8_t> legacy_leaf;
+        BOOST_REQUIRE(pDatabase->Read(std::string{"O0"}, legacy_leaf));
+        BOOST_CHECK(legacy_leaf == leaf_payload);
+        return true;
+    };
+    auto pView = mw::CoinsViewDB::Open(m_path_root, nullptr, pDatabase, confirm_upgrade);
     BOOST_REQUIRE(pView != nullptr);
+    BOOST_CHECK_EQUAL(confirmations, 1U);
 
     std::vector<uint8_t> raw_value;
     BOOST_REQUIRE(ReadUnformattedValue(pDatabase, std::string{"O0"}, raw_value));
@@ -167,13 +179,81 @@ BOOST_AUTO_TEST_CASE(MWEBDBValueFormatMigration)
     std::vector<uint8_t> progress_key;
     BOOST_CHECK(!pDatabase->Read(std::string{"mweb/db_migration_progress"}, progress_key));
 
-    pView = mw::CoinsViewDB::Open(m_path_root, nullptr, pDatabase);
+    pView = mw::CoinsViewDB::Open(m_path_root, nullptr, pDatabase, confirm_upgrade);
     BOOST_REQUIRE(pView != nullptr);
+    BOOST_CHECK_EQUAL(confirmations, 1U);
 
     BOOST_REQUIRE(ReadUnformattedValue(pDatabase, std::string{"O0"}, raw_value));
     BOOST_CHECK(raw_value == leaf_payload);
     BOOST_REQUIRE(ReadUnformattedValue(pDatabase, coin_key, raw_value));
     BOOST_CHECK(raw_value == coin_payload);
+}
+
+// Cancelling before the first conversion leaves the legacy value and migration markers unchanged, so a later attempt can retry.
+BOOST_AUTO_TEST_CASE(MWEBDBValueFormatMigrationCancelled)
+{
+    CDBWrapper* pDatabase = GetDB();
+    const std::vector<uint8_t> payload{3, 7, 8, 9};
+    WriteLegacyMWEBValue(pDatabase, "O0", payload);
+    std::vector<uint8_t> original;
+    BOOST_REQUIRE(ReadUnformattedValue(pDatabase, "O0", original));
+
+    unsigned int confirmations{0};
+    bool accepted{false};
+    const auto confirm_upgrade = [&] {
+        ++confirmations;
+        return accepted;
+    };
+    BOOST_CHECK_THROW(mw::CoinsViewDB::Open(m_path_root, nullptr, pDatabase, confirm_upgrade), dbwrapper_error);
+    BOOST_CHECK_EQUAL(confirmations, 1U);
+    std::vector<uint8_t> current;
+    BOOST_REQUIRE(ReadUnformattedValue(pDatabase, "O0", current));
+    BOOST_CHECK(current == original);
+    BOOST_CHECK(!pDatabase->Exists(std::string{"mweb/db_format"}));
+    BOOST_CHECK(!pDatabase->Exists(std::string{"mweb/db_migration_progress"}));
+
+    accepted = true;
+    BOOST_REQUIRE(mw::CoinsViewDB::Open(m_path_root, nullptr, pDatabase, confirm_upgrade));
+    BOOST_CHECK_EQUAL(confirmations, 2U);
+    BOOST_REQUIRE(ReadUnformattedValue(pDatabase, "O0", current));
+    BOOST_CHECK(current == payload);
+}
+
+// A database without legacy MWEB rows initializes without an upgrade confirmation.
+BOOST_AUTO_TEST_CASE(MWEBDBValueFormatMigrationNoLegacyRows)
+{
+    CDBWrapper* pDatabase = GetDB();
+    unsigned int confirmations{0};
+    BOOST_REQUIRE(mw::CoinsViewDB::Open(m_path_root, nullptr, pDatabase, [&] {
+        ++confirmations;
+        return false;
+    }));
+    BOOST_CHECK_EQUAL(confirmations, 0U);
+}
+
+// A migration with a committed progress marker resumes without another confirmation and finishes converting the remaining rows.
+BOOST_AUTO_TEST_CASE(MWEBDBValueFormatMigrationResumesWithoutConfirmation)
+{
+    CDBWrapper* pDatabase = GetDB();
+    const MMRInfo mmr_info{1, 0, mw::Hash(), 0, std::nullopt};
+    BOOST_REQUIRE(pDatabase->Write(std::string{"M0"}, UnformattedValue(mmr_info.Serialized())));
+    BOOST_REQUIRE(pDatabase->Write(std::string{"mweb/db_migration_progress"}, std::string{"M0"}));
+    const std::vector<uint8_t> payload{3, 7, 8, 9};
+    WriteLegacyMWEBValue(pDatabase, "O0", payload);
+
+    unsigned int confirmations{0};
+    BOOST_REQUIRE(mw::CoinsViewDB::Open(m_path_root, nullptr, pDatabase, [&] {
+        ++confirmations;
+        return false;
+    }));
+    BOOST_CHECK_EQUAL(confirmations, 0U);
+    std::vector<uint8_t> current;
+    BOOST_REQUIRE(ReadUnformattedValue(pDatabase, "O0", current));
+    BOOST_CHECK(current == payload);
+    uint8_t db_format{0};
+    BOOST_REQUIRE(pDatabase->Read(std::string{"mweb/db_format"}, db_format));
+    BOOST_CHECK_EQUAL(db_format, 1);
+    BOOST_CHECK(!pDatabase->Exists(std::string{"mweb/db_migration_progress"}));
 }
 
 BOOST_AUTO_TEST_CASE(MWEBDBValueFormatMigrationFailsOnUndecodableRow)

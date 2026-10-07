@@ -87,7 +87,8 @@ public:
     virtual bool baseInitialize() = 0;
 
     //! Start node.
-    virtual bool appInitMain(interfaces::BlockAndHeaderTipInfo* tip_info = nullptr) = 0;
+    virtual bool appInitMain(interfaces::BlockAndHeaderTipInfo* tip_info = nullptr,
+                            const std::function<bool()>& confirm_db_upgrade = {}) = 0;
 
     //! Stop node.
     virtual void appShutdown() = 0;
