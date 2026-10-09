@@ -4770,7 +4770,8 @@ util::Result<MigrationResult> MigrateLegacyToDescriptor(std::shared_ptr<CWallet>
 
     // Make a backup of the DB
     std::string wallet_name = wallet->GetName();
-    fs::path this_wallet_dir = fs::absolute(fs::PathFromString(wallet->GetDatabase().Filename())).parent_path();
+    const fs::path original_wallet_file = fs::absolute(fs::PathFromString(wallet->GetDatabase().Filename()));
+    fs::path this_wallet_dir = original_wallet_file.parent_path();
     fs::path backup_filename = fs::PathFromString(strprintf("%s-%d.legacy.bak", wallet_name, GetTime()));
     fs::path backup_path = this_wallet_dir / backup_filename;
     if (!wallet->BackupWallet(fs::PathToString(backup_path))) {
@@ -4820,13 +4821,10 @@ util::Result<MigrationResult> MigrateLegacyToDescriptor(std::shared_ptr<CWallet>
         res.wallet_name = wallet_name;
     } else {
         // Migration failed, cleanup
-        // Copy the backup to the actual wallet dir
-        fs::path temp_backup_location = fsbridge::AbsPathJoin(GetWalletDir(), backup_filename);
-        fs::copy_file(backup_path, temp_backup_location, fs::copy_options::none);
-
-        // Remember this wallet's walletdir to remove after unloading
+        // Restore only this wallet's database. Its directory may be shared with
+        // other wallets, and contains the backup we need to keep.
+        const fs::path migrated_wallet_file = fs::PathFromString(local_wallet->GetDatabase().Filename());
         std::vector<fs::path> wallet_dirs;
-        wallet_dirs.push_back(fs::PathFromString(local_wallet->GetDatabase().Filename()).parent_path());
 
         // Unload the wallet locally
         assert(local_wallet.use_count() == 1);
@@ -4851,22 +4849,23 @@ util::Result<MigrationResult> MigrateLegacyToDescriptor(std::shared_ptr<CWallet>
             UnloadWallet(std::move(w));
         }
 
-        // Delete the wallet directories
+        // Delete only the directories of wallets created during migration
         for (fs::path& dir : wallet_dirs) {
             fs::remove_all(dir);
         }
 
-        // Restore the backup
+        // Restore the backup in place and reload the original legacy wallet.
+        // Keep the migration error separate so successful loading cannot replace it.
+        fs::remove(migrated_wallet_file);
+        fs::copy_file(backup_path, original_wallet_file, fs::copy_options::none);
         DatabaseStatus status;
+        bilingual_str restore_error;
         std::vector<bilingual_str> warnings;
-        if (!RestoreWallet(context, temp_backup_location, wallet_name, /*load_on_start=*/std::nullopt, status, error, warnings)) {
+        if (!LoadWallet(context, wallet_name, /*load_on_start=*/std::nullopt, options, status, restore_error, warnings)) {
+            error += Untranslated("\n") + restore_error;
             error += _("\nUnable to restore backup of wallet.");
             return util::Error{error};
         }
-
-        // Move the backup to the wallet dir
-        fs::copy_file(temp_backup_location, backup_path, fs::copy_options::none);
-        fs::remove(temp_backup_location);
 
         return util::Error{error};
     }

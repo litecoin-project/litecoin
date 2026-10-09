@@ -4,6 +4,7 @@
 # file COPYING or http://www.opensource.org/licenses/mit-license.php.
 """Test Migrating a wallet from legacy to descriptor."""
 
+import glob
 import os
 import random
 from decimal import Decimal
@@ -40,7 +41,7 @@ class WalletMigrationTest(LitecoinTestFramework):
         assert_equal(self.nodes[0].get_wallet_rpc(wallet_name).getwalletinfo()["format"], "sqlite")
 
     def create_legacy_wallet(self, wallet_name, blank=False):
-        self.nodes[0].createwallet(wallet_name=wallet_name, blank=blank)
+        self.nodes[0].createwallet(wallet_name=wallet_name, blank=blank, descriptors=False)
         wallet = self.nodes[0].get_wallet_rpc(wallet_name)
         assert_equal(wallet.getwalletinfo()["descriptors"], False)
         assert_equal(wallet.getwalletinfo()["format"], "bdb")
@@ -470,6 +471,65 @@ class WalletMigrationTest(LitecoinTestFramework):
         assert_raises_rpc_error(-15, "Error: migratewallet on encrypted wallets is currently unsupported.", wallet.migratewallet)
         # TODO: Fix migratewallet so that we can actually migrate encrypted wallets
 
+    # Failed migrations restore named and unnamed legacy wallets in place, retain
+    # their backups and unrelated files, and remove only newly created wallets.
+    def test_failed_migration(self):
+        node = self.nodes[0]
+        wallet_dir = os.path.join(node.datadir, "regtest", "wallets")
+
+        for wallet_name in ["", "rollback"]:
+            self.log.info(f"Test rollback of failed migration for wallet {wallet_name!r}")
+            if wallet_name in node.listwallets():
+                wallet = node.get_wallet_rpc(wallet_name)
+            else:
+                wallet = self.create_legacy_wallet(wallet_name)
+            address = wallet.getnewaddress()
+            private_key = wallet.dumpprivkey(address)
+            watched_address = get_generate_key().p2pkh_addr
+            wallet.importaddress(watched_address, rescan=False)
+            wallet.addmultisigaddress(2, [address, get_generate_key().pubkey])
+            balances = wallet.getbalances()
+            transactions = wallet.listtransactions(include_watchonly=True)
+
+            # The watchonly wallet is created before this collision fails migration.
+            collision_name = wallet_name + "_solvables"
+            collision = self.create_legacy_wallet(collision_name)
+            collision_address = collision.getnewaddress()
+            collision_key = collision.dumpprivkey(collision_address)
+            wallet_path = os.path.join(wallet_dir, wallet_name)
+            sentinel = os.path.join(wallet_path, "unrelated.txt")
+            with open(sentinel, "w", encoding="utf8") as f:
+                f.write("preserve this file")
+            backups_before = set(glob.glob(os.path.join(wallet_path, "*.legacy.bak")))
+
+            assert_raises_rpc_error(-4, "Error: Failed to create new watchonly wallet", wallet.migratewallet)
+
+            assert_equal(wallet.getwalletinfo()["format"], "bdb")
+            assert_equal(wallet.getwalletinfo()["descriptors"], False)
+            assert_equal(wallet.dumpprivkey(address), private_key)
+            assert_equal(wallet.getaddressinfo(watched_address)["iswatchonly"], True)
+            assert_equal(wallet.getbalances(), balances)
+            assert_equal(wallet.listtransactions(include_watchonly=True), transactions)
+            assert_equal(collision.dumpprivkey(collision_address), collision_key)
+            assert wallet_name + "_watchonly" not in node.listwallets()
+            assert not os.path.exists(os.path.join(wallet_dir, wallet_name + "_watchonly"))
+            with open(sentinel, encoding="utf8") as f:
+                assert_equal(f.read(), "preserve this file")
+
+            backups = set(glob.glob(os.path.join(wallet_path, "*.legacy.bak"))) - backups_before
+            assert_equal(len(backups), 1)
+            restored_name = wallet_name + "_restored"
+            node.restorewallet(restored_name, backups.pop())
+            restored = node.get_wallet_rpc(restored_name)
+            assert_equal(restored.getwalletinfo()["format"], "bdb")
+            assert_equal(restored.dumpprivkey(address), private_key)
+            node.unloadwallet(restored_name)
+
+            node.unloadwallet(wallet_name)
+            node.loadwallet(wallet_name)
+            assert_equal(wallet.dumpprivkey(address), private_key)
+            assert_equal(wallet.getbalances(), balances)
+
     def run_test(self):
         # TODO: Test the actual records in the wallet for these tests too. The behavior may be correct, but the data written may not be what we actually want
         self.test_mweb()
@@ -479,6 +539,7 @@ class WalletMigrationTest(LitecoinTestFramework):
         self.test_no_privkeys()
         self.test_pk_coinbases()
         self.test_encrypted()
+        self.test_failed_migration()
 
 if __name__ == '__main__':
     WalletMigrationTest().main()
