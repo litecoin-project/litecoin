@@ -4485,7 +4485,21 @@ std::optional<MigrationData> CWallet::GetDescriptorsForLegacy(bilingual_str& err
         return std::nullopt;
     }
 
-    std::optional<MigrationData> res = legacy_spkm->MigrateToDescriptor();
+    std::set<StealthAddress> mweb_addresses;
+    for (const auto& [destination, entry] : m_address_book) {
+        if (!std::holds_alternative<StealthAddress>(destination)) {
+            continue;
+        }
+        const StealthAddress& address = std::get<StealthAddress>(destination);
+        if (legacy_spkm->IsMine(address) == ISMINE_SPENDABLE) {
+            mweb_addresses.insert(address);
+        } else if (entry.purpose == "receive") {
+            error = strprintf(_("Error: MWEB receiving address %s cannot be matched to the wallet's scan and spend keys"), EncodeDestination(destination));
+            return std::nullopt;
+        }
+    }
+
+    std::optional<MigrationData> res = legacy_spkm->MigrateToDescriptor(mweb_addresses);
     if (res == std::nullopt) {
         error = _("Error: Unable to produce descriptors for this legacy wallet. Make sure the wallet is unlocked first");
         return std::nullopt;
@@ -4533,6 +4547,12 @@ bool CWallet::ApplyMigrationData(MigrationData& data, bilingual_str& error)
             // Setup with a new seed if we don't.
             SetupDescriptorScriptPubKeyMans();
         }
+    }
+
+    // Imported MWEB descriptors also need their keychains loaded immediately,
+    // so their coins remain spendable before the wallet is reloaded.
+    for (ScriptPubKeyMan* spkm : GetAllScriptPubKeyMans()) {
+        spkm->LoadMWEBKeychain();
     }
 
     // Check if the transactions in the wallet are still ours. Either they belong here, or they belong in the watchonly wallet.

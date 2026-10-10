@@ -552,8 +552,9 @@ public:
     const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> GetScriptPubKeys() const override;
 
     /** Get the DescriptorScriptPubKeyMans (with private keys) that have the same scriptPubKeys as this LegacyScriptPubKeyMan.
+     * Also preserve owned MWEB addresses supplied by the wallet's address book.
      * Does not modify this ScriptPubKeyMan. */
-    std::optional<MigrationData> MigrateToDescriptor();
+    std::optional<MigrationData> MigrateToDescriptor(const std::set<StealthAddress>& mweb_addresses = {});
     /** Delete all the records ofthis LegacyScriptPubKeyMan from disk*/
     bool DeleteRecords();
 

@@ -462,6 +462,67 @@ class WalletMigrationTest(LitecoinTestFramework):
         self.generate(node, 1)
         self.wait_until(lambda: self.wallet_has_tx(wallet, restart_spend_txid), timeout=30)
 
+    # Migration preserves imported and reimported keys' MWEB addresses, labels,
+    # and funds, including receiving and spending after the wallet is reloaded.
+    def test_imported_mweb(self):
+        node = self.nodes[0]
+        default = node.get_wallet_rpc(self.default_wallet_name)
+
+        for case in ["imported", "reimported"]:
+            wallet_name = "mweb_" + case
+            self.log.info(f"Test migration of {case} MWEB receiving address")
+            wallet = self.create_legacy_wallet(wallet_name)
+            normal_address = wallet.getnewaddress("normal", "mweb")
+            if case == "imported":
+                private_key = get_generate_key().privkey
+            else:
+                private_key = wallet.dumpprivkey(wallet.getnewaddress(address_type="legacy"))
+            wallet.importprivkey(private_key, "imported", False)
+            addresses = wallet.getaddressesbylabel("imported")
+            assert_equal(len(addresses), 4)
+            imported_address = next(address for address in addresses if address.startswith("rmweb1"))
+            for address in addresses:
+                assert_equal(addresses[address]["purpose"], "receive")
+                assert wallet.getaddressinfo(address)["ismine"]
+
+            receive_txid = default.sendtoaddress(imported_address, Decimal("1.0"))
+            self.generate(node, 1)
+            self.wait_until(lambda: self.wallet_has_tx(wallet, receive_txid))
+            balances = wallet.getbalances()
+
+            wallet.migratewallet()
+            self.assert_is_sqlite(wallet_name)
+            assert_equal(wallet.getbalances(), balances)
+            assert_equal(wallet.getaddressesbylabel("imported"), addresses)
+            for address in [normal_address, *addresses]:
+                assert wallet.getaddressinfo(address)["ismine"]
+            descriptors = wallet.listdescriptors()["descriptors"]
+            assert any(desc["desc"].startswith("mweb(") and not desc["active"] and "*" not in desc["desc"] for desc in descriptors)
+
+            # The only funds in this wallet were received through the imported
+            # MWEB address, so this peg-out exercises its migrated spend key.
+            spend_txid = wallet.sendtoaddress(default.getnewaddress(address_type="bech32"), Decimal("0.25"))
+            self.generate(node, 1)
+            assert_equal(wallet.gettransaction(spend_txid)["amount"], Decimal("-0.25"))
+
+            node.unloadwallet(wallet_name)
+            node.loadwallet(wallet_name)
+            assert_equal(wallet.getaddressesbylabel("imported"), addresses)
+            for address in [normal_address, *addresses]:
+                assert wallet.getaddressinfo(address)["ismine"]
+            assert_equal(wallet.gettransaction(receive_txid)["amount"], Decimal("1.0"))
+
+            # Force the next spend to use a new payment to the imported address,
+            # rather than the normal MWEB change left by the earlier peg-out.
+            assert wallet.lockunspent(False, [{"mweb_out": coin["mweb_out"]} for coin in wallet.listunspent()])
+            reload_txid = default.sendtoaddress(imported_address, Decimal("0.5"))
+            self.generate(node, 1)
+            self.wait_until(lambda: self.wallet_has_tx(wallet, reload_txid))
+            assert_equal(wallet.gettransaction(reload_txid)["amount"], Decimal("0.5"))
+            reload_spend_txid = wallet.sendtoaddress(default.getnewaddress(address_type="bech32"), Decimal("0.1"))
+            self.generate(node, 1)
+            assert_equal(wallet.gettransaction(reload_spend_txid)["amount"], Decimal("-0.1"))
+
     def test_encrypted(self):
         self.log.info("Test migration of an encrypted wallet")
         wallet = self.create_legacy_wallet("encrypted")
@@ -533,6 +594,7 @@ class WalletMigrationTest(LitecoinTestFramework):
     def run_test(self):
         # TODO: Test the actual records in the wallet for these tests too. The behavior may be correct, but the data written may not be what we actually want
         self.test_mweb()
+        self.test_imported_mweb()
         self.test_basic()
         self.test_multisig()
         self.test_other_watchonly()

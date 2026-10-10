@@ -665,6 +665,42 @@ BOOST_AUTO_TEST_CASE(legacy_mweb_keychain_load_caches_scan_secret)
     BOOST_CHECK(*scan_secret == *cached_chain.mweb_scan_key);
 }
 
+// A receiving address with the wallet's spend key but a different scan key
+// must be rejected before migration rather than assigned a guessed descriptor.
+BOOST_AUTO_TEST_CASE(legacy_mweb_migration_rejects_mismatched_scan_key)
+{
+    CWallet wallet(m_node.chain.get(), "", m_args, CreateDummyWalletDatabase());
+    wallet.SetupLegacyScriptPubKeyMan();
+    LOCK(wallet.cs_wallet);
+    wallet.LoadMinVersion(FEATURE_MWEB);
+
+    LegacyScriptPubKeyMan* spk_man = wallet.GetLegacyScriptPubKeyMan();
+    BOOST_REQUIRE(spk_man);
+    {
+        LOCK(spk_man->cs_KeyStore);
+        spk_man->SetHDSeed(spk_man->GenerateNewSeed());
+    }
+    spk_man->LoadMWEBKeychain();
+
+    CKey spend_key;
+    spend_key.MakeNewKey(true);
+    BOOST_REQUIRE(wallet.ImportPrivKeys({{spend_key.GetPubKey().GetID(), spend_key}}, 1));
+    CKey other_scan_key;
+    other_scan_key.MakeNewKey(true);
+    const PublicKey spend_pubkey(spend_key.GetPubKey().begin());
+    const StealthAddress address(spend_pubkey.Mul(SecretKey(other_scan_key.begin())), spend_pubkey);
+    BOOST_CHECK(spk_man->IsMine(address) == ISMINE_NO);
+    BOOST_REQUIRE(wallet.SetAddressBook(address, "imported", "receive"));
+
+    bilingual_str error;
+    BOOST_CHECK(!wallet.GetDescriptorsForLegacy(error));
+    BOOST_CHECK(error.original.find("cannot be matched to the wallet's scan and spend keys") != std::string::npos);
+    BOOST_CHECK(!wallet.IsWalletFlagSet(WALLET_FLAG_DESCRIPTORS));
+    CKey retained_key;
+    BOOST_REQUIRE(spk_man->GetKey(spend_key.GetPubKey().GetID(), retained_key));
+    BOOST_CHECK(retained_key == spend_key);
+}
+
 BOOST_AUTO_TEST_CASE(legacy_mweb_ignores_transparent_only_inactive_chain)
 {
     struct KeypoolArgGuard {

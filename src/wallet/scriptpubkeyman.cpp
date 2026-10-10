@@ -2001,7 +2001,7 @@ const std::unordered_set<GenericAddress, SaltedGenericAddressHasher> LegacyScrip
     return spks;
 }
 
-std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
+std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor(const std::set<StealthAddress>& mweb_addresses)
 {
     LOCK(cs_KeyStore);
     if (m_storage.IsLocked()) {
@@ -2011,6 +2011,16 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
     MigrationData out;
 
     std::unordered_set<GenericAddress, SaltedGenericAddressHasher> spks{GetScriptPubKeys()};
+
+    // Imported and reimported transparent keys can also have MWEB receiving
+    // addresses, without an MWEB derivation index in their key metadata.
+    for (const StealthAddress& address : mweb_addresses) {
+        // IsMine verifies both the spend key and the scan-key relationship.
+        if (IsMine(address) != ISMINE_SPENDABLE) {
+            return std::nullopt;
+        }
+        spks.insert(address);
+    }
 
     // Get all key ids
     std::set<CKeyID> keyids;
@@ -2164,14 +2174,21 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
 
         // Get birthdate from script meta
         uint64_t creation_time = 0;
-        const auto& mit = m_script_metadata.find(CScriptID(spk.GetScript()));
-        if (mit != m_script_metadata.end()) {
-            if (mit->second.key_origin.hdkeypath.mweb_index.has_value()) {
-                it = spks.erase(it);
-                continue;
+        if (spk.IsMWEB()) {
+            const auto mit = mapKeyMetadata.find(spk.GetMWEBAddress().GetSpendPubKey().GetID());
+            if (mit != mapKeyMetadata.end()) {
+                creation_time = mit->second.nCreateTime;
             }
+        } else {
+            const auto mit = m_script_metadata.find(CScriptID(spk.GetScript()));
+            if (mit != m_script_metadata.end()) {
+                if (mit->second.key_origin.hdkeypath.mweb_index.has_value()) {
+                    it = spks.erase(it);
+                    continue;
+                }
 
-            creation_time = mit->second.nCreateTime;
+                creation_time = mit->second.nCreateTime;
+            }
         }
 
         // InferDescriptor as that will get us all the solving info if it is there
@@ -2182,16 +2199,25 @@ std::optional<MigrationData> LegacyScriptPubKeyMan::MigrateToDescriptor()
         if (!desc->Expand(0, DUMMY_SIGNING_PROVIDER, scripts, keys)) {
             assert(false);
         }
+        if (spk.IsMWEB() && (scripts.size() != 1 || !(scripts.front() == spk))) {
+            return std::nullopt;
+        }
         std::set<CKeyID> privkeyids;
         for (const auto& key_orig_pair : keys.origins) {
             privkeyids.insert(key_orig_pair.first);
+        }
+        if (spk.IsMWEB()) {
+            privkeyids.insert(spk.GetMWEBAddress().GetSpendPubKey().GetID());
         }
 
         std::vector<GenericAddress> desc_spks;
 
         // Make the descriptor string with private keys
         std::string desc_str;
-        bool watchonly = !desc->ToPrivateString(*this, desc_str);
+        // An inferred MWEB descriptor already embeds the scan secret, which
+        // need not be a standalone legacy key. Classify it by address ownership
+        // rather than asking the legacy keystore to serialize that scan key.
+        bool watchonly = spk.IsMWEB() ? IsMine(spk) != ISMINE_SPENDABLE : !desc->ToPrivateString(*this, desc_str);
         if (watchonly && !m_storage.IsWalletFlagSet(WALLET_FLAG_DISABLE_PRIVATE_KEYS)) {
             out.watch_descs.push_back({desc->ToString(), creation_time});
 
