@@ -7,8 +7,19 @@ Release Process
 
 * Update translations see [translation_process.md](https://github.com/bitcoin/bitcoin/blob/master/doc/translation_process.md#synchronising-translations).
 * Update release candidate version in `configure.ac` (`CLIENT_VERSION_RC`).
-* Update manpages (after rebuilding the binaries), see [gen-manpages.py](https://github.com/bitcoin/bitcoin/blob/master/contrib/devtools/README.md#gen-manpagespy).
-* Update litecoin.conf and commit, see [gen-bitcoin-conf.sh](https://github.com/bitcoin/bitcoin/blob/master/contrib/devtools/README.md#gen-bitcoin-confsh).
+  Release candidates use `CLIENT_VERSION_IS_RELEASE=true`, as do final releases.
+  The package version must match the intended tag without its `v` prefix;
+  for example, `24.0.1-rc1` for `v24.0.1-rc1`. Keep `COPYRIGHT_YEAR` current
+  and use `Litecoin Core` as the package name.
+* Update [release-notes.md](release-notes.md), including upgrade and downgrade
+  instructions and any Litecoin-specific differences from the upstream notes.
+* Update manpages after rebuilding the binaries with
+  [gen-manpages.py](../contrib/devtools/gen-manpages.py).
+* Regenerate `share/examples/litecoin.conf` with
+  [gen-bitcoin-conf.sh](../contrib/devtools/gen-bitcoin-conf.sh).
+* Run `make check` and the functional tests relevant to the release changes.
+  Confirm that all six binaries report the intended release-candidate version.
+  Commit the preparation changes before tagging or starting Guix builds.
 
 ### Before every major and minor release
 
@@ -68,11 +79,18 @@ Release Process
 
 #### Tagging a release (candidate)
 
-To tag the version (or release candidate) in git, use the `make-tag.py` script from [bitcoin-maintainer-tools](https://github.com/bitcoin-core/bitcoin-maintainer-tools). From the root of the repository run:
+Commit the preparation changes and confirm that `git status --short` is empty.
+Check that the package version in `configure.ac` and the version reported by
+the rebuilt binaries match the tag without its `v` prefix. For example, to
+create and verify the signed release-candidate tag:
 
-    ../bitcoin-maintainer-tools/make-tag.py v(new version, e.g. 23.0)
+```sh
+git tag -s v24.0.1-rc1 -m "Litecoin Core 24.0.1-rc1"
+git verify-tag v24.0.1-rc1
+```
 
-This will perform a few last-minute consistency checks in the build system files, and if they pass, create a signed tag.
+Run Guix builds from this clean, tagged tree so that artifact names and binary
+version strings identify the same release candidate.
 
 ## Building
 

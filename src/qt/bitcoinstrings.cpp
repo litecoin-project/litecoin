@@ -11,12 +11,12 @@
 static const char UNUSED *bitcoin_strings[] = {
 QT_TRANSLATE_NOOP("bitcoin-core", "The %s developers"),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
-"%s corrupt. Try using the wallet tool litecoin-wallet to salvage or restoring "
-"a backup."),
+"%s corrupt. Try using the wallet tool litecoin-wallet to salvage or "
+"restoring a backup."),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
 "%s request to listen on port %u. This port is considered \"bad\" and thus it "
-"is unlikely that any Bitcoin Core peers connect to it. See doc/p2p-bad-ports."
-"md for details and a full list."),
+"is unlikely that any Litecoin Core peers connect to it. See doc/p2p-bad-"
+"ports.md for details and a full list."),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
 "-maxtxfee is set very high! Fees this large could be paid on a single "
 "transaction."),
@@ -74,7 +74,13 @@ QT_TRANSLATE_NOOP("bitcoin-core", ""
 "corrupted."),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
 "Error: Legacy wallets only support the \"legacy\", \"p2sh-segwit\", "
+"\"bech32\", and \"mweb\"  address types"),
+QT_TRANSLATE_NOOP("bitcoin-core", ""
+"Error: Legacy wallets only support the \"legacy\", \"p2sh-segwit\", "
 "\"bech32\", and \"mweb\" address types"),
+QT_TRANSLATE_NOOP("bitcoin-core", ""
+"Error: MWEB receiving address %s cannot be matched to the wallet's scan and "
+"spend keys"),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
 "Error: Transaction %s in wallet cannot be identified to belong to migrated "
 "wallets"),
@@ -112,12 +118,18 @@ QT_TRANSLATE_NOOP("bitcoin-core", ""
 "No wallet file format provided. To use createfromdump, -format=<format> must "
 "be provided."),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
+"Outbound connections restricted to CJDNS (-onlynet=cjdns) but -"
+"cjdnsreachable is not provided"),
+QT_TRANSLATE_NOOP("bitcoin-core", ""
 "Outbound connections restricted to Tor (-onlynet=onion) but the proxy for "
 "reaching the Tor network is explicitly forbidden: -onion=0"),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
 "Outbound connections restricted to Tor (-onlynet=onion) but the proxy for "
 "reaching the Tor network is not provided: none of -proxy, -onion or -"
 "listenonion is given"),
+QT_TRANSLATE_NOOP("bitcoin-core", ""
+"Outbound connections restricted to i2p (-onlynet=i2p) but -i2psam is not "
+"provided"),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
 "Please check that your computer's date and time are correct! If your clock "
 "is wrong, %s will not work properly."),
@@ -164,6 +176,16 @@ QT_TRANSLATE_NOOP("bitcoin-core", ""
 "at this level"),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
 "This is the transaction fee you may pay when fee estimates are not available."),
+QT_TRANSLATE_NOOP("bitcoin-core", ""
+"This version of Litecoin Core needs to upgrade your node database.\n"
+"\n"
+"This upgrade is one-way. Older versions of Litecoin Core will not be able to "
+"use this database.\n"
+"\n"
+"To go back, you will need to restore a backup made before this upgrade or "
+"download the blockchain again.\n"
+"\n"
+"Do you want to upgrade now?"),
 QT_TRANSLATE_NOOP("bitcoin-core", ""
 "Total length of network version string (%i) exceeds maximum length (%i). "
 "Reduce the number or size of uacomments."),
@@ -220,6 +242,7 @@ QT_TRANSLATE_NOOP("bitcoin-core", "Copyright (C) %i-%i"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Corrupted block database detected"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Could not find asmap file %s"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Could not parse asmap file %s"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Database upgrade"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Disk space is too low!"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Do you want to rebuild the block database now?"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Done loading"),
@@ -235,6 +258,7 @@ QT_TRANSLATE_NOOP("bitcoin-core", "Error loading block database"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error opening block database"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error reading from database, shutting down."),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error reading next record from wallet database"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Error: Cannot extract destination from the generated scriptpubkey"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Could not add watchonly tx to watchonly wallet"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Could not delete watchonly transactions"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Couldn't create cursor into database"),
@@ -244,6 +268,7 @@ QT_TRANSLATE_NOOP("bitcoin-core", "Error: Failed to create new watchonly wallet"
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Got key that was not hex: %s"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Got value that was not hex: %s"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Keypool ran out, please call keypoolrefill first"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Error: MWEB addresses require an HD wallet"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Missing checksum"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: No %s addresses available."),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Not all watchonly txs could be deleted"),
@@ -255,8 +280,13 @@ QT_TRANSLATE_NOOP("bitcoin-core", "Error: Unable to parse version %u as a uint32
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Unable to read all records in the database"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Unable to remove watchonly address book data"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Error: Unable to write record to new wallet"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Failed to calculate transaction fee"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Failed to determine MWEB change output ID"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Failed to determine MWEB change output position"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Failed to listen on any port. Use -listen=0 if you want this."),
+QT_TRANSLATE_NOOP("bitcoin-core", "Failed to prepare MWEB inputs for signing"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Failed to rescan the wallet during initialization"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Failed to retrieve change stealth address"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Failed to verify database"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Fee rate (%s) is lower than the minimum fee rate setting (%s)"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Ignoring duplicate -wallet %s."),
@@ -279,6 +309,7 @@ QT_TRANSLATE_NOOP("bitcoin-core", "Loading P2P addresses…"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Loading banlist…"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Loading block index…"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Loading wallet…"),
+QT_TRANSLATE_NOOP("bitcoin-core", "MWEB change is incompatible with this transaction type"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Missing amount"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Missing solving data for estimating transaction size"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Need to specify a port with -whitebind: '%s'"),
@@ -311,7 +342,9 @@ QT_TRANSLATE_NOOP("bitcoin-core", "This is the transaction fee you will pay if y
 QT_TRANSLATE_NOOP("bitcoin-core", "Transaction amount too small"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Transaction amounts must not be negative"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Transaction change output index out of range"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Transaction has an invalid MWEB output amount"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Transaction has too long of a mempool chain"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Transaction is missing peg-in output"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Transaction must have at least one recipient"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Transaction needs a change address, but we can't generate it."),
 QT_TRANSLATE_NOOP("bitcoin-core", "Transaction too large"),
@@ -319,13 +352,13 @@ QT_TRANSLATE_NOOP("bitcoin-core", "Unable to allocate memory for -maxsigcachesiz
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to bind to %s on this computer (bind returned error %s)"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to bind to %s on this computer. %s is probably already running."),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to create the PID file '%s': %s"),
-QT_TRANSLATE_NOOP("bitcoin-core", "Unable to find UTXO for external input"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to generate initial keys"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to generate keys"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to open %s for writing"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to parse -maxuploadtarget: '%s'"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to start HTTP server. See debug log for details."),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unable to unload the wallet before migrating"),
+QT_TRANSLATE_NOOP("bitcoin-core", "Unable to write HD chain"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unknown -blockfilterindex value %s."),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unknown address type '%s'"),
 QT_TRANSLATE_NOOP("bitcoin-core", "Unknown change type '%s'"),

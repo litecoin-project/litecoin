@@ -68,9 +68,11 @@ def parse_config_into_btc_config():
     config_info = [c for c in config_info if not c.startswith("COPYRIGHT_HOLDERS")]
 
     config_dict = dict(item.split(", ") for item in config_info)
-    config_dict["PACKAGE_VERSION"] = f"\"{config_dict['CLIENT_VERSION_MAJOR']}.{config_dict['CLIENT_VERSION_MINOR']}.{config_dict['CLIENT_VERSION_BUILD']}\""
-    version = config_dict["PACKAGE_VERSION"].strip('"')
-    config_dict["PACKAGE_STRING"] = f"\"Bitcoin Core {version}\""
+    version = f"{config_dict['CLIENT_VERSION_MAJOR']}.{config_dict['CLIENT_VERSION_MINOR']}.{config_dict['CLIENT_VERSION_BUILD']}"
+    if config_dict["CLIENT_VERSION_RC"] != "0":
+        version += f"-rc{config_dict['CLIENT_VERSION_RC']}"
+    config_dict["PACKAGE_VERSION"] = f"\"{version}\""
+    config_dict["PACKAGE_STRING"] = f"\"Litecoin Core {version}\""
 
     with open(os.path.join(SOURCE_DIR,'../build_msvc/bitcoin_config.h.in'), "r", encoding="utf8") as template_file:
         template = template_file.readlines()
