@@ -36,12 +36,6 @@ public:
 };
 
 /**
- * Default setting for -datacarriersize. 80 bytes of data, +1 for OP_RETURN,
- * +2 for the pushdata opcodes.
- */
-static const unsigned int MAX_OP_RETURN_RELAY = 83;
-
-/**
  * Mandatory script verification flags that all new blocks must comply with for
  * them to be valid. (but old blocks may not comply with) Currently just P2SH,
  * but in the future other flags may be added.

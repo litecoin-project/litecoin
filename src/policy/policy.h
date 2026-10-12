@@ -25,6 +25,8 @@ static constexpr unsigned int DEFAULT_BLOCK_MAX_WEIGHT{MAX_BLOCK_WEIGHT - 4000};
 static constexpr unsigned int DEFAULT_BLOCK_MIN_TX_FEE{1000};
 /** The maximum weight for transactions we're willing to relay/mine */
 static constexpr unsigned int MAX_STANDARD_TX_WEIGHT{400000};
+/** Default aggregate size of main-chain OP_RETURN scriptPubKeys for -datacarriersize. */
+static constexpr unsigned int MAX_OP_RETURN_RELAY{MAX_STANDARD_TX_WEIGHT / WITNESS_SCALE_FACTOR};
 /** The minimum non-witness size for transactions we're willing to relay/mine (1 segwit input + 1 P2WPKH output = 82 bytes) */
 static constexpr unsigned int MIN_STANDARD_TX_NONWITNESS_SIZE{82};
 /** Maximum number of signature check operations in an IsStandard() P2SH script */
@@ -107,7 +109,7 @@ CAmount GetDustThreshold(const CTxOut& txout, const CFeeRate& dustRelayFee);
 
 bool IsDust(const CTxOut& txout, const CFeeRate& dustRelayFee);
 
-bool IsStandard(const CScript& scriptPubKey, const std::optional<unsigned>& max_datacarrier_bytes, TxoutType& whichType);
+bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType);
 
 
 // Changing the default transaction version requires a two step process: first

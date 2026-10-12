@@ -413,18 +413,51 @@ BOOST_AUTO_TEST_CASE(pegout_dust_threshold_is_inclusive)
     Accept(Spend(funding, MWEB_FEE, {{threshold, P2WSH_OP_TRUE}}));
 }
 
-// Data-carrier peg-outs share the canonical script-size limit, including the OP_RETURN and push-data bytes.
+// Data-carrier peg-outs keep the 83-byte script limit even with the larger main-chain default.
 BOOST_AUTO_TEST_CASE(pegout_datacarrier_size_boundary)
 {
     const auto funding = FundMWEB();
     BOOST_REQUIRE(m_pool.m_max_datacarrier_bytes.has_value());
-    const auto limit = *m_pool.m_max_datacarrier_bytes;
+    BOOST_REQUIRE_GT(*m_pool.m_max_datacarrier_bytes, MWEB::MAX_PEGOUT_OP_RETURN_RELAY);
+    const auto limit = MWEB::MAX_PEGOUT_OP_RETURN_RELAY;
     const CScript at_limit = CScript() << OP_RETURN << std::vector<uint8_t>(limit - 3, 1);
     const CScript too_large = CScript() << OP_RETURN << std::vector<uint8_t>(limit - 2, 1);
     BOOST_REQUIRE_EQUAL(at_limit.size(), limit);
     BOOST_REQUIRE_EQUAL(too_large.size(), limit + 1);
     Reject(Spend(funding, MWEB_FEE, {{0, too_large}}), TxValidationResult::TX_NOT_STANDARD, "scriptpubkey");
     Accept(Spend(funding, MWEB_FEE, {{0, at_limit}}));
+}
+
+// Lower configured limits still restrict peg-outs; raising the main-chain budget never permits peg-out scripts over 83 bytes.
+BOOST_AUTO_TEST_CASE(pegout_datacarrier_configured_limits)
+{
+    const auto funding = FundMWEB();
+    const auto small = Spend(funding, MWEB_FEE, {{0, CScript() << OP_RETURN << OP_1}});
+    const auto oversized = Spend(funding, MWEB_FEE, {{0, CScript() << OP_RETURN << std::vector<uint8_t>(81, 1)}});
+    RequireContextFreeValid(small);
+    RequireContextFreeValid(oversized);
+    std::string reason;
+    BOOST_CHECK(!IsStandardTx(CTransaction{small}, 1, true, m_pool.m_dust_relay_feerate, reason));
+    BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+    reason.clear();
+    BOOST_CHECK(IsStandardTx(CTransaction{small}, 2, true, m_pool.m_dust_relay_feerate, reason));
+    BOOST_CHECK(reason.empty());
+    for (const unsigned int limit : {83U, MAX_OP_RETURN_RELAY, 2 * MAX_OP_RETURN_RELAY}) {
+        reason.clear();
+        BOOST_CHECK(!IsStandardTx(CTransaction{oversized}, limit, true, m_pool.m_dust_relay_feerate, reason));
+        BOOST_CHECK_EQUAL(reason, "scriptpubkey");
+    }
+}
+
+// Hybrids with ordinary peg-outs may carry multiple large main-chain OP_RETURNs within the canonical aggregate budget.
+BOOST_AUTO_TEST_CASE(mainchain_datacarriers_with_spendable_pegout)
+{
+    auto tx = Pegin(MWEB_FEE, {{COIN, P2WSH_OP_TRUE}});
+    tx.vout.emplace_back(0, CScript() << OP_RETURN << std::vector<uint8_t>(1'000, 1));
+    tx.vout.emplace_back(0, CScript() << OP_RETURN << std::vector<uint8_t>(1'000, 2));
+    tx = FundCanonical(tx);
+    RequireContextFreeValid(tx);
+    Accept(tx, CANONICAL_FEE + MWEB_FEE);
 }
 
 // Two data-carrier peg-outs are nonstandard even when they are carried by different kernels of an aggregate.

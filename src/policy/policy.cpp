@@ -68,7 +68,7 @@ bool IsDust(const CTxOut& txout, const CFeeRate& dustRelayFeeIn)
     return (txout.nValue < GetDustThreshold(txout, dustRelayFeeIn));
 }
 
-bool IsStandard(const CScript& scriptPubKey, const std::optional<unsigned>& max_datacarrier_bytes, TxoutType& whichType)
+bool IsStandard(const CScript& scriptPubKey, TxoutType& whichType)
 {
     std::vector<std::vector<unsigned char> > vSolutions;
     whichType = Solver(scriptPubKey, vSolutions);
@@ -83,10 +83,6 @@ bool IsStandard(const CScript& scriptPubKey, const std::optional<unsigned>& max_
             return false;
         if (m < 1 || m > n)
             return false;
-    } else if (whichType == TxoutType::NULL_DATA) {
-        if (!max_datacarrier_bytes || scriptPubKey.size() > *max_datacarrier_bytes) {
-            return false;
-        }
     }
 
     return true;
@@ -129,33 +125,54 @@ bool IsStandardTx(const CTransaction& tx, const std::optional<unsigned>& max_dat
         }
     }
 
-    // MWEB: Also check pegout scripts
-    std::vector<CTxOut> txouts = tx.vout;
-    for (const PegOutCoin& pegout : tx.mweb_tx.GetPegOuts()) {
-        txouts.push_back(CTxOut(pegout.GetAmount(), pegout.GetScriptPubKey()));
-    }
-
+    unsigned int datacarrier_bytes_left = max_datacarrier_bytes.value_or(0);
     unsigned int nDataOut = 0;
-    TxoutType whichType;
-    for (const CTxOut& txout : txouts) {
-        if (!::IsStandard(txout.scriptPubKey, max_datacarrier_bytes, whichType)) {
+    bool has_pegout_data = false;
+    const auto check_output = [&](const CTxOut& txout, bool is_pegout) {
+        TxoutType whichType;
+        if (!::IsStandard(txout.scriptPubKey, whichType)) {
             reason = "scriptpubkey";
             return false;
         }
 
-        if (whichType == TxoutType::NULL_DATA)
-            nDataOut++;
-        else if ((whichType == TxoutType::MULTISIG) && (!permit_bare_multisig)) {
+        if (whichType == TxoutType::NULL_DATA) {
+            if (is_pegout) {
+                // MWEB peg-outs keep their previous policy, even when main-chain limits are raised.
+                if (!max_datacarrier_bytes || txout.scriptPubKey.size() > std::min(*max_datacarrier_bytes, MWEB::MAX_PEGOUT_OP_RETURN_RELAY)) {
+                    reason = "scriptpubkey";
+                    return false;
+                }
+                has_pegout_data = true;
+            } else {
+                // Count script bytes, including OP_RETURN and push opcodes, but not output serialization overhead.
+                const auto size = txout.scriptPubKey.size();
+                if (size > datacarrier_bytes_left) {
+                    reason = "datacarrier";
+                    return false;
+                }
+                datacarrier_bytes_left -= size;
+            }
+            ++nDataOut;
+        } else if ((whichType == TxoutType::MULTISIG) && (!permit_bare_multisig)) {
             reason = "bare-multisig";
             return false;
         } else if (IsDust(txout, dust_relay_fee)) {
             reason = "dust";
             return false;
         }
+        return true;
+    };
+
+    for (const CTxOut& txout : tx.vout) {
+        if (!check_output(txout, /*is_pegout=*/false)) return false;
+    }
+    // MWEB: Preserve script-type, bare-multisig and dust checks for all peg-outs.
+    for (const PegOutCoin& pegout : tx.mweb_tx.GetPegOuts()) {
+        if (!check_output(CTxOut{pegout.GetAmount(), pegout.GetScriptPubKey()}, /*is_pegout=*/true)) return false;
     }
 
-    // only one OP_RETURN txout is permitted
-    if (nDataOut > 1) {
+    // A peg-out OP_RETURN must still be the transaction's only data-carrier output.
+    if (has_pegout_data && nDataOut > 1) {
         reason = "multi-op-return";
         return false;
     }

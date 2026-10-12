@@ -692,6 +692,8 @@ UniValue MempoolInfoToJSON(const CTxMemPool& pool)
     ret.pushKV("unbroadcastcount", uint64_t{pool.GetUnbroadcastTxs().size()});
     ret.pushKV("enablerbf", pool.m_enable_rbf);
     ret.pushKV("fullrbf", pool.m_full_rbf);
+    ret.pushKV("permitbaremultisig", pool.m_permit_bare_multisig);
+    ret.pushKV("maxdatacarriersize", pool.m_max_datacarrier_bytes.value_or(0));
     return ret;
 }
 
@@ -715,6 +717,8 @@ static RPCHelpMan getmempoolinfo()
                 {RPCResult::Type::NUM, "unbroadcastcount", "Current number of transactions that haven't passed initial broadcast yet"},
                 {RPCResult::Type::BOOL, "enablerbf", "True if the mempool accepts opt-in RBF"},
                 {RPCResult::Type::BOOL, "fullrbf", "True if the mempool accepts RBF without replaceability signaling inspection"},
+                {RPCResult::Type::BOOL, "permitbaremultisig", "True if the mempool accepts transactions with bare multisig outputs"},
+                {RPCResult::Type::NUM, "maxdatacarriersize", "Maximum total size of main-chain OP_RETURN scriptPubKeys per transaction (0 if disabled). MWEB peg-outs remain limited to 83 bytes and must be the transaction's only OP_RETURN"},
             }},
         RPCExamples{
             HelpExampleCli("getmempoolinfo", "")

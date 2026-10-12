@@ -48,8 +48,10 @@ struct MemPoolOptions {
      * A data carrying output is an unspendable output containing data. The script
      * type is designated as TxoutType::NULL_DATA.
      *
-     * Maximum size of TxoutType::NULL_DATA scripts that this node considers standard.
-     * If nullopt, any size is nonstandard.
+     * Maximum aggregate size of main-chain TxoutType::NULL_DATA scripts that this node
+     * considers standard. MWEB peg-outs retain their separate 83-byte and single-output
+     * restrictions, and also respect a smaller configured limit. If nullopt, all data
+     * carriers are nonstandard.
      */
     std::optional<unsigned> max_datacarrier_bytes{DEFAULT_ACCEPT_DATACARRIER ? std::optional{MAX_OP_RETURN_RELAY} : std::nullopt};
     bool permit_bare_multisig{DEFAULT_PERMIT_BAREMULTISIG};

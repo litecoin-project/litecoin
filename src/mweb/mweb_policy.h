@@ -7,6 +7,9 @@ class CTransaction;
 
 namespace MWEB {
 
+/** Peg-out data carriers retain the 83-byte script limit, including OP_RETURN and push opcodes. */
+static constexpr unsigned int MAX_PEGOUT_OP_RETURN_RELAY{83};
+
 class Policy
 {
 public:
