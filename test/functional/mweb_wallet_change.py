@@ -26,16 +26,12 @@ class MWEBWalletChangeTest(LitecoinTestFramework):
         return [item for item in wallet.listdescriptors(private)['descriptors'] if item['desc'].startswith('mweb(')]
 
     def import_descriptors(self, wallet, descriptors):
-        requests = []
-        for item in descriptors:
-            request = {key: item[key] for key in ('desc', 'active', 'internal', 'range')}
-            request.update(timestamp=0, next_index=item['next'])
-            requests.append(request)
+        requests = [dict(item, timestamp=0) for item in descriptors]
         results = wallet.importdescriptors(requests)
         assert all(item['success'] for item in results), results
 
     def next_change_index(self, wallet):
-        return next(item['next'] for item in self.descriptors(wallet) if item['active'] and item['internal'])
+        return next(item['next_index'] for item in self.descriptors(wallet) if item['active'] and item['internal'])
 
     def coin_at(self, wallet, address):
         coins = wallet.listunspent(addresses=[address])
@@ -77,6 +73,7 @@ class MWEBWalletChangeTest(LitecoinTestFramework):
             assert all(item.get('address') != change_address for item in transaction['details'])
         return self.coin_at(signer, change_address)
 
+    # Verify fresh MWEB change remains spendable and recoverable from directly imported descriptor exports.
     def run_test(self):
         miner = self.nodes[0]
         owner = self.nodes[1].get_wallet_rpc(self.default_wallet_name)
@@ -105,7 +102,7 @@ class MWEBWalletChangeTest(LitecoinTestFramework):
         self.generate(miner, 1, sync_fun=self.sync_all)
 
         self.log.info('A locked wallet can fund MWEB change without consuming receive addresses')
-        receive_next = next(item['next'] for item in self.descriptors(owner) if not item['internal'])
+        receive_next = next(item['next_index'] for item in self.descriptors(owner) if not item['internal'])
         source = self.coin_at(owner, transparent)
         recipient = miner.getnewaddress(address_type='mweb')
         funded = owner.walletcreatefundedpsbt([{'txid': source['txid'], 'vout': source['vout']}], {recipient: Decimal('1')})
@@ -113,7 +110,7 @@ class MWEBWalletChangeTest(LitecoinTestFramework):
         address = decoded['outputs'][funded['changepos']]['mweb']['address']
         assert owner.getaddressinfo(address)['ischange']
         self.change_addresses.add(address)
-        assert_equal(next(item['next'] for item in self.descriptors(owner) if not item['internal']), receive_next)
+        assert_equal(next(item['next_index'] for item in self.descriptors(owner) if not item['internal']), receive_next)
         owner.walletpassphrase('passphrase', 10000)
 
         self.log.info('Pegins, MWEB payments, and pegouts use fresh, spendable change')

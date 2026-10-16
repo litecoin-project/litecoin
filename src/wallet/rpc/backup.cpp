@@ -21,6 +21,7 @@
 #include <wallet/rpc/util.h>
 #include <wallet/wallet.h>
 
+#include <algorithm>
 #include <cstdint>
 #include <fstream>
 #include <tuple>
@@ -1754,7 +1755,7 @@ RPCHelpMan listdescriptors()
                         {RPCResult::Type::NUM, "", "Range start inclusive"},
                         {RPCResult::Type::NUM, "", "Range end inclusive"},
                     }},
-                    {RPCResult::Type::NUM, "next", /*optional=*/true, "The next index to generate addresses from; defined only for ranged descriptors"},
+                    {RPCResult::Type::NUM, "next_index", /*optional=*/true, "The next index to generate addresses from; defined only for ranged descriptors"},
                 }},
             }}
         }},
@@ -1801,6 +1802,11 @@ RPCHelpMan listdescriptors()
         if (!desc_spk_man->GetDescriptorString(descriptor, priv)) {
             throw JSONRPCError(RPC_WALLET_ERROR, "Can't get descriptor string.");
         }
+        // Make both public and private exports safe to paste into a single-quoted
+        // importdescriptors argument, without changing the stored descriptor.
+        descriptor = descriptor.substr(0, descriptor.find('#'));
+        std::replace(descriptor.begin(), descriptor.end(), '\'', 'h');
+        descriptor += '#' + GetDescriptorChecksum(descriptor);
         const bool is_range = wallet_descriptor.descriptor->IsRange();
         wallet_descriptors.push_back({
             descriptor,
@@ -1828,9 +1834,11 @@ RPCHelpMan listdescriptors()
         if (info.range.has_value()) {
             UniValue range(UniValue::VARR);
             range.push_back(info.range->first);
-            range.push_back(info.range->second - 1);
+            // Include the next unused index when the keypool is exhausted so
+            // the exported range passes importdescriptors' next_index check.
+            range.push_back(std::max(info.range->second - 1, info.next_index));
             spk.pushKV("range", range);
-            spk.pushKV("next", info.next_index);
+            spk.pushKV("next_index", info.next_index);
         }
         descriptors.push_back(spk);
     }

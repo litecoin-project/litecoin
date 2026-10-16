@@ -38,6 +38,7 @@ static const CRPCCommand vRPCCommands[] = {
     {"rpcNestedTest", &rpcNestedTest_rpc},
 };
 
+// Check nested calls, argument quoting, JSON conversion, and sensitive-command filtering.
 void RPCNestedTests::rpcNestedTests()
 {
     // do some test setup
@@ -80,6 +81,28 @@ void RPCNestedTests::rpcNestedTests()
     QVERIFY(result == result2);
     RPCConsole::RPCExecuteCommandLine(m_node, result2, "createrawtransaction( [],  {} , 0   )"); //whitespace between parameters is allowed
     QVERIFY(result == result2);
+
+    // Hardened key origins must survive console quoting and JSON conversion.
+    const std::string descriptor_request = R"json([{"desc":"mweb([d34db33f/0'/100'/0']scan,[d34db33f/0'/100'/1']spend,*)","timestamp":0,"active":true,"internal":false,"range":[0,2019]}])json";
+    const std::string quoted_descriptor_request = R"json("[{\"desc\":\"mweb([d34db33f/0'/100'/0']scan,[d34db33f/0'/100'/1']spend,*)\",\"timestamp\":0,\"active\":true,\"internal\":false,\"range\":[0,2019]}]")json";
+    RPCConsole::RPCExecuteCommandLine(m_node, result, "echojson " + quoted_descriptor_request);
+    UniValue descriptor_result;
+    QVERIFY(descriptor_result.read(result));
+    QVERIFY(descriptor_result.size() == 1);
+    QVERIFY(descriptor_result[0].write() == descriptor_request);
+
+    // Single quotes around JSON collide with apostrophes inside the descriptor.
+    QVERIFY_EXCEPTION_THROWN(RPCConsole::RPCExecuteCommandLine(m_node, result, "importdescriptors '" + descriptor_request + "'"), std::runtime_error);
+
+    // The alternative hardened marker h allows single-quoted JSON.
+    std::string descriptor_request_h = descriptor_request;
+    for (char& ch : descriptor_request_h) {
+        if (ch == '\'') ch = 'h';
+    }
+    RPCConsole::RPCExecuteCommandLine(m_node, result, "echojson '" + descriptor_request_h + "'");
+    QVERIFY(descriptor_result.read(result));
+    QVERIFY(descriptor_result.size() == 1);
+    QVERIFY(descriptor_result[0].write() == descriptor_request_h);
 
     RPCConsole::RPCExecuteCommandLine(m_node, result, "getblock(getbestblockhash())[tx][0]", &filtered);
     QVERIFY(result == "97ddfbbae6be97fd6cdf3e7ca13232a3afff2353e29badfab7f73011edd4ced9");

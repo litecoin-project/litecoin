@@ -25,6 +25,15 @@ Supporting RPCs are:
 This document describes the language. For the specifics on usage, see the RPC
 documentation for the functions mentioned above.
 
+In Litecoin Core, `listdescriptors` exports both public and private descriptors
+using `h` for hardened derivation steps and calculates the corresponding checksum.
+Its ranged descriptors include `next_index`, matching `importdescriptors`; the
+former `next` field is no longer exported. This allows the `descriptors` array to
+be copied into a single-quoted `importdescriptors` argument without escaping
+hardened-path apostrophes or renaming the address index field.
+If the keypool is exhausted, the exported range includes the next unused index
+so it can still be imported with `next_index`.
+
 ## Features
 
 Output descriptors currently support:

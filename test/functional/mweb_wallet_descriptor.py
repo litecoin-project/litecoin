@@ -45,6 +45,7 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
         self.skip_if_no_wallet()
         self.skip_if_no_sqlite()
 
+    # Verify exported MWEB descriptors recover watch-only and spend-capable wallets and retain subaddress indices.
     def run_test(self):
         n0, n1, n2, n3, n4 = self.nodes
 
@@ -104,11 +105,11 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
 
         # Range: if export gave a range, respect it, else use a small default
         rng = ext_priv.get('range', [0, 999])
-        next_index = ext_priv.get('next', max(a0_index, a1_index) + 1)
+        next_index = ext_priv.get('next_index', max(a0_index, a1_index) + 1)
 
         watch_imports = [{"desc": ext_watch, "timestamp": 0, "active": True, "internal": False, "range": rng, "next_index": next_index}]
         if int_watch != ext_watch:
-            watch_imports.append({"desc": int_watch, "timestamp": 0, "active": True, "internal": True, "range": rng, "next_index": int_priv.get('next', next_index)})
+            watch_imports.append({"desc": int_watch, "timestamp": 0, "active": True, "internal": True, "range": rng, "next_index": int_priv.get('next_index', next_index)})
         res = w2.importdescriptors(watch_imports)
         assert all(item.get('success') for item in res)
 
@@ -195,7 +196,7 @@ class MWEBWalletDescriptorsTest(LitecoinTestFramework):
         int_full = w4.getdescriptorinfo(int_full_priv['desc'])['descriptor']
         full_imports = [{"desc": ext_full, "timestamp": 0, "active": True, "internal": False, "range": rng, "next_index": next_index}]
         if int_full != ext_full:
-            full_imports.append({"desc": int_full, "timestamp": 0, "active": True, "internal": True, "range": rng, "next_index": int_full_priv.get('next', next_index)})
+            full_imports.append({"desc": int_full, "timestamp": 0, "active": True, "internal": True, "range": rng, "next_index": int_full_priv.get('next_index', next_index)})
         res4 = w4.importdescriptors(full_imports)
         if not all(item.get('success') for item in res4):
             error_messages = [item.get('error', {}).get('message', '') for item in res4]

@@ -5,7 +5,8 @@
 """Test the listdescriptors RPC."""
 
 from test_framework.descriptors import (
-    descsum_create
+    descsum_check,
+    descsum_create,
 )
 from test_framework.test_framework import BitcoinTestFramework
 from test_framework.util import (
@@ -26,6 +27,7 @@ class ListDescriptorsTest(BitcoinTestFramework):
     def init_wallet(self, *, node):
         return
 
+    # Verify public and private exports use importable hardened markers and preserve address indices.
     def run_test(self):
         node = self.nodes[0]
         assert_raises_rpc_error(-18, 'No wallet is loaded.', node.listdescriptors)
@@ -48,18 +50,23 @@ class ListDescriptorsTest(BitcoinTestFramework):
         assert_equal(5, len([d for d in result['descriptors'] if d['internal']]))
         for item in result['descriptors']:
             assert item['desc'] != ''
+            assert "'" not in item['desc']
+            assert descsum_check(item['desc'])
+            assert 'next' not in item
             first_index = 2 if item['desc'].startswith('mweb(') else 0
-            assert item['next'] == first_index
+            assert item['next_index'] == first_index
             assert item['range'] == [0, first_index]
             assert item['timestamp'] is not None
+
+        self.test_export_import(node.get_wallet_rpc('w3'))
 
         self.log.info('Test descriptors with hardened derivations are listed in importable form.')
         xprv = 'tprv8ZgxMBicQKsPeuVhWwi6wuMQGfPKi9Li5GtX35jVNknACgqe3CY4g5xgkfDDJcmtF7o1QnxWDRYw4H5P26PXq7sbcUkEqeR4fg3Kxp2tigg'
         xpub_acc = 'tpubDCMVLhErorrAGfApiJSJzEKwqeaf2z3NrkVMxgYQjZLzMjXMBeRw2muGNYbvaekAE8rUFLftyEar4LdrG2wXyyTJQZ26zptmeTEjPTaATts'
-        hardened_path = '/84\'/1\'/0\''
+        hardened_path = '/84h/1h/0h'
         wallet = node.get_wallet_rpc('w2')
         wallet.importdescriptors([{
-            'desc': descsum_create('wpkh(' + xprv + hardened_path + '/0/*)'),
+            'desc': descsum_create('wpkh(' + xprv + hardened_path.replace('h', "'") + '/0/*)'),
             'timestamp': 1296688602,
         }])
         expected = {
@@ -69,7 +76,7 @@ class ListDescriptorsTest(BitcoinTestFramework):
                  'timestamp': 1296688602,
                  'active': False,
                  'range': [0, 0],
-                 'next': 0},
+                 'next_index': 0},
             ],
         }
         assert_equal(expected, wallet.listdescriptors())
@@ -83,7 +90,7 @@ class ListDescriptorsTest(BitcoinTestFramework):
                  'timestamp': 1296688602,
                  'active': False,
                  'range': [0, 0],
-                 'next': 0},
+                 'next_index': 0},
             ],
         }
         assert_equal(expected_private, wallet.listdescriptors(True))
@@ -122,6 +129,45 @@ class ListDescriptorsTest(BitcoinTestFramework):
             ]
         }
         assert_equal(expected, wallet.listdescriptors())
+
+    # Direct imports must preserve receive/change indices even after the source keypool is exhausted.
+    def test_export_import(self, source):
+        node = self.nodes[0]
+        address_types = ('legacy', 'p2sh-segwit', 'bech32', 'bech32m', 'mweb')
+        for address_type in address_types:
+            for _ in range(3):
+                source.getnewaddress(address_type=address_type)
+                source.getrawchangeaddress(address_type=address_type)
+
+        self.log.info('Test direct import of public and private descriptor lists, including MWEB.')
+        public = source.listdescriptors()['descriptors']
+        private = source.listdescriptors(True)['descriptors']
+        for item in public + private:
+            assert "'" not in item['desc']
+            assert 'h' in item['desc'].split('#')[0]
+            assert descsum_check(item['desc'])
+            assert 'next' not in item
+            assert item['next_index'] > (2 if item['desc'].startswith('mweb(') else 0)
+            assert item['range'][0] <= item['next_index'] <= item['range'][1]
+
+        restored_wallets = []
+        for name, disable_private_keys, descriptors in (
+            ('restored_public', True, public),
+            ('restored_private', False, private),
+        ):
+            node.createwallet(wallet_name=name, blank=True, descriptors=True, disable_private_keys=disable_private_keys)
+            restored = node.get_wallet_rpc(name)
+            imported = restored.importdescriptors(descriptors)
+            assert all(item['success'] for item in imported), imported
+            assert_equal(restored.listdescriptors()['descriptors'], public)
+            restored_wallets.append(restored)
+
+        for address_type in address_types:
+            expected_receive = source.getnewaddress(address_type=address_type)
+            expected_change = source.getrawchangeaddress(address_type=address_type)
+            for restored in restored_wallets:
+                assert_equal(restored.getnewaddress(address_type=address_type), expected_receive)
+                assert_equal(restored.getrawchangeaddress(address_type=address_type), expected_change)
 
 
 if __name__ == '__main__':
