@@ -16,6 +16,7 @@
 #include <qt/optionsmodel.h>
 #include <qt/overviewpage.h>
 #include <qt/platformstyle.h>
+#include <qt/psbtoperationsdialog.h>
 #include <qt/qvalidatedlineedit.h>
 #include <qt/receivecoinsdialog.h>
 #include <qt/receiverequestdialog.h>
@@ -36,13 +37,20 @@
 #include <algorithm>
 #include <chrono>
 #include <memory>
+#include <utility>
+#include <vector>
 
 #include <QAbstractButton>
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QFile>
+#include <QFileDialog>
+#include <QFileInfo>
+#include <QLineEdit>
 #include <QPushButton>
 #include <QRadioButton>
+#include <QTemporaryDir>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QTextEdit>
@@ -366,7 +374,149 @@ void TestSendCoinsAddressEntry(WalletModel& wallet_model, const PlatformStyle* p
     QVERIFY(value.fSubtractFeeFromAmount);
 }
 
-//! Wallet widgets must display correct sends and balances, manage payment requests, and honor MWEB selections.
+// PSBT review and saving must include transparent/MWEB outputs and every kernel pegout in both supported versions.
+void TestPSBTOperations(ClientModel& client_model)
+{
+    CKey key;
+    key.MakeNewKey(true);
+    const CTxDestination address = WitnessV0KeyHash(key.GetPubKey());
+    const CTxDestination mweb_address = StealthAddress::Random();
+    const CScript script = GetScriptForDestination(address);
+    const CAmount fee{10000};
+    const BitcoinUnit unit = client_model.getOptionsModel()->getDisplayUnit();
+
+    CMutableTransaction tx;
+    tx.vin.emplace_back(COutPoint(uint256::ONE, 0));
+    tx.vout.emplace_back(COIN, script);
+    PartiallySignedTransaction canonical_v0(tx, 0);
+    canonical_v0.inputs[0].witness_utxo = CTxOut(COIN + fee, script);
+    PartiallySignedTransaction canonical_v2(tx, 2);
+    canonical_v2.inputs[0].witness_utxo = canonical_v0.inputs[0].witness_utxo;
+
+    PartiallySignedTransaction mweb;
+    mweb.m_psbt_version = 2;
+    mweb.tx_version = 2;
+    mweb.inputs.emplace_back(2);
+    mweb.inputs[0].mweb_output_id = mw::Hash::ValueOf(1);
+    mweb.inputs[0].mweb_amount = 2 * COIN + fee;
+    mweb.outputs.emplace_back(2);
+    mweb.outputs[0].amount = 2 * COIN;
+    mweb.outputs[0].mweb_stealth_address = std::get<StealthAddress>(mweb_address);
+    mweb.kernels.emplace_back();
+    mweb.kernels[0].features = mw::Kernel::FEE_FEATURE_BIT;
+    mweb.kernels[0].fee = fee;
+
+    PartiallySignedTransaction pegin = canonical_v2;
+    pegin.inputs[0].witness_utxo.nValue = 2 * COIN + fee;
+    pegin.outputs[0].amount = 2 * COIN + fee;
+    pegin.outputs[0].script = GetScriptForPegin(mw::Hash{});
+    pegin.outputs.push_back(mweb.outputs[0]);
+    pegin.kernels = mweb.kernels;
+    pegin.kernels[0].features = mw::Kernel::FEE_FEATURE_BIT | mw::Kernel::PEGIN_FEATURE_BIT;
+    pegin.kernels[0].pegin_amount = 2 * COIN + fee;
+
+    PartiallySignedTransaction pegout = mweb;
+    pegout.outputs.clear();
+    pegout.inputs[0].mweb_amount = 3 * COIN + fee;
+    pegout.kernels[0].features = mw::Kernel::FEE_FEATURE_BIT | mw::Kernel::PEGOUT_FEATURE_BIT;
+    pegout.kernels[0].pegouts.emplace_back(3 * COIN, script);
+
+    // Exercise both output layers, multiple kernels, and multiple pegout destinations together.
+    CKey other_key;
+    other_key.MakeNewKey(true);
+    const CTxDestination other_address = PKHash(other_key.GetPubKey());
+    PartiallySignedTransaction mixed = pegout;
+    mixed.inputs.insert(mixed.inputs.begin(), canonical_v2.inputs[0]);
+    mixed.inputs[0].witness_utxo.nValue = COIN;
+    mixed.inputs[1].mweb_amount = 9 * COIN + fee;
+    mixed.outputs = {canonical_v2.outputs[0], mweb.outputs[0]};
+    mixed.kernels.emplace_back();
+    mixed.kernels[1].features = mw::Kernel::PEGOUT_FEATURE_BIT;
+    mixed.kernels[1].pegouts.emplace_back(4 * COIN, GetScriptForDestination(other_address));
+
+    // MWEB output metadata can contain a commitment without its recipient address.
+    PartiallySignedTransaction unknown_address = mweb;
+    unknown_address.outputs[0].mweb_stealth_address.reset();
+    unknown_address.outputs[0].mweb_commit = Commitment::Transparent(2 * COIN);
+
+    struct TestCase {
+        PartiallySignedTransaction psbt;
+        std::vector<std::pair<CTxDestination, CAmount>> recipients;
+        CAmount total;
+    };
+    const std::vector<TestCase> cases{
+        {canonical_v0, {{address, COIN}}, COIN},
+        {canonical_v2, {{address, COIN}}, COIN},
+        {mweb, {{mweb_address, 2 * COIN}}, 2 * COIN},
+        {pegin, {{mweb_address, 2 * COIN}}, 2 * COIN},
+        {pegout, {{address, 3 * COIN}}, 3 * COIN},
+        {mixed, {{address, COIN}, {mweb_address, 2 * COIN}, {address, 3 * COIN}, {other_address, 4 * COIN}}, 10 * COIN},
+        {unknown_address, {{CNoDestination{}, 2 * COIN}}, 2 * COIN},
+    };
+
+    QTemporaryDir directory;
+    QVERIFY(directory.isValid());
+    const bool native_dialogs_disabled = QApplication::testAttribute(Qt::AA_DontUseNativeDialogs);
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs);
+    for (size_t i = 0; i < cases.size(); ++i) {
+        const TestCase& test = cases[i];
+        PSBTOperationsDialog dialog(nullptr, nullptr, &client_model);
+        dialog.openWithPSBT(test.psbt);
+        auto* description = dialog.findChild<QTextEdit*>("transactionDescription");
+        QVERIFY(description);
+        const QString text = description->toPlainText();
+        QCOMPARE(text.count("Sends "), int(test.recipients.size()));
+        QStringList filename_parts;
+        for (const auto& [destination, amount] : test.recipients) {
+            const QString encoded = QString::fromStdString(EncodeDestination(destination));
+            const QString displayed = encoded.isEmpty() ? "(unknown)" : encoded;
+            QVERIFY(text.contains(QString("Sends %1 to %2")
+                .arg(BitcoinUnits::formatWithUnit(BitcoinUnit::BTC, amount)).arg(displayed)));
+            filename_parts.append(encoded + "-" + BitcoinUnits::format(unit, amount));
+        }
+        QVERIFY(text.contains("Pays transaction fee: " + BitcoinUnits::formatWithUnit(BitcoinUnit::BTC, fee)));
+        QVERIFY(text.contains("Total Amount: " + BitcoinUnits::formatWithUnit(unit, test.total, false, BitcoinUnits::SeparatorStyle::ALWAYS)));
+
+        // Accept the real save dialog and check both its suggested filename and the saved PSBT bytes.
+        const QString path = directory.filePath(QString("transaction-%1.psbt").arg(i));
+        QString suggested_filename;
+        QTimer::singleShot(0, [&] {
+            auto* file_dialog = qobject_cast<QFileDialog*>(QApplication::activeModalWidget());
+            if (!file_dialog) {
+                if (QApplication::activeModalWidget()) QApplication::activeModalWidget()->close();
+                return;
+            }
+            suggested_filename = QFileInfo(file_dialog->selectedFiles().value(0)).fileName();
+            file_dialog->selectFile(path);
+            // selectFile() keeps the existing filename when the dialog is already visible.
+            if (auto* filename = file_dialog->findChild<QLineEdit*>("fileNameEdit")) {
+                filename->setText(QFileInfo(path).fileName());
+            }
+            QMetaObject::invokeMethod(file_dialog, "accept", Qt::QueuedConnection);
+        });
+        dialog.saveTransaction();
+        QCOMPARE(suggested_filename, filename_parts.join("-") + ".psbt");
+        QFile file(path);
+        QVERIFY2(file.open(QIODevice::ReadOnly), qPrintable(file.errorString()));
+        CDataStream expected(SER_NETWORK, PROTOCOL_VERSION);
+        expected << test.psbt;
+        QCOMPARE(file.readAll(), QByteArray::fromStdString(expected.str()));
+    }
+    QApplication::setAttribute(Qt::AA_DontUseNativeDialogs, native_dialogs_disabled);
+
+    // Missing UTXO information must not dereference an absent fee, and a known zero fee must be shown.
+    PSBTOperationsDialog dialog(nullptr, nullptr, &client_model);
+    auto* description = dialog.findChild<QTextEdit*>("transactionDescription");
+    QVERIFY(description);
+    canonical_v2.inputs[0].witness_utxo.SetNull();
+    dialog.openWithPSBT(canonical_v2);
+    QVERIFY(description->toPlainText().contains("Unable to calculate transaction fee or total transaction amount."));
+    canonical_v2.inputs[0].witness_utxo = CTxOut(COIN, script);
+    dialog.openWithPSBT(canonical_v2);
+    QVERIFY(description->toPlainText().contains("Pays transaction fee: " + BitcoinUnits::formatWithUnit(BitcoinUnit::BTC, 0)));
+}
+
+//! Wallet widgets must display correct sends, balances and PSBTs, manage payment requests, and honor MWEB selections.
 //
 // Test widgets can be debugged interactively calling show() on them and
 // manually running the event loop, e.g.:
@@ -545,6 +695,7 @@ void TestGUI(interfaces::Node& node)
 
     TestMWEBCoinControl(walletModel, *wallet, platformStyle.get());
     TestSendCoinsAddressEntry(walletModel, platformStyle.get());
+    TestPSBTOperations(clientModel);
 }
 
 } // namespace

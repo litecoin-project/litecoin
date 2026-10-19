@@ -19,10 +19,43 @@
 #include <fstream>
 #include <iostream>
 #include <string>
+#include <vector>
 
 using node::AnalyzePSBT;
 using node::DEFAULT_MAX_RAW_TX_FEE_RATE;
 using node::PSBTAnalysis;
+
+namespace {
+struct PSBTRecipient {
+    CTxDestination destination;
+    CAmount amount;
+};
+
+// PSBTv0 and PSBTv2 both populate output metadata; pegouts live in the kernels.
+std::vector<PSBTRecipient> GetPSBTRecipients(const PartiallySignedTransaction& psbt)
+{
+    std::vector<PSBTRecipient> recipients;
+    for (const PSBTOutput& output : psbt.outputs) {
+        // Peg-in outputs transfer value between layers, rather than to another recipient.
+        if (output.script && output.script->IsMWEBPegin()) continue;
+        CTxDestination destination;
+        if (output.mweb_stealth_address) {
+            destination = *output.mweb_stealth_address;
+        } else if (output.script) {
+            ExtractDestination(*output.script, destination);
+        }
+        recipients.push_back({destination, *output.amount});
+    }
+    for (const PSBTKernel& kernel : psbt.kernels) {
+        for (const PegOutCoin& pegout : kernel.pegouts) {
+            CTxDestination destination;
+            ExtractDestination(pegout.GetScriptPubKey(), destination);
+            recipients.push_back({destination, pegout.GetAmount()});
+        }
+    }
+    return recipients;
+}
+} // namespace
 
 PSBTOperationsDialog::PSBTOperationsDialog(
     QWidget* parent, WalletModel* wallet_model, ClientModel* client_model) : QDialog(parent, GUIUtil::dialog_flags),
@@ -140,20 +173,13 @@ void PSBTOperationsDialog::saveTransaction() {
     ssTx << m_transaction_data;
 
     QString selected_filter;
-    QString filename_suggestion = "";
-    bool first = true;
-    for (const CTxOut& out : m_transaction_data.tx->vout) {
-        if (!first) {
-            filename_suggestion.append("-");
-        }
-        CTxDestination address;
-        ExtractDestination(out.scriptPubKey, address);
-        QString amount = BitcoinUnits::format(m_client_model->getOptionsModel()->getDisplayUnit(), out.nValue);
-        QString address_str = QString::fromStdString(EncodeDestination(address));
-        filename_suggestion.append(address_str + "-" + amount);
-        first = false;
+    QStringList filename_parts;
+    for (const PSBTRecipient& recipient : GetPSBTRecipients(m_transaction_data)) {
+        QString amount = BitcoinUnits::format(m_client_model->getOptionsModel()->getDisplayUnit(), recipient.amount);
+        QString address = QString::fromStdString(EncodeDestination(recipient.destination));
+        filename_parts.append(address + "-" + amount);
     }
-    filename_suggestion.append(".psbt");
+    QString filename_suggestion = filename_parts.join("-") + ".psbt";
     QString filename = GUIUtil::getSaveFileName(this,
         tr("Save Transaction Data"), filename_suggestion,
         //: Expanded name of the binary PSBT file format. See: BIP 174.
@@ -176,19 +202,19 @@ std::string PSBTOperationsDialog::renderTransaction(const PartiallySignedTransac
 {
     QString tx_description = "";
     CAmount totalAmount = 0;
-    for (const PSBTOutput& out : psbtx.outputs) {
-        CTxDestination address;
-        ExtractDestination(*out.script, address);
-        totalAmount += *out.amount;
+    for (const PSBTRecipient& recipient : GetPSBTRecipients(psbtx)) {
+        QString address = QString::fromStdString(EncodeDestination(recipient.destination));
+        if (address.isEmpty()) address = tr("(unknown)");
+        totalAmount += recipient.amount;
         tx_description.append(tr(" * Sends %1 to %2")
-            .arg(BitcoinUnits::formatWithUnit(BitcoinUnit::BTC, *out.amount))
-            .arg(QString::fromStdString(EncodeDestination(address))));
+            .arg(BitcoinUnits::formatWithUnit(BitcoinUnit::BTC, recipient.amount))
+            .arg(address));
         tx_description.append("<br>");
     }
 
     PSBTAnalysis analysis = AnalyzePSBT(psbtx);
     tx_description.append(" * ");
-    if (!*analysis.fee) {
+    if (!analysis.fee) {
         // This happens if the transaction is missing input UTXO information.
         tx_description.append(tr("Unable to calculate transaction fee or total transaction amount."));
     } else {
