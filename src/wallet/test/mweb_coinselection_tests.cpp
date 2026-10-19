@@ -278,7 +278,7 @@ BOOST_AUTO_TEST_CASE(AvailableCoinsTracksMWEBWalletState)
     BOOST_CHECK_EQUAL(unsafe_coins.total_amount, AVAILABLE_AMOUNT + UNSAFE_AMOUNT);
 }
 
-// Coin control applies depth, transfer direction, and explicit-selection filters equally to MWEB coins.
+// Coin control applies depth and explicit-selection filters equally to MWEB coins.
 BOOST_AUTO_TEST_CASE(CoinControlFiltersMWEBAvailability)
 {
     const mw::Hash shallow = AddMWEBReceive(20'000, Confirmed(1));
@@ -295,14 +295,6 @@ BOOST_AUTO_TEST_CASE(CoinControlFiltersMWEBAvailability)
 
     selected_only.m_allow_other_inputs = true;
     BOOST_CHECK(CoinIDs(Available(&selected_only)) == std::set<AnyOutputID>({shallow, deep, ltc}));
-
-    CCoinControl pegin;
-    pegin.fPegIn = true;
-    BOOST_CHECK(CoinIDs(Available(&pegin)) == std::set<AnyOutputID>{ltc});
-
-    CCoinControl pegout;
-    pegout.fPegOut = true;
-    BOOST_CHECK(CoinIDs(Available(&pegout)) == std::set<AnyOutputID>({shallow, deep}));
 }
 
 // Locked MWEB coins are unavailable for spending but remain visible in address-grouped coin listings.

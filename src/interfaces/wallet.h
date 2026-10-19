@@ -37,7 +37,6 @@ struct bilingual_str;
 namespace wallet {
 class CCoinControl;
 class CWallet;
-class ReserveDestination;
 enum isminetype : unsigned int;
 struct ChangePosition;
 struct CRecipient;
@@ -93,9 +92,6 @@ public:
 
     // Get a new address.
     virtual util::Result<CTxDestination> getNewDestination(const OutputType type, const std::string& label) = 0;
-
-    // Reserves a new key.
-    virtual std::shared_ptr<wallet::ReserveDestination> reserveNewDestination(const OutputType type) = 0;
 
     //! Get public key.
     virtual bool getPubKey(const CScript& script, const CKeyID& address, CPubKey& pub_key) = 0;
@@ -159,8 +155,7 @@ public:
     //! Commit transaction.
     virtual void commitTransaction(CTransactionRef tx,
         WalletValueMap value_map,
-        WalletOrderForm order_form,
-        const std::vector<wallet::ReserveDestination*>& reserved_keys) = 0;
+        WalletOrderForm order_form) = 0;
 
     //! Return whether transaction can be abandoned.
     virtual bool transactionCanBeAbandoned(const uint256& txid) = 0;
@@ -295,9 +290,6 @@ public:
 
     //! Return whether is a legacy wallet
     virtual bool isLegacy() = 0;
-
-    // Get pegin address from MWEB wallet.
-    virtual bool getPeginAddress(StealthAddress& pegin_address) = 0;
 
     //! Register handler for unload message.
     using UnloadFn = std::function<void()>;

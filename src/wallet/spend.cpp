@@ -249,10 +249,6 @@ CoinsResult AvailableCoins(const CWallet& wallet,
             }
 
             if (coinControl) {
-                if ((output_id.IsMWEB() && coinControl->fPegIn) || (!output_id.IsMWEB() && coinControl->fPegOut)) {
-                    continue;
-                }
-
                 if (coinControl->HasSelected() && !coinControl->m_allow_other_inputs && !coinControl->IsSelected(output_id)) {
                     continue;
                 }

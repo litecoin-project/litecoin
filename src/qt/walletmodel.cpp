@@ -167,7 +167,6 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
     bool fSubtractFeeFromAmount = false;
     QList<SendCoinsRecipient> recipients = transaction.getRecipients();
     std::vector<CRecipient> vecSend;
-    CCoinControl coin_control_copy = coinControl;
 
     if(recipients.empty())
     {
@@ -194,27 +193,7 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
             setAddress.insert(rcp.address);
             ++nAddresses;
 
-            GenericAddress receiver;
-            switch (rcp.type) {
-            case SendCoinsRecipient::MWEB_PEGIN: {
-                coin_control_copy.fPegIn = true;
-                StealthAddress pegin_address;
-                if (!m_wallet->getPeginAddress(pegin_address)) {
-                    return TransactionCreationFailed;
-                }
-
-                receiver = pegin_address;
-                break;
-            }
-            case SendCoinsRecipient::MWEB_PEGOUT: {
-                coin_control_copy.fPegOut = true;
-                receiver = DecodeDestination(rcp.address.toStdString());
-                break;
-            }
-            default:
-                receiver = DecodeDestination(rcp.address.toStdString());
-            }
-            CRecipient recipient = {receiver, rcp.amount, rcp.fSubtractFeeFromAmount};
+            CRecipient recipient = {DecodeDestination(rcp.address.toStdString()), rcp.amount, rcp.fSubtractFeeFromAmount};
             vecSend.push_back(recipient);
 
             total += rcp.amount;
@@ -227,7 +206,7 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
 
     // If no coin was manually selected, use the cached balance
     // Future: can merge this call with 'createTransaction'.
-    CAmount nBalance = getAvailableBalance(&coin_control_copy);
+    CAmount nBalance = getAvailableBalance(&coinControl);
 
     if(total > nBalance)
     {
@@ -240,7 +219,7 @@ WalletModel::SendCoinsReturn WalletModel::prepareTransaction(WalletModelTransact
         std::vector<CAmount> recipient_amounts;
 
         auto& newTx = transaction.getWtx();
-        const auto& res = m_wallet->createTransaction(vecSend, coin_control_copy, !wallet().privateKeysDisabled() /* sign */, change_pos, nFeeRequired, recipient_amounts);
+        const auto& res = m_wallet->createTransaction(vecSend, coinControl, !wallet().privateKeysDisabled() /* sign */, change_pos, nFeeRequired, recipient_amounts);
         newTx = res ? *res : nullptr;
         transaction.setTransactionFee(nFeeRequired);
         if (fSubtractFeeFromAmount && newTx)
@@ -274,19 +253,14 @@ void WalletModel::sendCoins(WalletModelTransaction& transaction)
 
     {
         std::vector<std::pair<std::string, std::string>> vOrderForm;
-        std::vector<wallet::ReserveDestination*> reserved_keys;
         for (const SendCoinsRecipient &rcp : transaction.getRecipients())
         {
             if (!rcp.message.isEmpty()) // Message from normal bitcoin:URI (bitcoin:123...?message=example)
                 vOrderForm.emplace_back("Message", rcp.message.toStdString());
-
-            if (rcp.reserved_dest != nullptr) {
-                reserved_keys.push_back(rcp.reserved_dest.get());
-            }
         }
 
         auto& newTx = transaction.getWtx();
-        wallet().commitTransaction(newTx, {} /* mapValue */, std::move(vOrderForm), reserved_keys);
+        wallet().commitTransaction(newTx, {} /* mapValue */, std::move(vOrderForm));
 
         CDataStream ssTx(SER_NETWORK, PROTOCOL_VERSION);
         ssTx << *newTx;

@@ -54,7 +54,6 @@ public:
     enum class PayAmountType {
         LTC,
         MWEB,
-        MWEBPegOut,
     };
 
     struct PayAmount {

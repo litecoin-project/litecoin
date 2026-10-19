@@ -27,7 +27,6 @@
 #include <validation.h>
 #include <wallet/coincontrol.h>
 #include <wallet/fees.h>
-#include <wallet/reserve.h>
 #include <wallet/wallet.h>
 
 #include <array>
@@ -120,10 +119,6 @@ SendCoinsDialog::SendCoinsDialog(const PlatformStyle *_platformStyle, QWidget *p
     ui->labelCoinControlLowOutput->addAction(clipboardLowOutputAction);
     ui->labelCoinControlChange->addAction(clipboardChangeAction);
 
-    // MWEB Features
-    connect(ui->pushButtonMWEBPegIn, &QPushButton::clicked, this, &SendCoinsDialog::mwebPegInButtonClicked);
-    connect(ui->pushButtonMWEBPegOut, &QPushButton::clicked, this, &SendCoinsDialog::mwebPegOutButtonClicked);
-
     // init transaction fee section
     QSettings settings;
     if (!settings.contains("fFeeSectionMinimized"))
@@ -179,11 +174,6 @@ void SendCoinsDialog::setModel(WalletModel *_model)
         connect(_model->getOptionsModel(), &OptionsModel::coinControlFeaturesChanged, this, &SendCoinsDialog::coinControlFeatureChanged);
         ui->frameCoinControl->setVisible(_model->getOptionsModel()->getCoinControlFeatures());
         coinControlUpdateLabels();
-
-        // MWEB Features
-        connect(_model->getOptionsModel(), &OptionsModel::mwebFeaturesChanged, this, &SendCoinsDialog::mwebFeatureChanged);
-        ui->frameMWEBFeatures->setVisible(_model->getOptionsModel()->getMWEBFeatures());
-        ui->pushButtonMWEBPegIn->setEnabled(true);
 
         // fee section
         for (const int n : confTargets) {
@@ -294,28 +284,6 @@ bool SendCoinsDialog::PrepareSendText(QString& question_string, QString& informa
         // Unlock wallet was cancelled
         fNewRecipientAllowed = true;
         return false;
-    }
-
-    // Reserve pegout keys and set pegout addresses
-    for (SendCoinsRecipient& rcp : recipients) {
-        if (rcp.type == SendCoinsRecipient::MWEB_PEGIN) {
-            StealthAddress pegin_address;
-            if (!model->wallet().getPeginAddress(pegin_address)) {
-                fNewRecipientAllowed = true;
-                return false;
-            }
-            rcp.address = QString::fromStdString(EncodeDestination(pegin_address));
-        } else if (rcp.type == SendCoinsRecipient::MWEB_PEGOUT) {
-            auto reserved_dest = model->wallet().reserveNewDestination(OutputType::BECH32);
-            auto dest = reserved_dest->GetReservedDestination(false);
-            if (!dest) {
-                fNewRecipientAllowed = true;
-                return false;
-            }
-
-            rcp.address = QString::fromStdString(EncodeDestination(*dest));
-            rcp.reserved_dest = reserved_dest;
-        }
     }
 
     // prepare transaction for getting txFee earlier
@@ -605,9 +573,6 @@ void SendCoinsDialog::clear()
     ui->lineEditCoinControlChange->clear();
     coinControlUpdateLabels();
 
-    ui->pushButtonMWEBPegIn->setChecked(false);
-    ui->pushButtonMWEBPegOut->setChecked(false);
-
     // Remove entries until only one left
     while(ui->entries->count())
     {
@@ -630,8 +595,6 @@ void SendCoinsDialog::accept()
 
 SendCoinsEntry *SendCoinsDialog::addEntry()
 {
-    if (ui->pushButtonMWEBPegOut->isChecked()) return nullptr;
-
     SendCoinsEntry *entry = new SendCoinsEntry(platformStyle, this);
     entry->setModel(model);
     ui->entries->addWidget(entry);
@@ -662,11 +625,6 @@ void SendCoinsDialog::updateTabsAndLabels()
 void SendCoinsDialog::removeEntry(SendCoinsEntry* entry)
 {
     entry->hide();
-
-    if (entry == qobject_cast<SendCoinsEntry*>(ui->entries->itemAt(0)->widget())) {
-        ui->pushButtonMWEBPegIn->setChecked(false);
-        ui->pushButtonMWEBPegOut->setChecked(false);
-    }
 
     // If the last entry is about to be removed add an empty one
     if (ui->entries->count() == 1)
@@ -833,10 +791,6 @@ void SendCoinsDialog::useAvailableBalance(SendCoinsEntry* entry)
 {
     // Include watch-only for wallets without private key
     m_coin_control->fAllowWatchOnly = model->wallet().privateKeysDisabled() && !model->wallet().hasExternalSigner();
-
-    if (ui->pushButtonMWEBPegOut->isChecked()) {
-        m_coin_control->fPegOut = true;
-    }
 
     // Calculate available amount to send.
     CAmount amount = model->getAvailableBalance(m_coin_control.get());
@@ -1082,11 +1036,7 @@ void SendCoinsDialog::coinControlUpdateLabels()
         {
             SendCoinsRecipient rcp = entry->getValue();
             CoinControlDialog::PayAmountType pay_amount_type{CoinControlDialog::PayAmountType::LTC};
-            if (rcp.type == SendCoinsRecipient::MWEB_PEGIN) {
-                pay_amount_type = CoinControlDialog::PayAmountType::MWEB;
-            } else if (rcp.type == SendCoinsRecipient::MWEB_PEGOUT) {
-                pay_amount_type = CoinControlDialog::PayAmountType::MWEBPegOut;
-            } else if (std::holds_alternative<StealthAddress>(DecodeDestination(rcp.address.toStdString()))) {
+            if (std::holds_alternative<StealthAddress>(DecodeDestination(rcp.address.toStdString()))) {
                 pay_amount_type = CoinControlDialog::PayAmountType::MWEB;
             }
             CoinControlDialog::payAmounts.append(CoinControlDialog::PayAmount{rcp.amount, pay_amount_type});
@@ -1110,48 +1060,6 @@ void SendCoinsDialog::coinControlUpdateLabels()
         ui->labelCoinControlAutomaticallySelected->show();
         ui->widgetCoinControl->hide();
         ui->labelCoinControlInsuffFunds->hide();
-    }
-}
-
-// MWEB features: settings menu - MWEB features enabled/disabled by user
-void SendCoinsDialog::mwebFeatureChanged(bool checked)
-{
-    ui->frameMWEBFeatures->setVisible(checked);
-}
-
-// MWEB features: button inputs -> pegin
-void SendCoinsDialog::mwebPegInButtonClicked(bool checked)
-{
-    ui->pushButtonMWEBPegOut->setChecked(false);
-
-    SendCoinsEntry *entry = qobject_cast<SendCoinsEntry*>(ui->entries->itemAt(0)->widget());
-
-    StealthAddress pegin_address;
-    if (checked && model->wallet().getPeginAddress(pegin_address)) {
-        entry->setPegInAddress(EncodeDestination(pegin_address));
-    } else {
-        entry->setPegInAddress("");
-    }
-}
-
-// MWEB features: button inputs -> pegout
-void SendCoinsDialog::mwebPegOutButtonClicked(bool checked)
-{
-    ui->pushButtonMWEBPegIn->setChecked(false);
-
-    SendCoinsEntry *entry = qobject_cast<SendCoinsEntry*>(ui->entries->itemAt(0)->widget());
-    if (checked) {
-        if (!model || !model->getOptionsModel()) {
-            return;
-        }
-
-        entry->setPegOut(true);
-
-        while (ui->entries->count() > 1) {
-            ui->entries->takeAt(1)->widget()->deleteLater();
-        }
-    } else {
-        entry->setPegOut(false);
     }
 }
 

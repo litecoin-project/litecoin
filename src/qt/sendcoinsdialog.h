@@ -110,9 +110,6 @@ private Q_SLOTS:
     void coinControlClipboardBytes();
     void coinControlClipboardLowOutput();
     void coinControlClipboardChange();
-    void mwebFeatureChanged(bool);
-    void mwebPegInButtonClicked(bool checked);
-    void mwebPegOutButtonClicked(bool checked);
     void updateFeeSectionControls();
     void updateNumberOfBlocks(int count, const QDateTime& blockDate, double nVerificationProgress, SyncType synctype, SynchronizationState sync_state);
     void updateSmartFeeLabel();

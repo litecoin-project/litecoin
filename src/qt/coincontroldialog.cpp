@@ -430,7 +430,6 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
     bool fDust = false;
     unsigned int nPayLTCOutputs = 0;
     unsigned int nPayMWEBOutputs = 0;
-    unsigned int nPayPegOuts = 0;
     for (const PayAmount& pay_amount : CoinControlDialog::payAmounts)
     {
         const CAmount& amount = pay_amount.amount;
@@ -438,10 +437,8 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
 
         if (pay_amount.type == PayAmountType::LTC) {
             ++nPayLTCOutputs;
-        } else if (pay_amount.type == PayAmountType::MWEB) {
-            ++nPayMWEBOutputs;
         } else {
-            ++nPayPegOuts;
+            ++nPayMWEBOutputs;
         }
 
         if (amount > 0 && pay_amount.type != PayAmountType::MWEB)
@@ -515,7 +512,7 @@ void CoinControlDialog::updateLabels(CCoinControl& m_coin_control, WalletModel *
     {
         const bool has_pay_amounts = CoinControlDialog::payAmounts.size() > 0;
         const bool pay_ltc_outputs_become_pegouts = nMWEBInputs > 0 && nPayMWEBOutputs == 0 && nPayLTCOutputs > 0;
-        const unsigned int nPegOuts = nPayPegOuts + (pay_ltc_outputs_become_pegouts ? nPayLTCOutputs : 0);
+        const unsigned int nPegOuts = pay_ltc_outputs_become_pegouts ? nPayLTCOutputs : 0;
         const unsigned int nLTCOutputs = pay_ltc_outputs_become_pegouts ? 0 : nPayLTCOutputs;
         const bool has_mweb_component = nMWEBInputs > 0 || nPayMWEBOutputs > 0 || nPegOuts > 0;
         const bool has_pegin = nLTCInputs > 0 && (nPayMWEBOutputs > 0 || nPegOuts > 0);

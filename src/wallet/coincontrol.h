@@ -60,10 +60,6 @@ public:
     int m_max_depth = DEFAULT_MAX_DEPTH;
     //! SigningProvider that has pubkeys and scripts to do spend size estimation for external inputs
     FlatSigningProvider m_external_provider;
-	//! Peg-in from LTC address to own MWEB address
-	bool fPegIn = false;
-	//! Peg-out from MWEB address to own LTC address
-	bool fPegOut = false;
 
     CCoinControl();
 

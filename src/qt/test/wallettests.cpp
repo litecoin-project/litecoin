@@ -154,7 +154,6 @@ void TestSendCoinsRecipientAmounts(WalletModel& wallet_model, CWallet& wallet)
         SendCoinsRecipient recipient;
         recipient.address = QString::fromStdString(EncodeDestination(destination));
         recipient.amount = amount;
-        recipient.type = SendCoinsRecipient::REGULAR;
         return recipient;
     };
     CKey key1, key2, change_key;
@@ -322,6 +321,49 @@ void TestMWEBCoinControl(WalletModel& wallet_model, CWallet& wallet, const Platf
         select_all->click();
         QVERIFY(!coin_control.HasSelected());
     }
+}
+
+// Payment requests must preserve both address types, allow multiple recipients, and subtract fees when using the balance.
+void TestSendCoinsAddressEntry(WalletModel& wallet_model, const PlatformStyle* platform_style)
+{
+    SendCoinsDialog dialog(platform_style);
+    dialog.setModel(&wallet_model);
+    CKey key;
+    key.MakeNewKey(true);
+    const QList<SendCoinsRecipient> recipients{
+        SendCoinsRecipient{QString::fromStdString(EncodeDestination(StealthAddress::Random())), "MWEB", COIN, "MWEB payment"},
+        SendCoinsRecipient{QString::fromStdString(EncodeDestination(WitnessV0KeyHash(key.GetPubKey()))), "LTC", 2 * COIN, "LTC payment"},
+    };
+    auto* entries = dialog.findChild<QVBoxLayout*>("entries");
+    QVERIFY(entries);
+    for (const SendCoinsRecipient& recipient : recipients) {
+        QVERIFY(dialog.handlePaymentRequest(recipient));
+    }
+    QCOMPARE(entries->count(), recipients.size());
+    for (int i = 0; i < recipients.size(); ++i) {
+        auto* entry = qobject_cast<SendCoinsEntry*>(entries->itemAt(i)->widget());
+        QVERIFY(entry);
+        QVERIFY(entry->validate(wallet_model.node()));
+        const auto value = entry->getValue();
+        QCOMPARE(value.address, recipients[i].address);
+        QCOMPARE(value.amount, recipients[i].amount);
+        QCOMPARE(value.label, recipients[i].label);
+        QCOMPARE(value.message, recipients[i].message);
+    }
+
+    dialog.clear();
+    QCOMPARE(entries->count(), 1);
+    QVERIFY(dialog.handlePaymentRequest(recipients.front()));
+    auto* entry = qobject_cast<SendCoinsEntry*>(entries->itemAt(0)->widget());
+    QVERIFY(entry);
+    entry->findChild<QCheckBox*>("checkboxSubtractFeeFromAmount")->setChecked(false);
+    auto* use_balance = entry->findChild<QPushButton*>("useAvailableBalanceButton");
+    QVERIFY(use_balance);
+    use_balance->click();
+    const auto value = entry->getValue();
+    QCOMPARE(value.address, recipients.front().address);
+    QCOMPARE(value.amount, wallet_model.getAvailableBalance(nullptr));
+    QVERIFY(value.fSubtractFeeFromAmount);
 }
 
 //! Wallet widgets must display correct sends and balances, manage payment requests, and honor MWEB selections.
@@ -502,6 +544,7 @@ void TestGUI(interfaces::Node& node)
     QCOMPARE(walletModel.wallet().getAddressReceiveRequests().size(), size_t{0});
 
     TestMWEBCoinControl(walletModel, *wallet, platformStyle.get());
+    TestSendCoinsAddressEntry(walletModel, platformStyle.get());
 }
 
 } // namespace

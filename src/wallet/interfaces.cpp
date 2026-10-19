@@ -25,7 +25,6 @@
 #include <wallet/ismine.h>
 #include <wallet/load.h>
 #include <wallet/receive.h>
-#include <wallet/reserve.h>
 #include <wallet/rpc/wallet.h>
 #include <wallet/spend.h>
 #include <wallet/txlist.h>
@@ -198,11 +197,6 @@ public:
         LOCK(m_wallet->cs_wallet);
         return m_wallet->GetNewDestination(type, label);
     }
-    std::shared_ptr<wallet::ReserveDestination> reserveNewDestination(const OutputType type) override
-    {
-        LOCK(m_wallet->cs_wallet);
-        return std::make_shared<wallet::ReserveDestination>(m_wallet.get(), type);
-    }
     bool getPubKey(const CScript& script, const CKeyID& address, CPubKey& pub_key) override
     {
         std::unique_ptr<SigningProvider> provider = m_wallet->GetSolvingProvider(script);
@@ -338,14 +332,9 @@ public:
     }
     void commitTransaction(CTransactionRef tx,
         WalletValueMap value_map,
-        WalletOrderForm order_form,
-        const std::vector<wallet::ReserveDestination*>& reserved_keys) override
+        WalletOrderForm order_form) override
     {
         LOCK(m_wallet->cs_wallet);
-        for (wallet::ReserveDestination* reserved : reserved_keys) {
-            reserved->KeepDestination();
-        }
-
         m_wallet->CommitTransaction(std::move(tx), std::move(value_map), std::move(order_form));
     }
     bool transactionCanBeAbandoned(const uint256& txid) override { return m_wallet->TransactionCanBeAbandoned(txid); }
@@ -564,10 +553,6 @@ public:
         RemoveWallet(m_context, m_wallet, false /* load_on_start */);
     }
     bool isLegacy() override { return m_wallet->IsLegacy(); }
-    bool getPeginAddress(StealthAddress& pegin_address) override
-    {
-        return m_wallet->GetMWWallet()->GetStealthAddress(mw::PEGIN_INDEX, pegin_address);
-    }
     std::unique_ptr<Handler> handleUnload(UnloadFn fn) override
     {
         return MakeHandler(m_wallet->NotifyUnload.connect(fn));
