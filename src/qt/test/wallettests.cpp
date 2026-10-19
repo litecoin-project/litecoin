@@ -12,6 +12,7 @@
 #include <qt/bitcoinamountfield.h>
 #include <qt/bitcoinunits.h>
 #include <qt/clientmodel.h>
+#include <qt/coincontroldialog.h>
 #include <qt/optionsmodel.h>
 #include <qt/overviewpage.h>
 #include <qt/platformstyle.h>
@@ -28,6 +29,8 @@
 #include <test/util/setup_common.h>
 #include <validation.h>
 #include <wallet/coincontrol.h>
+#include <wallet/scriptpubkeyman.h>
+#include <wallet/spend.h>
 #include <wallet/wallet.h>
 
 #include <algorithm>
@@ -39,9 +42,11 @@
 #include <QApplication>
 #include <QCheckBox>
 #include <QPushButton>
+#include <QRadioButton>
 #include <QTimer>
 #include <QVBoxLayout>
 #include <QTextEdit>
+#include <QTreeWidget>
 #include <QListView>
 #include <QDialogButtonBox>
 
@@ -220,7 +225,106 @@ void TestSendCoinsRecipientAmounts(WalletModel& wallet_model, CWallet& wallet)
     }
 }
 
-//! Simple qt wallet tests.
+// MWEB checkboxes must record exact inputs, fund pegouts, and support deselection and group selection.
+void TestMWEBCoinControl(WalletModel& wallet_model, CWallet& wallet, const PlatformStyle* platform_style)
+{
+    const auto destination = wallet.GetNewDestination(OutputType::MWEB, "");
+    QVERIFY(destination);
+    const StealthAddress address = std::get<StealthAddress>(*destination);
+    const auto* spk_man = dynamic_cast<wallet::DescriptorScriptPubKeyMan*>(wallet.GetScriptPubKeyMan(OutputType::MWEB, false));
+    QVERIFY(spk_man);
+    const auto address_index = spk_man->GetMWEBAddressIndex(address);
+    QVERIFY(address_index);
+    const mw::Hash selected_id = mw::Hash::ValueOf(101);
+    const mw::Hash other_id = mw::Hash::ValueOf(102);
+    {
+        LOCK(wallet.cs_wallet);
+        for (const auto& output_id : {selected_id, other_id}) {
+            mw::WalletCoin coin;
+            coin.output_id = output_id;
+            coin.amount = output_id == selected_id ? 2 * COIN : 3 * COIN;
+            coin.address = address;
+            coin.address_index = *address_index;
+            QVERIFY(wallet.GetMWWallet()->SaveToWallet({coin}));
+            QVERIFY(wallet.AddToWallet(MakeTransactionRef(), MWEB::WalletTxInfo::Received(output_id),
+                wallet::TxStateConfirmed{wallet.GetLastBlockHash(), wallet.GetLastBlockHeight(), 0}));
+        }
+        wallet.MarkDirty();
+    }
+
+    CKey recipient_key;
+    recipient_key.MakeNewKey(true);
+    const CScript recipient_script = GetScriptForDestination(WitnessV0KeyHash(recipient_key.GetPubKey()));
+    const std::vector<wallet::CRecipient> recipients{{recipient_script, COIN, false}};
+    wallet::CCoinControl coin_control;
+    coin_control.m_feerate = CFeeRate{1000};
+    coin_control.fOverrideFeeRate = true;
+    const auto build = [&](CAmount amount) {
+        auto send = recipients;
+        send.front().nAmount = amount;
+        return wallet::CreateTransaction(wallet, send, -1, coin_control, std::nullopt, std::nullopt, false);
+    };
+
+    const auto automatic = build(COIN);
+    QVERIFY2(automatic, util::ErrorString(automatic).original.c_str());
+    QVERIFY(!automatic->tx.vin.empty());
+    QVERIFY(automatic->tx.mweb_tx.inputs.empty());
+
+    CoinControlDialog dialog(coin_control, &wallet_model, platform_style);
+    auto* tree = dialog.findChild<QTreeWidget*>("treeWidget");
+    QVERIFY(tree);
+    for (bool tree_mode : {false, true}) {
+        dialog.findChild<QRadioButton*>(tree_mode ? "radioTreeMode" : "radioListMode")->click();
+        QTreeWidgetItem* selected_item{nullptr};
+        QTreeWidgetItemIterator it(tree);
+        for (; *it; ++it) {
+            if ((*it)->childCount() == 0 && (*it)->data(1, Qt::UserRole).toLongLong() == 2 * COIN) {
+                selected_item = *it;
+            }
+        }
+        QVERIFY(selected_item);
+        selected_item->setCheckState(0, Qt::Checked);
+        QVERIFY(coin_control.IsSelected(selected_id));
+        std::vector<AnyOutputID> selected;
+        coin_control.ListSelected(selected);
+        QCOMPARE(selected.size(), size_t{1});
+        QCOMPARE(dialog.findChild<QLabel*>("labelCoinControlQuantity")->text(), QString{"1"});
+
+        const auto pegout = build(COIN);
+        QVERIFY2(pegout, util::ErrorString(pegout).original.c_str());
+        QVERIFY(pegout->tx.vin.empty());
+        QCOMPARE(pegout->tx.mweb_tx.inputs.size(), size_t{1});
+        QVERIFY(pegout->tx.mweb_tx.inputs.front().output_id == selected_id);
+        QCOMPARE(pegout->tx.mweb_tx.GetPegOutCoins().size(), size_t{1});
+        const auto insufficient = build(3 * COIN);
+        QVERIFY(!insufficient);
+        QCOMPARE(util::ErrorString(insufficient).original, std::string{"Insufficient funds"});
+
+        selected_item->setCheckState(0, Qt::Unchecked);
+        QVERIFY(!coin_control.HasSelected());
+        if (tree_mode) {
+            auto* parent = selected_item->parent();
+            QVERIFY(parent);
+            parent->setCheckState(0, Qt::Checked);
+            QVERIFY(coin_control.IsSelected(selected_id));
+            QVERIFY(coin_control.IsSelected(other_id));
+            coin_control.ListSelected(selected);
+            QCOMPARE(selected.size(), size_t{2});
+            parent->setCheckState(0, Qt::Unchecked);
+            QVERIFY(!coin_control.HasSelected());
+        }
+
+        auto* select_all = dialog.findChild<QPushButton*>("pushButtonSelectAll");
+        QVERIFY(select_all);
+        select_all->click();
+        QVERIFY(coin_control.IsSelected(selected_id));
+        QVERIFY(coin_control.IsSelected(other_id));
+        select_all->click();
+        QVERIFY(!coin_control.HasSelected());
+    }
+}
+
+//! Wallet widgets must display correct sends and balances, manage payment requests, and honor MWEB selections.
 //
 // Test widgets can be debugged interactively calling show() on them and
 // manually running the event loop, e.g.:
@@ -396,6 +500,8 @@ void TestGUI(interfaces::Node& node)
 
     // Check removal from wallet
     QCOMPARE(walletModel.wallet().getAddressReceiveRequests().size(), size_t{0});
+
+    TestMWEBCoinControl(walletModel, *wallet, platformStyle.get());
 }
 
 } // namespace
