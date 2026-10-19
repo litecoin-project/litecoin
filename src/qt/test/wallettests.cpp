@@ -9,6 +9,7 @@
 #include <interfaces/node.h>
 #include <key_io.h>
 #include <mweb/mweb_wallet.h>
+#include <policy/policy.h>
 #include <qt/bitcoinamountfield.h>
 #include <qt/bitcoinunits.h>
 #include <qt/clientmodel.h>
@@ -44,6 +45,7 @@
 #include <QAction>
 #include <QApplication>
 #include <QCheckBox>
+#include <QClipboard>
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
@@ -232,7 +234,35 @@ void TestSendCoinsRecipientAmounts(WalletModel& wallet_model, CWallet& wallet)
     }
 }
 
-// MWEB checkboxes must record exact inputs, fund pegouts, and support deselection and group selection.
+// The context menu must copy the selected coin's identifier and expose the matching action label.
+void TestCoinControlCopyIdentifier(CoinControlDialog& dialog, QTreeWidget& tree, QTreeWidgetItem* item,
+    const QString& label, const QString& identifier)
+{
+    dialog.show();
+    if (item->parent()) tree.expandItem(item->parent());
+    tree.scrollToItem(item);
+    QApplication::processEvents();
+    const QRect rect = tree.visualItemRect(item);
+    QVERIFY(rect.isValid());
+    auto* menu = dialog.findChild<QMenu*>();
+    QVERIFY(menu);
+    bool copied{false};
+    QTimer::singleShot(0, [&] {
+        for (QAction* action : menu->actions()) {
+            if (action->text() == label && action->isEnabled()) {
+                action->trigger();
+                copied = true;
+                break;
+            }
+        }
+        menu->close();
+    });
+    QVERIFY(QMetaObject::invokeMethod(&dialog, "showMenu", Q_ARG(QPoint, rect.center())));
+    QVERIFY(copied);
+    QCOMPARE(QApplication::clipboard()->text(), identifier);
+}
+
+// Coin control must honor exact MWEB inputs and copy both identifier types in list and tree modes.
 void TestMWEBCoinControl(WalletModel& wallet_model, CWallet& wallet, const PlatformStyle* platform_style)
 {
     const auto destination = wallet.GetNewDestination(OutputType::MWEB, "");
@@ -283,16 +313,32 @@ void TestMWEBCoinControl(WalletModel& wallet_model, CWallet& wallet, const Platf
     for (bool tree_mode : {false, true}) {
         dialog.findChild<QRadioButton*>(tree_mode ? "radioTreeMode" : "radioListMode")->click();
         QTreeWidgetItem* selected_item{nullptr};
+        QTreeWidgetItem* canonical_item{nullptr};
         QTreeWidgetItemIterator it(tree);
         for (; *it; ++it) {
             if ((*it)->childCount() == 0 && (*it)->data(1, Qt::UserRole).toLongLong() == 2 * COIN) {
                 selected_item = *it;
             }
+            if ((*it)->childCount() == 0 && (*it)->data(3, Qt::UserRole).toString().size() == 64) {
+                canonical_item = *it;
+            }
         }
         QVERIFY(selected_item);
+        QVERIFY(canonical_item);
+        std::vector<AnyOutputID> selected;
+        canonical_item->setCheckState(0, Qt::Checked);
+        coin_control.ListSelected(selected);
+        QCOMPARE(selected.size(), size_t{1});
+        QVERIFY(!selected.front().IsMWEB());
+        const COutPoint canonical_outpoint = selected.front().ToOutPoint();
+        canonical_item->setCheckState(0, Qt::Unchecked);
+        TestCoinControlCopyIdentifier(dialog, *tree, canonical_item, "Copy transaction &ID and output index",
+            QString::fromStdString(canonical_outpoint.hash.ToString()) + ":" + QString::number(canonical_outpoint.n));
+        TestCoinControlCopyIdentifier(dialog, *tree, selected_item, "Copy MWEB output &ID",
+            QString::fromStdString(selected_id.ToHex()));
+
         selected_item->setCheckState(0, Qt::Checked);
         QVERIFY(coin_control.IsSelected(selected_id));
-        std::vector<AnyOutputID> selected;
         coin_control.ListSelected(selected);
         QCOMPARE(selected.size(), size_t{1});
         QCOMPARE(dialog.findChild<QLabel*>("labelCoinControlQuantity")->text(), QString{"1"});
@@ -372,6 +418,36 @@ void TestSendCoinsAddressEntry(WalletModel& wallet_model, const PlatformStyle* p
     QCOMPARE(value.address, recipients.front().address);
     QCOMPARE(value.amount, wallet_model.getAvailableBalance(nullptr));
     QVERIFY(value.fSubtractFeeFromAmount);
+}
+
+// Tiny MWEB payments must be accepted while transparent dust and zero-valued payments remain invalid.
+void TestSendCoinsDust(WalletModel& wallet_model, const PlatformStyle* platform_style)
+{
+    SendCoinsEntry entry(platform_style);
+    entry.setModel(&wallet_model);
+    auto* address = entry.findChild<QValidatedLineEdit*>("payTo");
+    auto* amount = entry.findChild<BitcoinAmountField*>("payAmount");
+    QVERIFY(address);
+    QVERIFY(amount);
+    address->setText(QString::fromStdString(EncodeDestination(StealthAddress::Random())));
+    amount->setValue(1);
+    QVERIFY(entry.validate(wallet_model.node()));
+    amount->setValue(0);
+    QVERIFY(!entry.validate(wallet_model.node()));
+
+    CKey key;
+    key.MakeNewKey(true);
+    for (const CTxDestination& destination : {CTxDestination{PKHash(key.GetPubKey())}, CTxDestination{WitnessV0KeyHash(key.GetPubKey())}}) {
+        address->setText(QString::fromStdString(EncodeDestination(destination)));
+        const CAmount threshold = GetDustThreshold(CTxOut(0, GetScriptForDestination(destination)), wallet_model.node().getDustRelayFee());
+        QVERIFY(threshold > 1);
+        amount->setValue(1);
+        QVERIFY(!entry.validate(wallet_model.node()));
+        amount->setValue(threshold - 1);
+        QVERIFY(!entry.validate(wallet_model.node()));
+        amount->setValue(threshold);
+        QVERIFY(entry.validate(wallet_model.node()));
+    }
 }
 
 // PSBT review and saving must include transparent/MWEB outputs and every kernel pegout in both supported versions.
@@ -695,6 +771,7 @@ void TestGUI(interfaces::Node& node)
 
     TestMWEBCoinControl(walletModel, *wallet, platformStyle.get());
     TestSendCoinsAddressEntry(walletModel, platformStyle.get());
+    TestSendCoinsDust(walletModel, platformStyle.get());
     TestPSBTOperations(clientModel);
 }
 

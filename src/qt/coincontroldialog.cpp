@@ -222,6 +222,8 @@ void CoinControlDialog::showMenu(const QPoint &point)
         // disable some items (like Copy Transaction ID, lock, unlock) for tree roots in context menu
         if (IsCanonical(item) || IsMWEB(item)) // this means it is a child node, so it is not a parent node in tree mode
         {
+            m_copy_transaction_outpoint_action->setText(IsMWEB(item)
+                ? tr("Copy MWEB output &ID") : tr("Copy transaction &ID and output index"));
             m_copy_transaction_outpoint_action->setEnabled(true);
             if (model->wallet().isLockedCoin(BuildOutputID(item)))
             {
@@ -270,14 +272,10 @@ void CoinControlDialog::copyAddress()
         GUIUtil::setClipboard(contextMenuItem->text(COLUMN_ADDRESS));
 }
 
-// context menu action: copy transaction id and vout index
+// context menu action: copy the transparent outpoint or MWEB output ID
 void CoinControlDialog::copyTransactionOutpoint()
 {
-    const QString address = contextMenuItem->data(COLUMN_ADDRESS, TxHashRole).toString();
-    const QString vout = contextMenuItem->data(COLUMN_ADDRESS, VOutRole).toString();
-    const QString outpoint = QString("%1:%2").arg(address).arg(vout);
-
-    GUIUtil::setClipboard(outpoint);
+    GUIUtil::setClipboard(QString::fromStdString(BuildOutputID(contextMenuItem).ToString()));
 }
 
 // context menu action: lock coin

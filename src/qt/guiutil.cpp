@@ -232,6 +232,8 @@ QString formatBitcoinURI(const SendCoinsRecipient &info)
 bool isDust(interfaces::Node& node, const QString& address, const CAmount& amount)
 {
     CTxDestination dest = DecodeDestination(address.toStdString());
+    // MWEB outputs do not use the transparent-output dust threshold.
+    if (std::holds_alternative<StealthAddress>(dest)) return false;
     CScript script = GetScriptForDestination(dest);
     CTxOut txOut(amount, script);
     return IsDust(txOut, node.getDustRelayFee());
