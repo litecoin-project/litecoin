@@ -97,6 +97,19 @@ redistributed.
 
 A background image is added to DMG files by inserting a `.DS_Store` during creation.
 
+The background alias embeds binary lengths and padding. When changing names in
+that record, update both fields so the alias remains readable. On Linux, test
+the staging path with the Python packages built by depends:
+
+```sh
+PYTHONPATH=depends/x86_64-apple-darwin/native/lib/python3/dist-packages \
+    python3 -m unittest discover -s contrib/macdeploy -p 'test_*.py' -v
+```
+
+The tests stage a small static application fixture, read back the background
+alias, and check that repeated `.DS_Store` generation is reproducible. They
+require the depends `mac_alias` and `ds_store` packages and skip if unavailable.
+
 As of OS X 10.9 Mavericks, using an Apple-blessed key to sign binaries is a requirement in
 order to satisfy the new Gatekeeper requirements. Because this private key cannot be
 shared, we'll have to be a bit creative in order for the build process to remain somewhat
