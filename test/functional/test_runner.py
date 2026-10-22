@@ -136,6 +136,7 @@ BASE_SCRIPTS = [
     'feature_fee_estimation.py',
     'interface_zmq.py',
     'interface_bitcoin_cli.py',
+    'feature_bind_extra.py',
     'mempool_resurrect.py',
     'wallet_txn_doublespend.py --mineblock',
     'tool_wallet.py',
