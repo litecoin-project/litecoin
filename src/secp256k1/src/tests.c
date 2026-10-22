@@ -1895,8 +1895,57 @@ void run_scalar_set_b32_seckey_tests(void) {
     CHECK(secp256k1_scalar_set_b32_seckey(&s2, b32) == 0);
 }
 
+/* Squaring must match multiplication, including limb carries and in-place inputs, on both scalar backends. */
+void run_scalar_sqr_tests(void) {
+    static const secp256k1_scalar cases[] = {
+        SECP256K1_SCALAR_CONST(0, 0, 0, 0, 0, 0, 0, 0),
+        SECP256K1_SCALAR_CONST(0, 0, 0, 0, 0, 0, 0, 1),
+        SECP256K1_SCALAR_CONST(0, 0, 0, 0, 0, 0, 0, 0xFFFFFFFF),
+        SECP256K1_SCALAR_CONST(0, 0, 0, 0, 0, 0, 0xFFFFFFFF, 0xFFFFFFFF),
+        SECP256K1_SCALAR_CONST(0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFE,
+                              0xBAAEDCE6, 0xAF48A03B, 0xBFD25E8C, 0xD0364140), /* n-1 */
+        SECP256K1_SCALAR_CONST(0xAAAAAAAA, 0xAAAAAAAA, 0xAAAAAAAA, 0xAAAAAAAA,
+                              0xAAAAAAAA, 0xAAAAAAAA, 0xAAAAAAAA, 0xAAAAAAAA)
+    };
+    int i;
+    for (i = 0; i < (int)(sizeof(cases) / sizeof(cases[0])) + 128 * count; ++i) {
+        secp256k1_scalar a, squared, product, in_place;
+        if (i < (int)(sizeof(cases) / sizeof(cases[0]))) {
+            a = cases[i];
+        } else {
+            random_scalar_order_test(&a);
+        }
+        secp256k1_scalar_sqr(&squared, &a);
+        secp256k1_scalar_mul(&product, &a, &a);
+        CHECK(secp256k1_scalar_eq(&squared, &product));
+        in_place = a;
+        secp256k1_scalar_sqr(&in_place, &in_place);
+        CHECK(secp256k1_scalar_eq(&in_place, &product));
+    }
+#ifdef SECP256K1_WIDEMUL_INT64
+    {
+        /* The unreduced all-ones input exercises the carry above a doubled 64-bit product. */
+        secp256k1_scalar a = SECP256K1_SCALAR_CONST(
+            0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF,
+            0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF, 0xFFFFFFFF
+        );
+        uint32_t squared[16], product[16];
+        secp256k1_scalar_sqr_512(squared, &a);
+        secp256k1_scalar_mul_512(product, &a, &a);
+        for (i = 0; i < 16; ++i) {
+            CHECK(squared[i] == product[i]);
+        }
+        CHECK(squared[0] == 1);
+        CHECK(squared[8] == 0xFFFFFFFE);
+        CHECK(squared[15] == 0xFFFFFFFF);
+    }
+#endif
+}
+
+/* Exercise scalar arithmetic identities, squaring, serialization, and known reduction vectors. */
 void run_scalar_tests(void) {
     int i;
+    run_scalar_sqr_tests();
     for (i = 0; i < 128 * count; i++) {
         scalar_test();
     }
