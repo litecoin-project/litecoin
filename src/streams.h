@@ -622,12 +622,14 @@ public:
     CAutoFile(const CAutoFile&) = delete;
     CAutoFile& operator=(const CAutoFile&) = delete;
 
-    void fclose()
+    bool fclose()
     {
         if (file) {
-            ::fclose(file);
+            bool ret = ::fclose(file) == 0;
             file = nullptr;
+            return ret;
         }
+        return true;
     }
 
     /** Get wrapped FILE* with transfer of ownership.

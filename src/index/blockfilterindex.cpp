@@ -205,6 +205,10 @@ size_t BlockFilterIndex::WriteFilterToDisk(FlatFilePos& pos, const BlockFilter& 
     }
 
     fileout << filter.GetBlockHash() << filter.GetEncodedFilter();
+
+    if (!fileout.fclose())
+        LogPrintf("%s: Failed to close filter file %d\n", __func__, pos.nFile);
+
     return data_size;
 }
 
