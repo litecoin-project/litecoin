@@ -413,7 +413,7 @@ void CRegTestParams::UpdateActivationParametersFromArgs(const ArgsManager& args)
         if (vDeploymentParams.size() < 3 || 5 < vDeploymentParams.size()) {
             throw std::runtime_error("Version bits parameters malformed, expecting deployment:start:end[:heightstart:heightend]");
         }
-        int64_t nStartTime, nTimeout, nStartHeight, nTimeoutHeight;
+        int64_t nStartTime, nTimeout, nStartHeight = 0, nTimeoutHeight = 0;
         if (!ParseInt64(vDeploymentParams[1], &nStartTime)) {
             throw std::runtime_error(strprintf("Invalid nStartTime (%s)", vDeploymentParams[1]));
         }
