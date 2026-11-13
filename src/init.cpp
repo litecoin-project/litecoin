@@ -245,9 +245,11 @@ void Shutdown(NodeContext& node)
         ::feeEstimator.FlushUnconfirmed();
         fs::path est_path = GetDataDir() / FEE_ESTIMATES_FILENAME;
         CAutoFile est_fileout(fsbridge::fopen(est_path, "wb"), SER_DISK, CLIENT_VERSION);
-        if (!est_fileout.IsNull())
+        if (!est_fileout.IsNull()) {
             ::feeEstimator.Write(est_fileout);
-        else
+            if (!est_fileout.fclose())
+                LogPrintf("%s: Failed to close fee estimates file %s\n", __func__, est_path.string());
+        } else
             LogPrintf("%s: Failed to write fee estimates to %s\n", __func__, est_path.string());
         fFeeEstimatesInitialized = false;
     }
