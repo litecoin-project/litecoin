@@ -24,6 +24,7 @@ import sys
 import tempfile
 import re
 import logging
+import io
 import unittest
 
 # Formatting. Default colors to empty strings.
@@ -474,6 +475,7 @@ def run_tests(*, test_list, src_dir, build_dir, tmpdir, jobs=1, enable_coverage=
     test_framework_tests = unittest.TestSuite()
     for module in TEST_FRAMEWORK_MODULES:
         test_framework_tests.addTest(unittest.TestLoader().loadTestsFromName("test_framework.{}".format(module)))
+    test_framework_tests.addTest(unittest.TestLoader().loadTestsFromName(__name__))
     result = unittest.TextTestRunner(verbosity=1, failfast=True).run(test_framework_tests)
     if not result.wasSuccessful():
         logging.debug("Early exiting after failure in TestFramework unit tests")
@@ -584,6 +586,16 @@ def print_results(test_results, max_len_name, runtime):
     results += "Runtime: %s s\n" % (runtime)
     print(results)
 
+def read_captured_output(log_file):
+    """Decode a finished test's captured stdout or stderr.
+
+    errors='replace' because a node inherits the test process's stderr, so a node that aborts
+    can put raw bytes there. Decoding strictly would raise inside the handler and take the
+    whole run down before it could report which test produced them.
+    """
+    return log_file.read().decode('utf-8', errors='replace')
+
+
 class TestHandler:
     """
     Trigger the test scripts passed in via the list.
@@ -636,7 +648,7 @@ class TestHandler:
                 (name, start_time, proc, testdir, log_out, log_err) = job
                 if proc.poll() is not None:
                     log_out.seek(0), log_err.seek(0)
-                    [stdout, stderr] = [log_file.read().decode('utf-8') for log_file in (log_out, log_err)]
+                    [stdout, stderr] = [read_captured_output(log_file) for log_file in (log_out, log_err)]
                     log_out.close(), log_err.close()
                     if proc.returncode == TEST_EXIT_PASSED and stderr == "":
                         status = "Passed"
@@ -795,6 +807,18 @@ class RPCCoverage():
                 covered_cmds.update([line.strip() for line in coverage_file.readlines()])
 
         return all_cmds - covered_cmds
+
+
+class TestRunnerUnitTests(unittest.TestCase):
+    def test_captured_output_decodes_utf8(self):
+        self.assertEqual(read_captured_output(io.BytesIO("ok \u2713\n".encode())), "ok \u2713\n")
+
+    def test_captured_output_survives_undecodable_bytes(self):
+        """A node that aborts can leave raw bytes on stderr. Reading them must not raise,
+        or the whole run dies before reporting which test produced them."""
+        decoded = read_captured_output(io.BytesIO(b"Assertion failed\x80\x81 at 0x7f\n"))
+        self.assertIn("Assertion failed", decoded)
+        self.assertIn("at 0x7f", decoded)
 
 
 if __name__ == '__main__':
