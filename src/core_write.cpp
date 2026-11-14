@@ -11,7 +11,9 @@
 #include <script/standard.h>
 #include <serialize.h>
 #include <streams.h>
+#include <undo.h>
 #include <univalue.h>
+#include <util/check.h>
 #include <util/system.h>
 #include <util/strencodings.h>
 
@@ -177,7 +179,7 @@ void ScriptPubKeyToUniv(const CScript& scriptPubKey,
     out.pushKV("addresses", a);
 }
 
-void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry, bool include_hex, int serialize_flags)
+void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry, bool include_hex, int serialize_flags, const CTxUndo* txundo, TxVerbosity verbosity)
 {
     entry.pushKV("txid", tx.GetHash().GetHex());
     entry.pushKV("hash", tx.GetWitnessHash().GetHex());
@@ -188,6 +190,18 @@ void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry,
     entry.pushKV("vsize", (GetTransactionWeight(tx) + WITNESS_SCALE_FACTOR - 1) / WITNESS_SCALE_FACTOR);
     entry.pushKV("weight", GetTransactionWeight(tx));
     entry.pushKV("locktime", (int64_t)tx.nLockTime);
+
+    // vprevout is indexed over the canonical inputs (tx.vin) only; MWEB inputs,
+    // which sort last in GetInputs(), are not in CTxUndo. vin_index tracks them.
+    CHECK_NONFATAL(txundo == nullptr || (!tx.IsCoinBase() && txundo->vprevout.size() == tx.vin.size()));
+    const bool have_undo = txundo != nullptr;
+    // Fee is omitted unless the canonical in/out totals sum to the real fee. The
+    // HogEx and peg-in txs move value into the MWEB (whose fee CBlockUndo does not
+    // record), so exclude them. (HasMWEBTx() is defensive; always false in blocks.)
+    bool eligible_for_fee = have_undo && !tx.HasMWEBTx() && !tx.IsHogEx();
+    CAmount amt_total_in = 0;
+    CAmount amt_total_out = 0;
+    size_t vin_index = 0;
 
     UniValue vin(UniValue::VARR);
     for (const CTxInput& input : tx.GetInputs()) {
@@ -215,7 +229,26 @@ void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry,
                 }
                 in.pushKV("txinwitness", txinwitness);
             }
+            if (have_undo && !tx.IsCoinBase()) {
+                const Coin& prev_coin = txundo->vprevout[vin_index];
+                const CTxOut& prev_txout = prev_coin.out;
+
+                amt_total_in += prev_txout.nValue;
+
+                if (verbosity == TxVerbosity::SHOW_DETAILS_AND_PREVOUT) {
+                    UniValue o_script_pub_key(UniValue::VOBJ);
+                    ScriptPubKeyToUniv(prev_txout.scriptPubKey, o_script_pub_key, /* includeHex */ true);
+
+                    UniValue p(UniValue::VOBJ);
+                    p.pushKV("generated", bool(prev_coin.fCoinBase));
+                    p.pushKV("height", uint64_t(prev_coin.nHeight));
+                    p.pushKV("value", ValueFromAmount(prev_txout.nValue));
+                    p.pushKV("scriptPubKey", o_script_pub_key);
+                    in.pushKV("prevout", p);
+                }
+            }
             in.pushKV("sequence", (int64_t)txin.nSequence);
+            ++vin_index;
         }
 
         vin.push_back(in);
@@ -235,6 +268,18 @@ void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry,
             out.pushKV("value", ValueFromAmount(txout.nValue));
             out.pushKV("n", n++);
 
+            // Only accumulate when a fee will be computed: unvalidated callers
+            // (decoderawtransaction etc.) pass no undo and may carry values that
+            // would overflow the running total.
+            if (have_undo) {
+                amt_total_out += txout.nValue;
+
+                // Peg-in output sends value into the MWEB; fee is not derivable here.
+                if (IsPegInOutput(output)) {
+                    eligible_for_fee = false;
+                }
+            }
+
             UniValue o(UniValue::VOBJ);
             ScriptPubKeyToUniv(txout.scriptPubKey, o, true);
             out.pushKV("scriptPubKey", o);
@@ -243,6 +288,12 @@ void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry,
         vout.push_back(out);
     }
     entry.pushKV("vout", vout);
+
+    if (eligible_for_fee) {
+        const CAmount fee = amt_total_in - amt_total_out;
+        CHECK_NONFATAL(MoneyRange(fee));
+        entry.pushKV("fee", ValueFromAmount(fee));
+    }
 
     if (tx.HasMWEBTx()) {
         UniValue vkern(UniValue::VARR);

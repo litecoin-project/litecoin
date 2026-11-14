@@ -16,8 +16,16 @@ class CBlockHeader;
 class CScript;
 class CTransaction;
 struct CMutableTransaction;
+class CTxUndo;
 class uint256;
 class UniValue;
+
+/** Verbosity levels for TxToUniv and blockToJSON transaction output. */
+enum class TxVerbosity {
+    SHOW_TXID,                //!< Only TXID for each block's transaction
+    SHOW_DETAILS,             //!< Include TXID, inputs, outputs, and other common block's transaction information
+    SHOW_DETAILS_AND_PREVOUT, //!< The same as previous option with information about prevouts if available
+};
 
 // core_read.cpp
 CScript ParseScript(const std::string& s);
@@ -45,6 +53,6 @@ std::string EncodeHexTx(const CTransaction& tx, const int serializeFlags = 0);
 std::string SighashToStr(unsigned char sighash_type);
 void ScriptPubKeyToUniv(const CScript& scriptPubKey, UniValue& out, bool fIncludeHex);
 void ScriptToUniv(const CScript& script, UniValue& out, bool include_address);
-void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry, bool include_hex = true, int serialize_flags = 0);
+void TxToUniv(const CTransaction& tx, const uint256& hashBlock, UniValue& entry, bool include_hex = true, int serialize_flags = 0, const CTxUndo* txundo = nullptr, TxVerbosity verbosity = TxVerbosity::SHOW_DETAILS);
 
 #endif // BITCOIN_CORE_IO_H

@@ -26,7 +26,7 @@ static void BlockToJsonVerbose(benchmark::Bench& bench)
     blockindex.nBits = 403014710;
 
     bench.run([&] {
-        (void)blockToJSON(block, &blockindex, &blockindex, /*verbose*/ true);
+        (void)blockToJSON(block, &blockindex, &blockindex, TxVerbosity::SHOW_DETAILS);
     });
 }
 
