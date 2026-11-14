@@ -709,7 +709,7 @@ static int secp256k1_ge_is_in_correct_subgroup(const secp256k1_ge* ge)
     secp256k1_gej out;
     int i;
 
-    /* A very simple EC multiplication ladder that avoids a dependecy on ecmult. */
+    /* A very simple EC multiplication ladder that avoids a dependency on ecmult. */
     secp256k1_gej_set_infinity(&out);
     for (i = 0; i < 32; ++i) {
         secp256k1_gej_double_var(&out, &out, NULL);
