@@ -1,0 +1,26 @@
+From f9d0e594d43afcb4ab0043117249feb266ba4515 Mon Sep 17 00:00:00 2001
+From: Romain Geissler <romain.geissler@amadeus.com>
+Date: Tue, 10 Aug 2021 14:22:28 +0000
+Subject: Fix -Wsign-compare warning with glibc 2.34 on Linux platforms.
+
+In file included from /data/mwrep/res/osp/Boost/21-0-0-0/include/boost/thread/thread_only.hpp:17,
+                 from /data/mwrep/res/osp/Boost/21-0-0-0/include/boost/thread/thread.hpp:12,
+                 from src/GetTest.cpp:12:
+/data/mwrep/res/osp/Boost/21-0-0-0/include/boost/thread/pthread/thread_data.hpp: In member function 'void boost::thread_attributes::set_stack_size(std::size_t)':
+/data/mwrep/res/osp/Boost/21-0-0-0/include/boost/thread/pthread/thread_data.hpp:61:19: error: comparison of integer expressions of different signedness: 'std::size_t' {aka 'long unsigned int'} and 'long int' [-Werror=sign-compare]
+   61 |           if (size<PTHREAD_STACK_MIN) size=PTHREAD_STACK_MIN;
+      |                   ^
+
+diff --git a/include/boost/thread/pthread/thread_data.hpp b/include/boost/thread/pthread/thread_data.hpp
+index bc9b1367..c43b276d 100644
+--- a/include/boost/thread/pthread/thread_data.hpp
++++ b/include/boost/thread/pthread/thread_data.hpp
+@@ -58,7 +58,7 @@ namespace boost
+           std::size_t page_size = ::sysconf( _SC_PAGESIZE);
+ #endif
+ #ifdef PTHREAD_STACK_MIN
+-          if (size<PTHREAD_STACK_MIN) size=PTHREAD_STACK_MIN;
++          if (size<static_cast<std::size_t>(PTHREAD_STACK_MIN)) size=PTHREAD_STACK_MIN;
+ #endif
+           size = ((size+page_size-1)/page_size)*page_size;
+           int res = pthread_attr_setstacksize(&val_, size);

@@ -1,0 +1,68 @@
+diff --git a/include/boost/concept/detail/general.hpp b/include/boost/concept/detail/general.hpp
+index eeb08750..8d7d6f69 100644
+--- a/include/boost/concept/detail/general.hpp
++++ b/include/boost/concept/detail/general.hpp
+@@ -28,7 +28,14 @@ namespace detail
+ template <class Model>
+ struct requirement
+ {
++#   if defined(BOOST_GCC) && (BOOST_GCC >= 110000)
++#   pragma GCC diagnostic push
++#   pragma GCC diagnostic ignored "-Wnonnull"
++#   endif
+     static void failed() { ((Model*)0)->~Model(); }
++#   if defined(BOOST_GCC) && (BOOST_GCC >= 110000)
++#   pragma GCC diagnostic pop
++#   endif
+ };
+ 
+ struct failed {};
+@@ -36,7 +43,14 @@ struct failed {};
+ template <class Model>
+ struct requirement<failed ************ Model::************>
+ {
++#   if defined(BOOST_GCC) && (BOOST_GCC >= 110000)
++#   pragma GCC diagnostic push
++#   pragma GCC diagnostic ignored "-Wnonnull"
++#   endif
+     static void failed() { ((Model*)0)->~Model(); }
++#   if defined(BOOST_GCC) && (BOOST_GCC >= 110000)
++#   pragma GCC diagnostic pop
++#   endif
+ };
+ 
+ # ifdef BOOST_OLD_CONCEPT_SUPPORT
+@@ -44,7 +58,14 @@ struct requirement<failed ************ Model::************>
+ template <class Model>
+ struct constraint
+ {
++#   if defined(BOOST_GCC) && (BOOST_GCC >= 110000)
++#   pragma GCC diagnostic push
++#   pragma GCC diagnostic ignored "-Wnonnull"
++#   endif
+     static void failed() { ((Model*)0)->constraints(); }
++#   if defined(BOOST_GCC) && (BOOST_GCC >= 110000)
++#   pragma GCC diagnostic pop
++#   endif
+ };
+   
+ template <class Model>
+diff --git a/include/boost/concept/usage.hpp b/include/boost/concept/usage.hpp
+index 373de63a..fe88b5f5 100644
+--- a/include/boost/concept/usage.hpp
++++ b/include/boost/concept/usage.hpp
+@@ -13,7 +13,14 @@ namespace boost { namespace concepts {
+ template <class Model>
+ struct usage_requirements
+ {
++#   if defined(BOOST_GCC) && (BOOST_GCC >= 110000)
++#   pragma GCC diagnostic push
++#   pragma GCC diagnostic ignored "-Wnonnull"
++#   endif
+     ~usage_requirements() { ((Model*)0)->~Model(); }
++#   if defined(BOOST_GCC) && (BOOST_GCC >= 110000)
++#   pragma GCC diagnostic pop
++#   endif
+ };
+ 
+ #  if BOOST_WORKAROUND(__GNUC__, <= 3)

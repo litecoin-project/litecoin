@@ -1,0 +1,19 @@
+From 74fb0a26099bc51d717f5f154b37231ce7df3e98 Mon Sep 17 00:00:00 2001
+From: Rob Boehne <robb@datalogics.com>
+Date: Wed, 20 Nov 2019 11:25:20 -0600
+Subject: Revert change to elide a warning that caused Solaris builds to fail.
+
+
+diff --git a/include/boost/thread/pthread/thread_data.hpp b/include/boost/thread/pthread/thread_data.hpp
+index aefbeb43..bc9b1367 100644
+--- a/include/boost/thread/pthread/thread_data.hpp
++++ b/include/boost/thread/pthread/thread_data.hpp
+@@ -57,7 +57,7 @@ namespace boost
+ #else
+           std::size_t page_size = ::sysconf( _SC_PAGESIZE);
+ #endif
+-#if PTHREAD_STACK_MIN > 0
++#ifdef PTHREAD_STACK_MIN
+           if (size<PTHREAD_STACK_MIN) size=PTHREAD_STACK_MIN;
+ #endif
+           size = ((size+page_size-1)/page_size)*page_size;
