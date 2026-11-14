@@ -83,6 +83,7 @@ AC_DEFUN([AX_BOOST_SYSTEM],
             BOOSTLIBDIR=`echo $BOOST_LDFLAGS | sed -e 's/@<:@^\/@:>@*//'`
 
 			LDFLAGS_SAVE=$LDFLAGS
+			link_system="no"
             if test "x$ax_boost_user_system_lib" = "x"; then
                 for libextension in `ls -r $BOOSTLIBDIR/libboost_system* 2>/dev/null | sed 's,.*/lib,,' | sed 's,\..*,,'` ; do
                      ax_lib=${libextension}
@@ -107,12 +108,12 @@ AC_DEFUN([AX_BOOST_SYSTEM],
                   done
 
             fi
-            if test "x$ax_lib" = "x"; then
-                AC_MSG_ERROR(Could not find a version of the Boost::System library!)
+            dnl Boost 1.69+ made boost::system header-only, no library needed
+            if test "x$link_system" != "xyes"; then
+                AC_MSG_NOTICE([Boost::System library not found, assuming header-only (Boost 1.69+)])
+                BOOST_SYSTEM_LIB=""
+                AC_SUBST(BOOST_SYSTEM_LIB)
             fi
-			if test "x$link_system" = "xno"; then
-				AC_MSG_ERROR(Could not link against $ax_lib !)
-			fi
 		fi
 
 		CPPFLAGS="$CPPFLAGS_SAVED"
