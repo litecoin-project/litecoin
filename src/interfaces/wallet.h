@@ -134,10 +134,10 @@ public:
     virtual bool findCoin(const mw::Hash& output_id, mw::Coin& coin) = 0;
 
     //! Lock coin.
-    virtual void lockCoin(const OutputIndex& output) = 0;
+    virtual bool lockCoin(const OutputIndex& output, bool write_to_db) = 0;
 
     //! Unlock coin.
-    virtual void unlockCoin(const OutputIndex& output) = 0;
+    virtual bool unlockCoin(const OutputIndex& output) = 0;
 
     //! Return whether coin is locked.
     virtual bool isLockedCoin(const OutputIndex& output) = 0;

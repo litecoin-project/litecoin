@@ -120,10 +120,24 @@ class WalletTest(BitcoinTestFramework):
         assert_raises_rpc_error(-8, "Invalid parameter, expected locked output", self.nodes[2].lockunspent, True, [unspent_0])
         self.nodes[2].lockunspent(False, [unspent_0])
         assert_raises_rpc_error(-8, "Invalid parameter, output already locked", self.nodes[2].lockunspent, False, [unspent_0])
+
+        # Non-persistent locks disappear on restart.
+        self.restart_node(2)
+        assert_equal(len(self.nodes[2].listlockunspent()), 0)
+
+        # A memory-only lock can be upgraded to persistent.
+        self.nodes[2].lockunspent(False, [unspent_0])
+        self.nodes[2].lockunspent(False, [unspent_0], True)
+        self.restart_node(2)
+        assert_equal([unspent_0], self.nodes[2].listlockunspent())
+
         assert_raises_rpc_error(-6, "Insufficient funds", self.nodes[2].sendtoaddress, self.nodes[2].getnewaddress(), 20)
         assert_equal([unspent_0], self.nodes[2].listlockunspent())
         self.nodes[2].lockunspent(True, [unspent_0])
+        self.restart_node(2)
         assert_equal(len(self.nodes[2].listlockunspent()), 0)
+        self.connect_nodes(1, 2)
+        self.connect_nodes(0, 2)
         assert_raises_rpc_error(-8, "txid must be of length 64 (not 34, for '0000000000000000000000000000000000')",
                                 self.nodes[2].lockunspent, False,
                                 [{"txid": "0000000000000000000000000000000000", "vout": 0}])

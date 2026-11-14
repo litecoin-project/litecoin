@@ -583,11 +583,20 @@ bool CWallet::IsSpent(const OutputIndex& idx) const
     return false;
 }
 
-void CWallet::AddToSpends(const OutputIndex& idx, const uint256& wtxid)
+void CWallet::AddToSpends(const OutputIndex& idx, const uint256& wtxid, WalletBatch* batch)
 {
     mapTxSpends.insert(std::make_pair(idx, wtxid));
 
-    setLockedCoins.erase(idx);
+    if (batch) {
+        if (!UnlockCoin(idx, batch)) {
+            LogPrintf("%s: Failed to erase persistent lock for spent output\n", __func__);
+        }
+    } else {
+        WalletBatch temp_batch(GetDatabase());
+        if (!UnlockCoin(idx, &temp_batch)) {
+            LogPrintf("%s: Failed to erase persistent lock for spent output\n", __func__);
+        }
+    }
 
     std::pair<TxSpends::iterator, TxSpends::iterator> range;
     range = mapTxSpends.equal_range(idx);
@@ -595,7 +604,7 @@ void CWallet::AddToSpends(const OutputIndex& idx, const uint256& wtxid)
 }
 
 
-void CWallet::AddToSpends(const uint256& wtxid)
+void CWallet::AddToSpends(const uint256& wtxid, WalletBatch* batch)
 {
     auto it = mapWallet.find(wtxid);
     assert(it != mapWallet.end());
@@ -604,11 +613,11 @@ void CWallet::AddToSpends(const uint256& wtxid)
         return;
 
     for (const CTxInput& input : thisTx.tx->GetInputs()) {
-        AddToSpends(input.GetIndex(), wtxid);
+        AddToSpends(input.GetIndex(), wtxid, batch);
     }
 
     if (!!thisTx.mweb_wtx_info && !!thisTx.mweb_wtx_info->spent_input) {
-        AddToSpends(*thisTx.mweb_wtx_info->spent_input, wtxid);
+        AddToSpends(*thisTx.mweb_wtx_info->spent_input, wtxid, batch);
     }
 }
 
@@ -928,7 +937,7 @@ CWalletTx* CWallet::AddToWallet(CTransactionRef tx, const boost::optional<MWEB::
         wtx.nOrderPos = IncOrderPosNext(&batch);
         wtx.m_it_wtxOrdered = wtxOrdered.insert(std::make_pair(wtx.nOrderPos, &wtx));
         wtx.nTimeSmart = ComputeTimeSmart(wtx);
-        AddToSpends(hash);
+        AddToSpends(hash, &batch);
         AddMWEBOrigins(wtx);
     }
 
@@ -3588,22 +3597,31 @@ std::set<CTxDestination> CWallet::GetLabelAddresses(const std::string& label) co
     return result;
 }
 
-void CWallet::LockCoin(const OutputIndex& output)
+bool CWallet::LockCoin(const OutputIndex& output, WalletBatch* batch)
 {
     AssertLockHeld(cs_wallet);
+    if (batch && !batch->WriteLockedOutput(output)) return false;
     setLockedCoins.insert(output);
+    return true;
 }
 
-void CWallet::UnlockCoin(const OutputIndex& output)
+bool CWallet::UnlockCoin(const OutputIndex& output, WalletBatch* batch)
 {
     AssertLockHeld(cs_wallet);
+    if (batch && !batch->EraseLockedOutput(output)) return false;
     setLockedCoins.erase(output);
+    return true;
 }
 
-void CWallet::UnlockAllCoins()
+bool CWallet::UnlockAllCoins()
 {
     AssertLockHeld(cs_wallet);
-    setLockedCoins.clear();
+    WalletBatch batch(GetDatabase());
+    for (auto it = setLockedCoins.begin(); it != setLockedCoins.end();) {
+        if (!batch.EraseLockedOutput(*it)) return false;
+        it = setLockedCoins.erase(it);
+    }
+    return true;
 }
 
 bool CWallet::IsLockedCoin(const OutputIndex& output) const
