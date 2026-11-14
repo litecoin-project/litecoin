@@ -20,6 +20,8 @@
 #include <script/standard.h>
 #include <util/system.h>
 
+#include <limits>
+
 #ifdef WIN32
 #ifndef NOMINMAX
 #define NOMINMAX
